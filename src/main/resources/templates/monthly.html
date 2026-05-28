@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Помесячный учёт</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule">📅 Расписание</a></li>
+        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship">👥 Кураторство</a></li>
+        <li><a href="/teachers">🎓 Преподаватели</a></li>
+        <li><a href="/monthly" class="active">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <h1 class="page-title">📊 Помесячный учёт часов</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Фильтры</h2>
+        </div>
+        <div class="filters">
+            <label>Преподаватель: <select id="filterTeacher"><option value="">Все</option></select></label>
+            <label>Группа: <select id="filterGroup"><option value="">Все</option></select></label>
+            <label>Дисциплина: <select id="filterDiscipline"><option value="">Все</option></select></label>
+            <label>Год: <select id="yearSelect"><option value="2024" selected>2024</option><option value="2025">2025</option></select></label>
+            <button class="btn" onclick="applyFilters()">Применить</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Таблица помесячного учёта</h2>
+            <button class="btn btn-outline" onclick="exportCsv()">📥 Экспорт CSV</button>
+        </div>
+        <table id="monthlyTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th>
+                <th>Дисциплина</th>
+                <th>Группа</th>
+                <th>Месяц</th>
+                <th>Часы (факт)</th>
+                <th>Скорректировано</th>
+                <th>Примечание</th>
+                <th>Кем изменено</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="monthlyBody"></tbody>
+        </table>
+    </div>
+</main>
+
+<div class="modal-overlay" id="adjustModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Корректировка часов</h3>
+            <button class="close-btn" onclick="closeAdjust()">×</button>
+        </div>
+        <div class="modal-body">
+            <p><strong>Запись:</strong> <span id="adjInfo"></span></p>
+            <label>Фактические часы:</label>
+            <input type="number" id="adjHours" min="0" style="width:120px"><br><br>
+            <label>Примечание:</label>
+            <input type="text" id="adjNote" style="width:100%" placeholder="Причина корректировки">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeAdjust()">Отмена</button>
+            <button class="btn" onclick="saveAdjust()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let allLoads = [];
+let allRecords = [];
+let currentRecordId = null;
+
+async function init() {
+    const [teachers, groups, disciplines] = await Promise.all([
+        fetch('/api/teachers').then(r => r.json()),
+        fetch('/api/groups').then(r => r.json()),
+        fetch('/api/disciplines').then(r => r.json())
+    ]);
+
+    const tSel = document.getElementById('filterTeacher');
+    teachers.forEach(t => tSel.add(new Option(t.fullName, t.id)));
+    const gSel = document.getElementById('filterGroup');
+    groups.forEach(g => gSel.add(new Option(g.name, g.id)));
+    const dSel = document.getElementById('filterDiscipline');
+    disciplines.forEach(d => dSel.add(new Option(d.name, d.id)));
+
+    await loadData();
+}
+
+async function loadData() {
+    const year = document.getElementById('yearSelect').value;
+    allLoads = await fetch(`/api/loads?year=${year}`).then(r => r.json());
+
+    // Flatten all monthly records
+    allRecords = [];
+    allLoads.forEach(load => {
+        load.monthlyRecords.forEach(rec => {
+            allRecords.push({
+                ...rec,
+                teacherName: load.teacher.fullName,
+                teacherId: load.teacher.id,
+                disciplineName: load.discipline.name,
+                disciplineId: load.discipline.id,
+                groupName: load.group.name,
+                groupId: load.group.id
+            });
+        });
+    });
+
+    applyFilters();
+}
+
+function applyFilters() {
+    const tFilter = document.getElementById('filterTeacher').value;
+    const gFilter = document.getElementById('filterGroup').value;
+    const dFilter = document.getElementById('filterDiscipline').value;
+
+    const filtered = allRecords.filter(r => {
+        return (!tFilter || r.teacherId == tFilter) &&
+               (!gFilter || r.groupId == gFilter) &&
+               (!dFilter || r.disciplineId == dFilter);
+    });
+
+    const tbody = document.getElementById('monthlyBody');
+    tbody.innerHTML = '';
+
+    filtered.forEach(r => {
+        const monthNames = ['','январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${r.teacherName}</td>
+            <td>${r.disciplineName}</td>
+            <td>${r.groupName}</td>
+            <td>${monthNames[r.month] || r.month}</td>
+            <td>${r.hours}</td>
+            <td class="${r.adjustedHours != null ? 'text-success' : ''}">${r.adjustedHours != null ? r.adjustedHours : '-'}</td>
+            <td>${r.note || '-'}</td>
+            <td>${r.changedBy || '-'}</td>
+            <td><button class="btn btn-sm" onclick="openAdjust(${r.id}, '${r.teacherName}', '${r.disciplineName}', ${r.hours}, '${(r.note || '').replace(/'/g, "\\'")}')">✏️</button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function openAdjust(id, teacher, discipline, hours, note) {
+    currentRecordId = id;
+    document.getElementById('adjInfo').textContent = `${teacher} — ${discipline}`;
+    document.getElementById('adjHours').value = hours;
+    document.getElementById('adjNote').value = note || '';
+    document.getElementById('adjustModal').classList.add('active');
+}
+
+function closeAdjust() {
+    document.getElementById('adjustModal').classList.remove('active');
+    currentRecordId = null;
+}
+
+function saveAdjust() {
+    if (!currentRecordId) return;
+    const hours = parseInt(document.getElementById('adjHours').value) || 0;
+    const note = document.getElementById('adjNote').value;
+
+    fetch(`/api/monthly/${currentRecordId}/adjust`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({adjustedHours: hours, note: note, changedBy: 'admin'})
+    }).then(() => {
+        closeAdjust();
+        loadData();
+    });
+}
+
+function exportCsv() {
+    const year = document.getElementById('yearSelect').value;
+    window.open(`/api/monthly/export/csv?year=${year}`, '_blank');
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

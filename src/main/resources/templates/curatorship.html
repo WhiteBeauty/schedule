@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Кураторство</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .curatorship-layout {
+            display: flex;
+            gap: 1.5rem;
+            min-height: calc(100vh - 150px);
+        }
+        .curatorship-sidebar {
+            width: 280px;
+            flex-shrink: 0;
+        }
+        .curatorship-content {
+            flex: 1;
+        }
+        .group-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .group-list li {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: .15s;
+        }
+        .group-list li:hover {
+            background: #f3f4f6;
+        }
+        .group-list li.active {
+            background: #f5e6ff;
+            border-left: 4px solid #9333ea;
+            color: #7e22ce;
+            font-weight: 600;
+        }
+        .group-name {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+        .group-specialty {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .curatorship-detail {
+            margin-bottom: 1rem;
+        }
+        .curatorship-detail h4 {
+            margin: 0 0 0.75rem;
+            font-size: 1rem;
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule">📅 Расписание</a></li>
+        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship" class="active">👥 Кураторство</a></li>
+        <li><a href="/teachers">🎓 Преподаватели</a></li>
+        <li><a href="/monthly">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <h1 class="page-title">👥 Кураторство</h1>
+
+    <div class="curatorship-layout">
+        <!-- Список групп преподавателя -->
+        <div class="curatorship-sidebar">
+            <div class="card" style="padding: 1rem; margin: 0;">
+                <h4 style="margin: 0 0 1rem;">Закреплённые группы</h4>
+                <ul class="group-list" id="groupList">
+                    <li class="active">
+                        <span class="group-name">ИВТ-101</span>
+                        <span class="group-specialty">Информатика и вычислительная техника, 1 курс</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Контент выбранной группы -->
+        <div class="curatorship-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title" id="groupTitle">Группа ИВТ-101</h2>
+                </div>
+
+                <!-- Кураторские часы -->
+                <div class="curatorship-detail">
+                    <h4>📊 Кураторские часы</h4>
+                    <table id="hoursTable">
+                        <thead>
+                        <tr>
+                            <th>Месяц</th>
+                            <th>План</th>
+                            <th>Факт</th>
+                            <th>Статус</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>Сентябрь 2024</td>
+                            <td>3</td>
+                            <td>3</td>
+                            <td><span class="badge badge-success">Выполнено</span></td>
+                        </tr>
+                        <tr>
+                            <td>Октябрь 2024</td>
+                            <td>3</td>
+                            <td>3</td>
+                            <td><span class="badge badge-success">Выполнено</span></td>
+                        </tr>
+                        <tr>
+                            <td>Ноябрь 2024</td>
+                            <td>3</td>
+                            <td>2</td>
+                            <td><span class="badge badge-warning">Частично</span></td>
+                        </tr>
+                        <tr style="font-weight: 600; background: #f9fafb;">
+                            <td>Итого</td>
+                            <td>9</td>
+                            <td>8</td>
+                            <td>-</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Мероприятия -->
+                <div class="curatorship-detail">
+                    <h4>🎯 Мероприятия</h4>
+                    <ul id="eventsList" style="margin: 0; padding-left: 1.2rem;">
+                        <li>Встреча первокурсников (01.09.2024)</li>
+                        <li>Профилактическая беседа (15.10.2024)</li>
+                        <li>День открытых дверей кафедры (20.11.2024)</li>
+                    </ul>
+                </div>
+
+                <!-- Журнал -->
+                <div class="curatorship-detail">
+                    <h4>📖 Журнал куратора</h4>
+                    <ul id="logsList" style="margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted);">
+                        <li>2024-09-05: Назначен куратором группы ИВТ-101</li>
+                        <li>2024-10-12: Проведено собрание о промежуточной аттестации</li>
+                        <li>2024-11-01: Индивидуальные беседы со студентами</li>
+                    </ul>
+                </div>
+
+                <!-- Ответственные лица -->
+                <div class="curatorship-detail">
+                    <h4>👤 Ответственные лица</h4>
+                    <table id="responsibleTable">
+                        <thead>
+                        <tr>
+                            <th>ФИО</th>
+                            <th>Должность</th>
+                            <th>Контакты</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>Иванов С.П.</td>
+                            <td>Куратор группы</td>
+                            <td>ivanov@university.ru | +79991234567</td>
+                        </tr>
+                        <tr>
+                            <td>Петрова А.В.</td>
+                            <td>Заместитель декана</td>
+                            <td>petrova@university.ru | +79992345678</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Загрузка списка групп преподавателя
+    fetch('/api/curatorships/teacher/1')
+        .then(r => r.json())
+        .then(data => {
+            const groupList = document.getElementById('groupList');
+            groupList.innerHTML = '';
+            
+            data.forEach((c, idx) => {
+                const li = document.createElement('li');
+                if (idx === 0) li.classList.add('active');
+                li.innerHTML = `
+                    <span class="group-name">${c.group.name}</span>
+                    <span class="group-specialty">${c.group.specialty || '—'}, ${c.group.course}-й курс</span>
+                `;
+                li.addEventListener('click', () => {
+                    document.querySelectorAll('.group-list li').forEach(l => l.classList.remove('active'));
+                    li.classList.add('active');
+                    loadGroupDetails(c);
+                });
+                groupList.appendChild(li);
+            });
+        });
+});
+
+function loadGroupDetails(curatorship) {
+    document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
+    
+    const eventsList = document.getElementById('eventsList');
+    eventsList.innerHTML = '';
+    if (curatorship.events && curatorship.events.length > 0) {
+        curatorship.events.forEach(e => {
+            const li = document.createElement('li');
+            li.textContent = e;
+            eventsList.appendChild(li);
+        });
+    } else {
+        eventsList.innerHTML = '<li style="color: var(--muted)">Нет мероприятий</li>';
+    }
+    
+    const logsList = document.getElementById('logsList');
+    logsList.innerHTML = '';
+    if (curatorship.logs && curatorship.logs.length > 0) {
+        curatorship.logs.forEach(l => {
+            const li = document.createElement('li');
+            li.textContent = l;
+            logsList.appendChild(li);
+        });
+    } else {
+        logsList.innerHTML = '<li style="color: var(--muted)">Нет записей</li>';
+    }
+}
+</script>
+</body>
+</html>

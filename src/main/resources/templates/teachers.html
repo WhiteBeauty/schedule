@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Преподаватели</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule">📅 Расписание</a></li>
+        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship">👥 Кураторство</a></li>
+        <li><a href="/teachers" class="active">🎓 Преподаватели</a></li>
+        <li><a href="/monthly">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <h1 class="page-title">🎓 Преподаватели</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Список преподавателей</h2>
+        </div>
+        <table id="teacherTable">
+            <thead>
+            <tr>
+                <th>ФИО</th>
+                <th>Кафедра</th>
+                <th>Должность</th>
+                <th>Ставка</th>
+                <th>Контакты</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="teacherBody"></tbody>
+        </table>
+    </div>
+</main>
+
+<!-- Modal Profile -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Профиль преподавателя</h3>
+            <button class="close-btn" onclick="closeProfile()">×</button>
+        </div>
+        <div class="modal-body" id="profileBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeProfile()">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    fetch('/api/teachers')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('teacherBody');
+            data.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><a href="#" onclick="openProfile(${t.id}); return false;" style="color:var(--primary);text-decoration:none;font-weight:600">${t.fullName}</a></td>
+                    <td>${t.department || '-'}</td>
+                    <td>${t.position || '-'}</td>
+                    <td>${t.rate || '-'}</td>
+                    <td>${t.email || '-'}<br><small class="text-muted">${t.phone || ''}</small></td>
+                    <td><button class="btn btn-sm" onclick="openProfile(${t.id})">👤 Профиль</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+});
+
+function openProfile(id) {
+    fetch(`/api/teachers/${id}/profile?year=2024`)
+        .then(r => r.json())
+        .then(p => {
+            const body = document.getElementById('profileBody');
+            const loadsHtml = p.loads.map(l => `
+                <tr>
+                    <td>${l.discipline}</td>
+                    <td>${l.groupName}</td>
+                    <td>${l.planned}</td>
+                    <td>${l.read}</td>
+                    <td>${l.remaining}</td>
+                    <td><div class="progress" style="width:80px"><div class="progress-bar" style="width:${Math.min(l.completion,100)}%"></div></div></td>
+                </tr>
+            `).join('');
+
+            const dynamicsHtml = p.monthlyDynamics.map(m => `
+                <div class="month-card">
+                    <h4>${m.month}</h4>
+                    <div class="month-hours">${m.hours}</div>
+                </div>
+            `).join('');
+
+            let prodColor = p.avgProductivity >= 90 ? 'success' : (p.avgProductivity >= 70 ? 'warning' : 'danger');
+
+            body.innerHTML = `
+                <div class="grid" style="margin-bottom:1rem">
+                    <div class="stat"><div class="stat-label">Кафедра</div><div class="stat-value" style="font-size:1rem">${p.department || '-'}</div></div>
+                    <div class="stat"><div class="stat-label">Должность</div><div class="stat-value" style="font-size:1rem">${p.position || '-'}</div></div>
+                    <div class="stat"><div class="stat-label">Ставка</div><div class="stat-value" style="font-size:1rem">${p.rate || '-'}</div></div>
+                    <div class="stat"><div class="stat-label">Email</div><div class="stat-value" style="font-size:1rem">${p.email || '-'}</div></div>
+                </div>
+                <div class="grid" style="margin-bottom:1rem">
+                    <div class="stat"><div class="stat-label">План (час)</div><div class="stat-value">${p.totalPlannedHours}</div></div>
+                    <div class="stat"><div class="stat-label">Вычитано (час)</div><div class="stat-value">${p.totalReadHours}</div></div>
+                    <div class="stat"><div class="stat-label">Осталось (час)</div><div class="stat-value">${p.totalRemainingHours}</div></div>
+                    <div class="stat"><div class="stat-label">Продуктивность</div><div class="stat-value ${prodColor === 'success' ? 'text-success' : prodColor === 'warning' ? 'text-warning' : 'text-danger'}">${p.avgProductivity}%</div></div>
+                </div>
+                <h4>Нагрузка по дисциплинам</h4>
+                <table style="margin-bottom:1rem">
+                    <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th><th>%</th></tr></thead>
+                    <tbody>${loadsHtml}</tbody>
+                </table>
+                <h4>Динамика вычитанных часов по месяцам</h4>
+                <div class="month-grid">${dynamicsHtml}</div>
+            `;
+            document.getElementById('profileModal').classList.add('active');
+        });
+}
+
+function closeProfile() {
+    document.getElementById('profileModal').classList.remove('active');
+}
+</script>
+</body>
+</html>

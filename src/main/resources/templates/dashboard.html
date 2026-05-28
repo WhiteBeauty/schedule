@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личный кабинет - Расписание</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .productivity-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: #fff;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+        }
+        .productivity-indicator {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .productivity-high { color: var(--success); }
+        .productivity-medium { color: var(--warning); }
+        .productivity-low { color: var(--danger); }
+        .productivity-info { flex: 1; }
+        .productivity-label { font-size: 0.8rem; color: var(--muted); }
+        .productivity-values { font-weight: 600; }
+        .teacher-card {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            background: #fff;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: .15s;
+        }
+        .teacher-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .teacher-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .teacher-info h3 {
+            margin: 0 0 0.25rem;
+            font-size: 1.25rem;
+        }
+        .teacher-detail {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin: 0.1rem 0;
+        }
+        .load-table-container {
+            overflow-x: auto;
+        }
+        .load-table th {
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        .load-table th:hover {
+            background: #e5e7eb;
+        }
+        .sort-icon::after {
+            content: ' ⇅';
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .sort-asc::after { content: ' ▲'; color: var(--primary); }
+        .sort-desc::after { content: ' ▼'; color: var(--primary); }
+        .remaining-warning {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+        .filter-bar {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+        .tab {
+            padding: 0.5rem 1rem;
+            border-radius: 0.4rem;
+            text-decoration: none;
+            color: var(--text);
+            font-weight: 500;
+            transition: .15s;
+        }
+        .tab:hover { background: #f3f4f6; }
+        .tab.active {
+            background: var(--primary);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">📚 Расписание</div>
+        <ul class="nav-list">
+            <li><a th:href="@{/dashboard}" class="active">📊 Личный кабинет</a></li>
+            <li><a th:href="@{/schedule}">📅 Расписание</a></li>
+            <li><a th:href="@{/curatorship}">👥 Кураторство</a></li>
+            <li><a th:href="@{/monthly}">📆 Помесячный учёт</a></li>
+            <li><a th:href="@{/productivity}">📈 Продуктивность</a></li>
+            <li><a th:href="@{/time-sync}">🔄 Синхронизация</a></li>
+            <li><a th:href="@{/logout}" style="margin-top: 2rem; color: var(--danger);">🚪 Выйти</a></li>
+        </ul>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+        <h1 class="page-title">Личный кабинет преподавателя</h1>
+
+        <!-- Productivity bar (top bar) -->
+        <div class="productivity-bar">
+            <div class="productivity-indicator" th:classappend="${productivity.level == 'HIGH' ? 'productivity-high' : (productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
+                <span th:text="${productivity.level == 'HIGH' ? '▲' : (productivity.level == 'MEDIUM' ? '▼' : '▼▼▼')}"></span>
+            </div>
+            <div class="productivity-info">
+                <div class="productivity-label">Индекс продуктивности</div>
+                <div class="productivity-values">
+                    Сейчас: <span th:text="${productivity.index}">0</span>% | Норма: <span th:text="${productivity.target}">0</span>%
+                </div>
+            </div>
+            <div>
+                <span class="badge" th:classappend="${productivity.level == 'HIGH' ? 'badge-success' : (productivity.level == 'MEDIUM' ? 'badge-warning' : 'badge-danger')}">
+                    <span th:text="${productivity.level == 'HIGH' ? 'Высокая' : (productivity.level == 'MEDIUM' ? 'Средняя' : 'Очень низкая')}"></span>
+                </span>
+            </div>
+        </div>
+
+        <!-- Teacher card (clickable) -->
+        <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher.id}">
+            <div class="teacher-avatar" th:text="${teacher.initials}">ИП</div>
+            <div class="teacher-info">
+                <h3 th:text="${teacher.fullName}">ФИО преподавателя</h3>
+                <p class="teacher-detail">
+                    📱 <span th:text="${teacher.phone ?: 'Нет'}">+7xxx</span>
+                    &nbsp;|&nbsp;
+                    ✉️ <span th:text="${teacher.email ?: 'Нет'}">email</span>
+                </p>
+                <p class="teacher-detail">
+                    🎂 Дата рождения: <span th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">dd.mm.yyyy</span>
+                </p>
+                <p class="text-muted" style="font-size: 0.8rem; margin-top: 0.5rem;">
+                    👆 Нажмите на ФИО для просмотра полной информации
+                </p>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <a href="#load" class="tab active">Нагрузка на <span th:text="${year}"></span></a>
+            <a th:href="@{/monthly(year=${year})}" class="tab">Помесячный учёт</a>
+        </div>
+
+        <!-- Load table -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Нагрузка на <span th:text="${year}"></span> учебный год</h2>
+            </div>
+            
+            <div class="filter-bar">
+                <input type="text" id="filterDiscipline" placeholder="Фильтр по дисциплине...">
+                <input type="text" id="filterGroup" placeholder="Фильтр по группе...">
+                <select id="filterStatus">
+                    <option value="">Все статусы</option>
+                    <option value="warning">С переработкой</option>
+                </select>
+            </div>
+
+            <div class="load-table-container">
+                <table class="load-table">
+                    <thead>
+                        <tr>
+                            <th class="sort-icon" data-sort="discipline">Дисциплина</th>
+                            <th>КОНТ. 1-пл</th>
+                            <th>КОНТ. 2-пл</th>
+                            <th class="sort-icon" data-sort="hours1">часов 1-пл</th>
+                            <th class="sort-icon" data-sort="hours2">часов 2-пл</th>
+                            <th class="sort-icon" data-sort="yearTotal">За год</th>
+                            <th class="sort-icon" data-sort="remaining">Осталось</th>
+                            <th class="sort-icon" data-sort="read">Вычитано</th>
+                            <th>Группа</th>
+                        </tr>
+                    </thead>
+                    <tbody id="loadTableBody">
+                        <tr th:each="load : ${loads}">
+                            <td th:text="${load.discipline}">Дисциплина</td>
+                            <td th:text="${load.controlPoint1}">-</td>
+                            <td th:text="${load.controlPoint2}">-</td>
+                            <td th:text="${load.plannedHoursFirst}">0</td>
+                            <td th:text="${load.plannedHoursSecond}">0</td>
+                            <td th:text="${load.totalPlannedHours}">0</td>
+                            <td th:classappend="${load.remainingHours > load.plannedHoursSecond ? 'remaining-warning' : ''}" 
+                                th:text="${load.remainingHours}">0</td>
+                            <td th:text="${load.readHours}">0</td>
+                            <td th:text="${load.groupName}">Группа</td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr style="font-weight: 600; background: #f9fafb;">
+                            <td colspan="3" th:text="'Всего дисциплин: ' + ${totalDisciplines}">Всего: 0</td>
+                            <td th:text="${totalHours1}">0</td>
+                            <td th:text="${totalHours2}">0</td>
+                            <td th:text="${totalYearHours}">0</td>
+                            <td th:text="${totalRemaining}">0</td>
+                            <td th:text="${totalRead}">0</td>
+                            <td th:text="'Кол-во групп: ' + ${totalGroups}">0</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Full teacher info -->
+    <div class="modal-overlay" id="teacherModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0;">Полная информация</h3>
+                <button class="close-btn" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h4 style="margin: 0 0 1rem;" th:text="${teacher.fullName}">ФИО</h4>
+                
+                <table style="margin-bottom: 1.5rem;">
+                    <tr>
+                        <td style="width: 150px;"><strong>Должность:</strong></td>
+                        <td th:text="${teacher.position ?: 'Не указана'}">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Кафедра:</strong></td>
+                        <td th:text="${teacher.department ?: 'Не указана'}">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Телефон:</strong></td>
+                        <td th:text="${teacher.phone ?: 'Нет'}">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>E-mail:</strong></td>
+                        <td th:text="${teacher.email ?: 'Нет'}">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Дата рождения:</strong></td>
+                        <td th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ставка:</strong></td>
+                        <td th:text="${teacher.rate != null ? teacher.rate + ' ставки' : 'Не указана'}">-</td>
+                    </tr>
+                </table>
+
+                <h4 style="margin: 0 0 0.75rem;">Сводная статистика за <span th:text="${year}"></span> год</h4>
+                <table>
+                    <tr>
+                        <td style="width: 200px;"><strong>Всего дисциплин:</strong></td>
+                        <td th:text="${profile.totalDisciplines}">0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Плановых часов:</strong></td>
+                        <td th:text="${profile.totalPlannedHours}">0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Проведено часов:</strong></td>
+                        <td th:text="${profile.totalReadHours}">0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Осталось часов:</strong></td>
+                        <td th:text="${profile.totalRemainingHours}">0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Индекс продуктивности:</strong></td>
+                        <td>
+                            <span th:text="${profile.productivityIndex + '%'}">0%</span>
+                            <span class="badge" th:classappend="${profile.productivityLevel == 'HIGH' ? 'badge-success' : (profile.productivityLevel == 'MEDIUM' ? 'badge-warning' : 'badge-danger')}">
+                                <span th:text="${profile.productivityLevel == 'HIGH' ? 'Высокая' : (profile.productivityLevel == 'MEDIUM' ? 'Средняя' : 'Низкая')}"></span>
+                            </span>
+                        </td>
+                    </tr>
+                </table>
+
+                <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка по дисциплинам</h4>
+                <table style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Дисциплина</th>
+                            <th>Группа</th>
+                            <th>План</th>
+                            <th>Факт</th>
+                            <th>Осталось</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="load : ${profile.loads}">
+                            <td th:text="${load.discipline}">-</td>
+                            <td th:text="${load.groupName}">-</td>
+                            <td th:text="${load.planned}">0</td>
+                            <td th:text="${load.read}">0</td>
+                            <td th:text="${load.remaining}">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="closeModalFooter">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Modal handling
+        const teacherCard = document.getElementById('teacherCard');
+        const teacherModal = document.getElementById('teacherModal');
+        const closeModal = document.getElementById('closeModal');
+        const closeModalFooter = document.getElementById('closeModalFooter');
+
+        teacherCard?.addEventListener('click', () => {
+            teacherModal.classList.add('active');
+        });
+
+        const closeAllModals = () => {
+            teacherModal.classList.remove('active');
+        };
+
+        closeModal?.addEventListener('click', closeAllModals);
+        closeModalFooter?.addEventListener('click', closeAllModals);
+        teacherModal?.addEventListener('click', (e) => {
+            if (e.target === teacherModal) closeAllModals();
+        });
+
+        // Sorting
+        let sortDir = {};
+        document.querySelectorAll('.sort-icon').forEach(th => {
+            th.addEventListener('click', () => {
+                const column = th.dataset.sort;
+                sortDir[column] = sortDir[column] === 'desc' ? 'asc' : 'desc';
+                document.querySelectorAll('.sort-icon').forEach(c => {
+                    c.classList.remove('sort-asc', 'sort-desc');
+                    if (c.dataset.sort !== column) c.classList.add('sort-icon');
+                });
+                th.classList.remove('sort-icon');
+                th.classList.add(sortDir[column] === 'asc' ? 'sort-asc' : 'sort-desc');
+                sortTable(column, sortDir[column]);
+            });
+        });
+
+        function sortTable(column, direction) {
+            const tbody = document.getElementById('loadTableBody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const aVal = a.cells[getColumnIndex(column)].textContent.trim();
+                const bVal = b.cells[getColumnIndex(column)].textContent.trim();
+                const aNum = parseFloat(aVal) || 0;
+                const bNum = parseFloat(bVal) || 0;
+                const cmp = column === 'discipline' || column === 'group' 
+                    ? aVal.localeCompare(bVal) 
+                    : aNum - bNum;
+                return direction === 'asc' ? cmp : -cmp;
+            });
+            tbody.innerHTML = '';
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
+        function getColumnIndex(column) {
+            const map = { discipline: 0, hours1: 3, hours2: 4, yearTotal: 5, remaining: 6, read: 7, group: 8 };
+            return map[column] || 0;
+        }
+
+        // Filtering
+        document.getElementById('filterDiscipline')?.addEventListener('input', filterTable);
+        document.getElementById('filterGroup')?.addEventListener('input', filterTable);
+        document.getElementById('filterStatus')?.addEventListener('change', filterTable);
+
+        function filterTable() {
+            const discipline = document.getElementById('filterDiscipline').value.toLowerCase();
+            const group = document.getElementById('filterGroup').value.toLowerCase();
+            const status = document.getElementById('filterStatus').value;
+            
+            document.querySelectorAll('#loadTableBody tr').forEach(row => {
+                const discText = row.cells[0]?.textContent.toLowerCase() || '';
+                const groupText = row.cells[8]?.textContent.toLowerCase() || '';
+                const remaining = parseFloat(row.cells[6]?.textContent) || 0;
+                const planned = parseFloat(row.cells[5]?.textContent) || 0;
+                
+                const matchDisc = !discipline || discText.includes(discipline);
+                const matchGroup = !group || groupText.includes(group);
+                const matchStatus = !status || (status === 'warning' ? remaining > planned : true);
+                
+                row.style.display = (matchDisc && matchGroup && matchStatus) ? '' : 'none';
+            });
+        }
+    </script>
+</body>
+</html>

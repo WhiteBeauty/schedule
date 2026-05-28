@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в систему</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-card {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            width: 360px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+            font-size: 1.5rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.4rem;
+            color: #34495e;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 0.7rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        .error {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .btn {
+            width: 100%;
+            padding: 0.8rem;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #2980b9;
+        }
+        .hint {
+            margin-top: 1rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #95a5a6;
+        }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    <h1>📚 Учёт нагрузки</h1>
+    <p class="subtitle">Вход в личный кабинет</p>
+
+    <div th:if="${param.error}" class="error">
+        Неверный логин или пароль
+    </div>
+    <div th:if="${param.logout}" class="error" style="color: #27ae60;">
+        Вы успешно вышли из системы
+    </div>
+
+    <form th:action="@{/login}" method="post">
+        <div class="form-group">
+            <label for="username">Логин</label>
+            <input type="text" id="username" name="username" required placeholder="Введите логин">
+        </div>
+        <div class="form-group">
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" required placeholder="Введите пароль">
+        </div>
+        <button type="submit" class="btn">Войти</button>
+    </form>
+
+    <p class="hint">Демо: teacher1 / teacher123 | admin / admin123</p>
+</div>
+</body>
+</html>

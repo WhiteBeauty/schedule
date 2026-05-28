@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Продуктивность</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule">📅 Расписание</a></li>
+        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship">👥 Кураторство</a></li>
+        <li><a href="/teachers">🎓 Преподаватели</a></li>
+        <li><a href="/monthly">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity" class="active">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <h1 class="page-title">📈 Продуктивность преподавателей</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Расчётный индекс продуктивности за <span id="yearLabel">2024</span></h2>
+            <div class="filters">
+                <label>Год: <select id="yearSelect"><option value="2024" selected>2024</option><option value="2025">2025</option></select></label>
+                <button class="btn btn-sm btn-outline" onclick="loadProductivity()">🔄 Обновить</button>
+            </div>
+        </div>
+        <p class="text-muted">Формула по умолчанию: <code>(Вычитано/План)×0.6 + (Своевременность КР/Всего КР)×0.4 × 100</code></p>
+        <table id="prodTable">
+            <thead>
+            <tr>
+                <th>#</th>
+                <th>Преподаватель</th>
+                <th>Индекс продуктивности</th>
+                <th>% выполнения плана</th>
+                <th>Своевременность КР</th>
+                <th>Индикатор</th>
+            </tr>
+            </thead>
+            <tbody id="prodBody"></tbody>
+        </table>
+    </div>
+
+    <div class="grid" style="margin-top:1rem">
+        <div class="stat" style="border-left:4px solid var(--success)">
+            <div class="stat-label">🟢 Высокая (≥90%)</div>
+            <div class="stat-value" id="countHigh">0</div>
+        </div>
+        <div class="stat" style="border-left:4px solid var(--warning)">
+            <div class="stat-label">🟡 Средняя (70–89%)</div>
+            <div class="stat-value" id="countMid">0</div>
+        </div>
+        <div class="stat" style="border-left:4px solid var(--danger)">
+            <div class="stat-label">🔴 Низкая (&lt;70%)</div>
+            <div class="stat-value" id="countLow">0</div>
+        </div>
+    </div>
+</main>
+
+<script>
+function loadProductivity() {
+    const year = document.getElementById('yearSelect').value;
+    document.getElementById('yearLabel').textContent = year;
+
+    fetch(`/api/productivity?year=${year}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('prodBody');
+            tbody.innerHTML = '';
+
+            let high = 0, mid = 0, low = 0;
+
+            data.forEach((p, idx) => {
+                if (p.color === 'success') high++;
+                else if (p.color === 'warning') mid++;
+                else low++;
+
+                const indicator = p.color === 'success' ? '🟢' : (p.color === 'warning' ? '🟡' : '🔴');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${idx + 1}</td>
+                    <td>${p.teacherName}</td>
+                    <td><strong>${p.productivityIndex}%</strong></td>
+                    <td>${p.planCompletionPercent}%</td>
+                    <td>${p.timelinessPercent}%</td>
+                    <td style="font-size:1.25rem">${indicator}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('countHigh').textContent = high;
+            document.getElementById('countMid').textContent = mid;
+            document.getElementById('countLow').textContent = low;
+        });
+}
+
+document.addEventListener('DOMContentLoaded', loadProductivity);
+</script>
+</body>
+</html>

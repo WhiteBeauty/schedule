@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сверка часов</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule">📅 Расписание</a></li>
+        <li><a href="/time-sync" class="active">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship">👥 Кураторство</a></li>
+        <li><a href="/teachers">🎓 Преподаватели</a></li>
+        <li><a href="/monthly">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <h1 class="page-title">⏱️ Сверка часов</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Синхронизация времени устройства с сервером</h2>
+            <button class="btn" onclick="checkSync()">🔄 Проверить синхронизацию</button>
+        </div>
+        <div id="syncResult" style="display:none">
+            <p><strong>Статус:</strong> <span id="syncStatus" class="sync-status"></span></p>
+            <p><strong>Сообщение:</strong> <span id="syncMessage"></span></p>
+            <p><strong>Серверное время:</strong> <span id="serverTime" class="text-muted"></span></p>
+            <p><strong>Время устройства:</strong> <span id="clientTime" class="text-muted"></span></p>
+            <p><strong>Разница:</strong> <span id="syncDiff"></span> сек</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Таймер расписания</h2>
+        </div>
+        <p>Текущее серверное время (обновляется каждую секунду):</p>
+        <div class="stat-value" id="timer" style="font-size:2rem; color:var(--primary)">--:--:--</div>
+        <p class="text-muted">Последняя синхронизация: <span id="lastSync">не проводилась</span></p>
+    </div>
+</main>
+
+<script>
+let timerInterval;
+let serverOffset = 0;
+
+function checkSync() {
+    const clientTime = Date.now();
+    fetch('/api/time-sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({clientTime: clientTime})
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('syncResult').style.display = 'block';
+        const statusEl = document.getElementById('syncStatus');
+        statusEl.textContent = data.status === 'SYNCHRONIZED' ? '🟢 Синхронизировано' : '🔴 Рассинхронизация';
+        statusEl.style.background = data.status === 'SYNCHRONIZED' ? '#dcfce7' : '#fee2e2';
+        statusEl.style.color = data.status === 'SYNCHRONIZED' ? '#166534' : '#991b1b';
+
+        document.getElementById('syncMessage').textContent = data.message;
+        document.getElementById('serverTime').textContent = new Date(data.serverTime).toLocaleString('ru-RU');
+        document.getElementById('clientTime').textContent = new Date(data.clientTime).toLocaleString('ru-RU');
+        document.getElementById('syncDiff').textContent = data.diffSeconds;
+        document.getElementById('lastSync').textContent = new Date().toLocaleString('ru-RU');
+
+        // Пересчитываем смещение для таймера
+        const serverDate = new Date(data.serverTime);
+        serverOffset = serverDate.getTime() - Date.now();
+    });
+}
+
+function updateTimer() {
+    const now = new Date(Date.now() + serverOffset);
+    document.getElementById('timer').textContent = now.toLocaleTimeString('ru-RU', {hour12: false});
+}
+
+setInterval(updateTimer, 1000);
+updateTimer();
+</script>
+</body>
+</html>

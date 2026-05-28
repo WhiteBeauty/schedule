@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расписание и учёт нагрузки</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<aside class="sidebar">
+    <div class="logo">📚 Учёт нагрузки</div>
+    <ul class="nav-list">
+        <li><a href="/schedule" class="active">📅 Расписание</a></li>
+        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
+        <li><a href="/curatorship">👥 Кураторство</a></li>
+        <li><a href="/teachers">🎓 Преподаватели</a></li>
+        <li><a href="/monthly">📊 Помесячный учёт</a></li>
+        <li><a href="/productivity">📈 Продуктивность</a></li>
+    </ul>
+</aside>
+
+<main class="main">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">📋 Учёт нагрузки по дисциплинам (учебный год <span id="yearLabel">2024</span>)</h2>
+            <div class="filters">
+                <label>Год: <select id="yearSelect"><option value="2024" selected>2024</option><option value="2025">2025</option></select></label>
+                <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
+            </div>
+        </div>
+        <table id="loadTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th>
+                <th>Дисциплина</th>
+                <th>Группа</th>
+                <th>План (час)</th>
+                <th>Вычитано (час)</th>
+                <th>Осталось</th>
+                <th>Прогресс</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="loadBody"></tbody>
+        </table>
+    </div>
+
+    <div class="grid">
+        <div class="stat">
+            <div class="stat-label">Всего дисциплин</div>
+            <div class="stat-value" id="statLoads">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Плановых часов</div>
+            <div class="stat-value" id="statPlanned">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Вычитано часов</div>
+            <div class="stat-value" id="statRead">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Всего КР/зачётов</div>
+            <div class="stat-value" id="statCp">0</div>
+        </div>
+    </div>
+</main>
+
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Корректировка часов</h3>
+            <button class="close-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p><strong>Преподаватель:</strong> <span id="editTeacher"></span></p>
+            <p><strong>Дисциплина:</strong> <span id="editDiscipline"></span></p>
+            <p><strong>Группа:</strong> <span id="editGroup"></span></p>
+            <label>Фактически вычитано часов:</label>
+            <input type="number" id="readHoursInput" min="0" style="width:120px">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
+            <button class="btn" onclick="saveReadHours()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentLoadId = null;
+let loadData = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const yearSelect = document.getElementById('yearSelect');
+    const yearLabel = document.getElementById('yearLabel');
+
+    loadData = () => {
+        const year = yearSelect.value;
+        yearLabel.textContent = year;
+
+        fetch(`/api/loads?year=${year}`)
+            .then(res => res.json())
+            .then(data => {
+                const tbody = document.getElementById('loadBody');
+                tbody.innerHTML = '';
+
+                let totalPlanned = 0, totalRead = 0, totalCp = 0;
+
+                data.forEach(load => {
+                    totalPlanned += load.plannedHours;
+                    totalRead += load.readHours;
+                    totalCp += load.controlPoints.length;
+
+                    const remaining = load.plannedHours - load.readHours;
+                    const completion = load.plannedHours > 0 ? (load.readHours * 100 / load.plannedHours) : 0;
+                    let status, statusClass;
+
+                    if (completion >= 100) { status = 'Осуществлено'; statusClass = 'badge-success'; }
+                    else if (completion >= 80) { status = 'В норме'; statusClass = 'badge-warning'; }
+                    else if (completion >= 50) { status = 'Отставание'; statusClass = 'badge-warning'; }
+                    else { status = 'Критическое отставание'; statusClass = 'badge-danger'; }
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${load.teacher.fullName}</td>
+                        <td>${load.discipline.name} ${load.discipline.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
+                        <td>${load.group.name}</td>
+                        <td>${load.plannedHours}</td>
+                        <td>${load.readHours}</td>
+                        <td class="${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
+                        <td><div class="progress" style="width:100px">
+                            <div class="progress-bar ${completion >= 100 ? 'success' : completion >= 80 ? 'warning' : 'danger'}" style="width:${Math.min(completion, 100)}%"></div>
+                        </div></td>
+                        <td><span class="badge ${statusClass}">${status}</span></td>
+                        <td><button class="btn btn-sm" onclick="openEdit(${load.id}, '${load.teacher.fullName}', '${load.discipline.name}', '${load.group.name}', ${load.readHours})">✏️</button></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                document.getElementById('statLoads').textContent = data.length;
+                document.getElementById('statPlanned').textContent = totalPlanned;
+                document.getElementById('statRead').textContent = totalRead;
+                document.getElementById('statCp').textContent = totalCp;
+            });
+    };
+
+    yearSelect.value = yearSelect.getAttribute('data-default') || '2024';
+    loadData();
+});
+
+function openEdit(id, teacher, discipline, group, readHours) {
+    currentLoadId = id;
+    document.getElementById('editTeacher').textContent = teacher;
+    document.getElementById('editDiscipline').textContent = discipline;
+    document.getElementById('editGroup').textContent = group;
+    document.getElementById('readHoursInput').value = readHours;
+    document.getElementById('editModal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('editModal').classList.remove('active');
+    currentLoadId = null;
+}
+
+function saveReadHours() {
+    if (!currentLoadId) return;
+    const hours = parseInt(document.getElementById('readHoursInput').value) || 0;
+
+    fetch(`/api/loads/${currentLoadId}/read-hours`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({readHours: hours})
+    }).then(() => {
+        closeModal();
+        loadData();
+    });
+}
+</script>
+</body>
+</html>

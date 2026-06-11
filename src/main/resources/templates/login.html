@@ -18,7 +18,7 @@
             padding: 2.5rem;
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            width: 360px;
+            width: 380px;
         }
         h1 {
             text-align: center;
@@ -42,7 +42,7 @@
             font-size: 0.9rem;
             font-weight: 500;
         }
-        input[type="text"], input[type="password"] {
+        input[type="text"], input[type="email"], input[type="password"] {
             width: 100%;
             padding: 0.7rem;
             border: 1px solid #ddd;
@@ -56,6 +56,12 @@
         }
         .error {
             color: #e74c3c;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .success {
+            color: #27ae60;
             font-size: 0.85rem;
             margin-bottom: 1rem;
             text-align: center;
@@ -75,12 +81,37 @@
         .btn:hover {
             background: #2980b9;
         }
-        .hint {
-            margin-top: 1rem;
-            text-align: center;
-            font-size: 0.8rem;
-            color: #95a5a6;
+        .links {
+            margin-top: 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
         }
+        .links a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .divider {
+            text-align: center;
+            margin: 1rem 0;
+            color: #95a5a6;
+            font-size: 0.8rem;
+            position: relative;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 35%;
+            height: 1px;
+            background: #ddd;
+        }
+        .divider::before { left: 0; }
+        .divider::after { right: 0; }
     </style>
 </head>
 <body>
@@ -89,16 +120,19 @@
     <p class="subtitle">Вход в личный кабинет</p>
 
     <div th:if="${param.error}" class="error">
-        Неверный логин или пароль
+        Неверный email или пароль
     </div>
-    <div th:if="${param.logout}" class="error" style="color: #27ae60;">
+    <div th:if="${param.logout}" class="success">
         Вы успешно вышли из системы
+    </div>
+    <div th:if="${param.registered}" class="success">
+        Регистрация успешна! Войдите с помощью email и пароля
     </div>
 
     <form th:action="@{/login}" method="post">
         <div class="form-group">
-            <label for="username">Логин</label>
-            <input type="text" id="username" name="username" required placeholder="Введите логин">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required placeholder="Введите email">
         </div>
         <div class="form-group">
             <label for="password">Пароль</label>
@@ -107,7 +141,11 @@
         <button type="submit" class="btn">Войти</button>
     </form>
 
-    <p class="hint">Демо: teacher1 / teacher123 | admin / admin123</p>
+    <div class="divider">или</div>
+
+    <div class="links">
+        <a th:href="@{/register}">➕ Создать учётную запись</a>
+    </div>
 </div>
 </body>
 </html>

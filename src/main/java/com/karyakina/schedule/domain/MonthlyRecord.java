@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -16,6 +17,7 @@ public class MonthlyRecord {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_load_id")
+    @JsonIgnore
     private TeacherLoad teacherLoad;
 
     @Column(name = "record_month", nullable = false)

@@ -5,85 +5,243 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Сверка часов</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .sync-layout {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .sync-summary {
+            flex: 1;
+        }
+        .sync-filters {
+            flex: 0 0 280px;
+        }
+        .diff-positive { color: var(--success); font-weight: 600; }
+        .diff-negative { color: var(--danger); font-weight: 600; }
+        .diff-zero { color: var(--muted); }
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-ok { background: #dcfce7; color: #166534; }
+        .status-warning { background: #fef9c3; color: #854d0e; }
+        .status-danger { background: #fee2e2; color: #991b1b; }
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+    </style>
 </head>
 <body>
-<aside class="sidebar">
-    <div class="logo">📚 Учёт нагрузки</div>
-    <ul class="nav-list">
-        <li><a href="/schedule">📅 Расписание</a></li>
-        <li><a href="/time-sync" class="active">⏱️ Сверка часов</a></li>
-        <li><a href="/curatorship">👥 Кураторство</a></li>
-        <li><a href="/teachers">🎓 Преподаватели</a></li>
-        <li><a href="/monthly">📊 Помесячный учёт</a></li>
-        <li><a href="/productivity">📈 Продуктивность</a></li>
-    </ul>
-</aside>
+    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
+        <h2 style="margin: 0 0 0 1rem;">⏱️ Сверка часов</h2>
+    </div>
+
+<div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">⏱️ Сверка часов</h1>
+    <h1 class="page-title">⏱️ Сверка плановых и фактических часов</h1>
+    <p class="text-muted" style="margin-bottom: 1.5rem;">
+        Инструмент для выявления расхождений между планом и фактом, внесения корректировок и согласования отклонений с администрацией.
+    </p>
 
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Синхронизация времени устройства с сервером</h2>
-            <button class="btn" onclick="checkSync()">🔄 Проверить синхронизацию</button>
-        </div>
-        <div id="syncResult" style="display:none">
-            <p><strong>Статус:</strong> <span id="syncStatus" class="sync-status"></span></p>
-            <p><strong>Сообщение:</strong> <span id="syncMessage"></span></p>
-            <p><strong>Серверное время:</strong> <span id="serverTime" class="text-muted"></span></p>
-            <p><strong>Время устройства:</strong> <span id="clientTime" class="text-muted"></span></p>
-            <p><strong>Разница:</strong> <span id="syncDiff"></span> сек</p>
+    <!-- Summary cards -->
+    <div class="sync-layout">
+        <div class="sync-summary">
+            <div class="grid">
+                <div class="stat" style="border-left: 4px solid var(--success)">
+                    <div class="stat-label">Всего дисциплин</div>
+                    <div class="stat-value" id="totalDisciplines">0</div>
+                </div>
+                <div class="stat" style="border-left: 4px solid var(--primary)">
+                    <div class="stat-label">Плановых часов</div>
+                    <div class="stat-value" id="totalPlanned">0</div>
+                </div>
+                <div class="stat" style="border-left: 4px solid var(--warning)">
+                    <div class="stat-label">Вычитано часов</div>
+                    <div class="stat-value" id="totalRead">0</div>
+                </div>
+                <div class="stat" style="border-left: 4px solid var(--danger)">
+                    <div class="stat-label">Расхождений</div>
+                    <div class="stat-value" id="totalDiscrepancies">0</div>
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- Main table -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Таймер расписания</h2>
+            <h2 class="card-title">Детальная сверка по дисциплинам</h2>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
+                <button class="btn btn-sm" onclick="approveAll()">✅ Утвердить все</button>
+            </div>
         </div>
-        <p>Текущее серверное время (обновляется каждую секунду):</p>
-        <div class="stat-value" id="timer" style="font-size:2rem; color:var(--primary)">--:--:--</div>
-        <p class="text-muted">Последняя синхронизация: <span id="lastSync">не проводилась</span></p>
+        <table id="syncTable">
+            <thead>
+            <tr>
+                <th>Дисциплина</th>
+                <th>Группа</th>
+                <th>План</th>
+                <th>Вычитано</th>
+                <th>Осталось</th>
+                <th>Расхождение</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="syncBody"></tbody>
+        </table>
+    </div>
+
+    <!-- Modal for correction -->
+    <div class="modal-overlay" id="correctionModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0">Корректировка часов</h3>
+                <button class="close-btn" onclick="closeCorrection()">×</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Дисциплина:</strong> <span id="corrDiscipline"></span></p>
+                <p><strong>Группа:</strong> <span id="corrGroup"></span></p>
+                <div style="margin: 1rem 0;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Плановые часы:</label>
+                    <input type="number" id="corrPlanned" disabled style="width: 120px; background: #f3f4f6;">
+                </div>
+                <div style="margin: 1rem 0;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Текущие вычитанные часы:</label>
+                    <input type="number" id="corrCurrentRead" disabled style="width: 120px; background: #f3f4f6;">
+                </div>
+                <div style="margin: 1rem 0;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Новое значение вычитанных часов:</label>
+                    <input type="number" id="corrNewRead" min="0" style="width: 120px;">
+                </div>
+                <div style="margin: 1rem 0;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Примечание:</label>
+                    <textarea id="corrNote" rows="3" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;" placeholder="Причина корректировки"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeCorrection()">Отмена</button>
+                <button class="btn" onclick="saveCorrection()">Сохранить</button>
+            </div>
+        </div>
     </div>
 </main>
 
 <script>
-let timerInterval;
-let serverOffset = 0;
+let currentLoadId = null;
+let allLoads = [];
 
-function checkSync() {
-    const clientTime = Date.now();
-    fetch('/api/time-sync', {
+document.addEventListener('DOMContentLoaded', loadData);
+
+function loadData() {
+    const year = 2024;
+    fetch(`/api/loads?year=${year}`)
+        .then(r => r.json())
+        .then(data => {
+            allLoads = data;
+            const tbody = document.getElementById('syncBody');
+            tbody.innerHTML = '';
+
+            let totalPlanned = 0, totalRead = 0, discrepancies = 0;
+
+            data.forEach(load => {
+                totalPlanned += load.plannedHours;
+                totalRead += load.readHours;
+                const diff = load.plannedHours - load.readHours;
+                if (diff !== 0) discrepancies++;
+
+                const diffClass = diff > 0 ? 'diff-positive' : (diff < 0 ? 'diff-negative' : 'diff-zero');
+                const diffText = diff > 0 ? `+${diff}` : diff.toString();
+
+                let status, statusClass;
+                if (diff === 0) {
+                    status = 'Выполнено';
+                    statusClass = 'status-ok';
+                } else if (Math.abs(diff) <= load.plannedHours * 0.1) {
+                    status = 'В пределах нормы';
+                    statusClass = 'status-warning';
+                } else {
+                    status = 'Требует внимания';
+                    statusClass = 'status-danger';
+                }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${load.discipline.name}</td>
+                    <td>${load.group.name}</td>
+                    <td>${load.plannedHours}</td>
+                    <td>${load.readHours}</td>
+                    <td>${diff}</td>
+                    <td class="${diffClass}">${diffText}</td>
+                    <td><span class="status-badge ${statusClass}">${status}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-sm" onclick="openCorrection(${load.id}, '${load.discipline.name}', '${load.group.name}', ${load.plannedHours}, ${load.readHours})">✏️ Корректировать</button>
+                            <button class="btn btn-sm btn-outline" onclick="approveLoad(${load.id})">✅ Утвердить</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('totalDisciplines').textContent = data.length;
+            document.getElementById('totalPlanned').textContent = totalPlanned;
+            document.getElementById('totalRead').textContent = totalRead;
+            document.getElementById('totalDiscrepancies').textContent = discrepancies;
+        });
+}
+
+function openCorrection(id, discipline, group, planned, currentRead) {
+    currentLoadId = id;
+    document.getElementById('corrDiscipline').textContent = discipline;
+    document.getElementById('corrGroup').textContent = group;
+    document.getElementById('corrPlanned').value = planned;
+    document.getElementById('corrCurrentRead').value = currentRead;
+    document.getElementById('corrNewRead').value = currentRead;
+    document.getElementById('corrNote').value = '';
+    document.getElementById('correctionModal').classList.add('active');
+}
+
+function closeCorrection() {
+    document.getElementById('correctionModal').classList.remove('active');
+    currentLoadId = null;
+}
+
+function saveCorrection() {
+    if (!currentLoadId) return;
+    const newRead = parseInt(document.getElementById('corrNewRead').value) || 0;
+    const note = document.getElementById('corrNote').value;
+
+    fetch(`/api/loads/${currentLoadId}/read-hours`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({clientTime: clientTime})
-    })
-    .then(r => r.json())
-    .then(data => {
-        document.getElementById('syncResult').style.display = 'block';
-        const statusEl = document.getElementById('syncStatus');
-        statusEl.textContent = data.status === 'SYNCHRONIZED' ? '🟢 Синхронизировано' : '🔴 Рассинхронизация';
-        statusEl.style.background = data.status === 'SYNCHRONIZED' ? '#dcfce7' : '#fee2e2';
-        statusEl.style.color = data.status === 'SYNCHRONIZED' ? '#166534' : '#991b1b';
-
-        document.getElementById('syncMessage').textContent = data.message;
-        document.getElementById('serverTime').textContent = new Date(data.serverTime).toLocaleString('ru-RU');
-        document.getElementById('clientTime').textContent = new Date(data.clientTime).toLocaleString('ru-RU');
-        document.getElementById('syncDiff').textContent = data.diffSeconds;
-        document.getElementById('lastSync').textContent = new Date().toLocaleString('ru-RU');
-
-        // Пересчитываем смещение для таймера
-        const serverDate = new Date(data.serverTime);
-        serverOffset = serverDate.getTime() - Date.now();
+        body: JSON.stringify({readHours: newRead})
+    }).then(() => {
+        closeCorrection();
+        loadData();
     });
 }
 
-function updateTimer() {
-    const now = new Date(Date.now() + serverOffset);
-    document.getElementById('timer').textContent = now.toLocaleTimeString('ru-RU', {hour12: false});
+function approveLoad(id) {
+    // В реальной системе это отправляет запрос на утверждение администратору
+    alert(`Заявка на утверждение часов отправлена администратору (ID: ${id})`);
 }
 
-setInterval(updateTimer, 1000);
-updateTimer();
+function approveAll() {
+    if (confirm('Утвердить все дисциплины?')) {
+        alert('Все дисциплины отправлены на утверждение администратору');
+    }
+}
 </script>
 </body>
 </html>

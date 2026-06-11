@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -15,6 +16,7 @@ public class ControlPoint {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_load_id")
+    @JsonIgnore
     private TeacherLoad teacherLoad;
 
     @Enumerated(EnumType.STRING)

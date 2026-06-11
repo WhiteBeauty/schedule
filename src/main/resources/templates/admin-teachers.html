@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Все преподаватели - Администратор</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .teacher-card {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            background: #fff;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: .15s;
+            margin-bottom: 1rem;
+        }
+        .teacher-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .teacher-avatar {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+        .teacher-info h3 {
+            margin: 0 0 0.25rem;
+            font-size: 1.25rem;
+        }
+        .teacher-detail {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin: 0.15rem 0;
+        }
+        .top-bar {
+            background: #fff;
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
+        <h2 style="margin: 0 0 0 1rem;">🎓 Все преподаватели</h2>
+    </div>
+
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h1 class="page-title" style="margin: 0;">Список всех преподавателей системы</h1>
+            <button id="addTeacherBtn" class="btn btn-primary" onclick="openCreateModal()">➕ Добавить преподавателя</button>
+        </div>
+
+        <div id="teacherList">
+            <p class="text-muted">Загрузка списка преподавателей...</p>
+        </div>
+    </main>
+
+    <!-- Modal Profile View/Edit -->
+    <div class="modal-overlay" id="teacherModal">
+        <div class="modal" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 style="margin: 0" id="modalTitle">Профиль преподавателя</h3>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Заполняется динамически -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal()">Закрыть</button>
+                <button class="btn btn-primary" id="editBtn" onclick="enableEdit()" style="display: none;">✏️ Редактировать</button>
+                <button class="btn btn-primary" id="saveBtn" onclick="saveTeacher()" style="display: none;">💾 Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Create Teacher -->
+    <div class="modal-overlay" id="createModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0">Добавить преподавателя</h3>
+                <button class="close-btn" onclick="closeCreateModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="createForm">
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Email *</label>
+                        <input type="email" id="createEmail" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">ФИО *</label>
+                        <input type="text" id="createFullName" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кафедра *</label>
+                        <input type="text" id="createDepartment" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Должность *</label>
+                        <input type="text" id="createPosition" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Ставка *</label>
+                        <input type="number" step="0.1" id="createRate" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Телефон</label>
+                        <input type="text" id="createPhone" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дата рождения</label>
+                        <input type="date" id="createBirthDate" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Пароль *</label>
+                        <input type="password" id="createPassword" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeCreateModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="createTeacher()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTeacherId = null;
+        let isEditMode = false;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTeachers();
+        });
+
+        function loadTeachers() {
+            fetch('/api/teachers')
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP error: ' + r.status);
+                    return r.json();
+                })
+                .then(teachers => {
+                    const list = document.getElementById('teacherList');
+                    if (!teachers || teachers.length === 0) {
+                        list.innerHTML = '<p class="text-muted">Преподаватели не найдены</p>';
+                        return;
+                    }
+
+                    list.innerHTML = teachers.map(t => `
+                        <div class="teacher-card" onclick="viewTeacher(${t.id})">
+                            <div class="teacher-avatar">${getInitials(t.fullName)}</div>
+                            <div class="teacher-info">
+                                <h3>${t.fullName}</h3>
+                                <p class="teacher-detail">📧 ${t.email || 'Не указан'}</p>
+                                <p class="teacher-detail">📱 ${t.phone || 'Не указан'}</p>
+                                <p class="teacher-detail">🏛️ ${t.department || 'Не указана'} | ${t.position || 'Не указана'}</p>
+                                <p class="teacher-detail">⭐ ${t.rate || '-'} ставки</p>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(e => {
+                    console.error('Error:', e);
+                    document.getElementById('teacherList').innerHTML = '<p class="text-danger">Ошибка загрузки: ' + e.message + '</p>';
+                });
+        }
+
+        function viewTeacher(id) {
+            currentTeacherId = id;
+            isEditMode = false;
+            
+            Promise.all([
+                fetch(`/api/teachers/${id}`).then(r => r.json()),
+                fetch(`/api/teachers/${id}/profile?year=2024`).then(r => r.json())
+            ]).then(([teacher, profile]) => {
+                const body = document.getElementById('modalBody');
+                const loadsHtml = profile.loads.map(l => `
+                    <tr>
+                        <td>${l.discipline}</td>
+                        <td>${l.groupName}</td>
+                        <td>${l.planned}</td>
+                        <td>${l.read}</td>
+                        <td>${l.remaining}</td>
+                    </tr>
+                `).join('');
+
+                document.getElementById('modalTitle').textContent = teacher.fullName;
+                document.getElementById('editBtn').style.display = 'inline-block';
+                document.getElementById('saveBtn').style.display = 'none';
+
+                body.innerHTML = `
+                    <table style="margin-bottom: 1.5rem;">
+                        <tr><td style="width: 180px;"><strong>Email:</strong></td><td>${teacher.email || '-'}</td></tr>
+                        <tr><td><strong>ФИО:</strong></td><td>${teacher.fullName}</td></tr>
+                        <tr><td><strong>Кафедра:</strong></td><td>${teacher.department || '-'}</td></tr>
+                        <tr><td><strong>Должность:</strong></td><td>${teacher.position || '-'}</td></tr>
+                        <tr><td><strong>Телефон:</strong></td><td>${teacher.phone || '-'}</td></tr>
+                        <tr><td><strong>Дата рождения:</strong></td><td>${teacher.birthDate ? formatBirthDate(teacher.birthDate) : '-'}</td></tr>
+                        <tr><td><strong>Ставка:</strong></td><td>${teacher.rate || '-'} ставки</td></tr>
+                    </table>
+
+                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на 2024 год</h4>
+                    <table style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Дисциплина</th>
+                                <th>Группа</th>
+                                <th>План</th>
+                                <th>Вычитано</th>
+                                <th>Осталось</th>
+                            </tr>
+                        </thead>
+                        <tbody>${loadsHtml}</tbody>
+                    </table>
+
+                    <div style="margin-top: 1.5rem; padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
+                        <strong>Продуктивность:</strong> ${profile.avgProductivity}% 
+                        <span class="badge ${profile.avgProductivity >= 90 ? 'badge-success' : (profile.avgProductivity >= 70 ? 'badge-warning' : 'badge-danger')}">
+                            ${profile.avgProductivity >= 90 ? 'Высокая' : (profile.avgProductivity >= 70 ? 'Средняя' : 'Низкая')}
+                        </span>
+                    </div>
+                `;
+
+                document.getElementById('teacherModal').classList.add('active');
+            });
+        }
+
+        function enableEdit() {
+            isEditMode = true;
+            document.getElementById('editBtn').style.display = 'none';
+            document.getElementById('saveBtn').style.display = 'inline-block';
+
+            fetch(`/api/teachers/${currentTeacherId}`).then(r => r.json()).then(teacher => {
+                const body = document.getElementById('modalBody');
+                document.getElementById('modalTitle').textContent = 'Редактировать: ' + teacher.fullName;
+
+                body.innerHTML = `
+                    <form id="editForm">
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Email</label>
+                            <input type="email" id="editEmail" value="${teacher.email || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">ФИО *</label>
+                            <input type="text" id="editFullName" value="${teacher.fullName}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кафедра *</label>
+                            <input type="text" id="editDepartment" value="${teacher.department || ''}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Должность *</label>
+                            <input type="text" id="editPosition" value="${teacher.position || ''}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Ставка *</label>
+                            <input type="number" step="0.1" id="editRate" value="${teacher.rate || 1.0}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Телефон</label>
+                            <input type="text" id="editPhone" value="${teacher.phone || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дата рождения</label>
+                            <input type="date" id="editBirthDate" value="${teacher.birthDate || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Новый пароль (оставьте пустым если не менять)</label>
+                            <input type="password" id="editPassword" placeholder="Оставить без изменений" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        </div>
+                    </form>
+                `;
+            });
+        }
+
+        function saveTeacher() {
+            const data = {
+                email: document.getElementById('editEmail').value,
+                fullName: document.getElementById('editFullName').value,
+                department: document.getElementById('editDepartment').value,
+                position: document.getElementById('editPosition').value,
+                rate: parseFloat(document.getElementById('editRate').value),
+                phone: document.getElementById('editPhone').value,
+                birthDate: document.getElementById('editBirthDate').value || null,
+                password: document.getElementById('editPassword').value
+            };
+
+            if (!data.fullName || !data.department || !data.position || !data.rate) {
+                alert('Заполните обязательные поля');
+                return;
+            }
+
+            fetch(`/api/teachers/${currentTeacherId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(r => {
+                if (r.ok) {
+                    alert('Преподаватель обновлён');
+                    loadTeachers();
+                    closeModal();
+                } else {
+                    r.text().then(txt => alert('Ошибка: ' + txt));
+                }
+            });
+        }
+
+        function openCreateModal() {
+            document.getElementById('createForm').reset();
+            document.getElementById('createModal').classList.add('active');
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('active');
+        }
+
+        function createTeacher() {
+            const data = {
+                username: document.getElementById('createEmail').value.split('@')[0],
+                email: document.getElementById('createEmail').value,
+                fullName: document.getElementById('createFullName').value,
+                department: document.getElementById('createDepartment').value,
+                position: document.getElementById('createPosition').value,
+                rate: parseFloat(document.getElementById('createRate').value),
+                phone: document.getElementById('createPhone').value,
+                birthDate: document.getElementById('createBirthDate').value || null,
+                password: document.getElementById('createPassword').value,
+                role: 'TEACHER'
+            };
+
+            if (!data.email || !data.fullName || !data.department || !data.position || !data.rate || !data.password) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
+
+            fetch('/api/admin/teachers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(r => {
+                if (r.ok) {
+                    alert('Преподаватель создан');
+                    closeCreateModal();
+                    loadTeachers();
+                } else {
+                    r.text().then(txt => alert('Ошибка: ' + txt));
+                }
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('teacherModal').classList.remove('active');
+            currentTeacherId = null;
+            isEditMode = false;
+        }
+
+        function getInitials(name) {
+            if (!name) return '?';
+            const parts = name.trim().split(' ');
+            if (parts.length === 1) return parts[0][0].toUpperCase();
+            return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+
+        function formatBirthDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('ru-RU');
+        }
+    </script>
+</body>
+</html>

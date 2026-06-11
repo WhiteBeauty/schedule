@@ -1,4 +1,4 @@
-ммитpackage com.karyakina.schedule.repository;
+package com.karyakina.schedule.repository;
 
 import com.karyakina.schedule.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;

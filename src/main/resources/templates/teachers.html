@@ -10,17 +10,22 @@
 <aside class="sidebar">
     <div class="logo">📚 Учёт нагрузки</div>
     <ul class="nav-list">
+        <li><a href="/dashboard">📊 Дашборд</a></li>
         <li><a href="/schedule">📅 Расписание</a></li>
         <li><a href="/time-sync">⏱️ Сверка часов</a></li>
         <li><a href="/curatorship">👥 Кураторство</a></li>
         <li><a href="/teachers" class="active">🎓 Преподаватели</a></li>
         <li><a href="/monthly">📊 Помесячный учёт</a></li>
         <li><a href="/productivity">📈 Продуктивность</a></li>
+        <li><li><a href="/logout" class="logout-btn">🚪 Выйти</a></li>
     </ul>
 </aside>
 
 <main class="main">
-    <h1 class="page-title">🎓 Преподаватели</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+        <h1 class="page-title" style="margin:0">🎓 Преподаватели</h1>
+        <button id="addTeacherBtn" class="btn btn-primary" style="display:none" onclick="openCreateModal()">➕ Добавить</button>
+    </div>
 
     <div class="card">
         <div class="card-header">
@@ -56,8 +61,62 @@
     </div>
 </div>
 
-<script>
+<!-- Modal Create/Edit Teacher -->
+<div class="modal-overlay" id="teacherModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0" id="teacherModalTitle">Добавить преподавателя</h3>
+            <button class="close-btn" onclick="closeTeacherModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="teacherForm">
+                <input type="hidden" id="teacherId">
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Email *</label>
+                    <input type="email" id="email" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">ФИО *</label>
+                    <input type="text" id="fullName" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Кафедра *</label>
+                    <input type="text" id="department" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Должность *</label>
+                    <input type="text" id="position" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Ставка *</label>
+                    <input type="number" step="0.5" id="rate" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Телефон</label>
+                    <input type="text" id="phone" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Пароль (для нового)</label>
+                    <input type="password" id="password" placeholder="Оставить пустым если не меняется" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeTeacherModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="saveTeacher()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+const isAdmin = /*[[${isAdmin}]]*/ false;
+
 document.addEventListener('DOMContentLoaded', () => {
+    if (isAdmin) {
+        document.getElementById('addTeacherBtn').style.display = 'block';
+    }
+
     fetch('/api/teachers')
         .then(r => r.json())
         .then(data => {
@@ -70,7 +129,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${t.position || '-'}</td>
                     <td>${t.rate || '-'}</td>
                     <td>${t.email || '-'}<br><small class="text-muted">${t.phone || ''}</small></td>
-                    <td><button class="btn btn-sm" onclick="openProfile(${t.id})">👤 Профиль</button></td>
+                    <td>
+                        <button class="btn btn-sm" onclick="openProfile(${t.id})">👤 Профиль</button>
+                        ${isAdmin ? `<button class="btn btn-sm btn-outline" onclick="editTeacher(${t.id})">✏️</button>` : ''}
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -130,6 +192,71 @@ function openProfile(id) {
 function closeProfile() {
     document.getElementById('profileModal').classList.remove('active');
 }
+
+function openCreateModal() {
+    document.getElementById('teacherModalTitle').textContent = 'Добавить преподавателя';
+    document.getElementById('teacherForm').reset();
+    document.getElementById('teacherId').value = '';
+    document.getElementById('teacherModal').classList.add('active');
+}
+
+function editTeacher(id) {
+    fetch(`/api/teachers/${id}`)
+        .then(r => r.json())
+        .then(t => {
+            document.getElementById('teacherModalTitle').textContent = 'Редактировать преподавателя';
+            document.getElementById('teacherId').value = t.id;
+            document.getElementById('email').value = t.email || '';
+            document.getElementById('fullName').value = t.fullName;
+            document.getElementById('department').value = t.department || '';
+            document.getElementById('position').value = t.position || '';
+            document.getElementById('rate').value = t.rate || '';
+            document.getElementById('phone').value = t.phone || '';
+            document.getElementById('password').value = '';
+            document.getElementById('teacherModal').classList.add('active');
+        });
+}
+
+function closeTeacherModal() {
+    document.getElementById('teacherModal').classList.remove('active');
+}
+
+function saveTeacher() {
+    const id = document.getElementById('teacherId').value;
+    const data = {
+        email: document.getElementById('email').value,
+        fullName: document.getElementById('fullName').value,
+        department: document.getElementById('department').value,
+        position: document.getElementById('position').value,
+        rate: parseFloat(document.getElementById('rate').value),
+        phone: document.getElementById('phone').value,
+        password: document.getElementById('password').value
+    };
+
+    if (!data.email || !data.fullName || !data.department || !data.position || !data.rate) {
+        alert('Заполните обязательные поля');
+        return;
+    }
+
+    const url = id ? `/api/teachers/${id}` : '/api/teachers';
+    const method = id ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => {
+        if (r.ok) {
+            closeTeacherModal();
+            location.reload();
+        } else {
+            r.text().then(txt => alert('Ошибка: ' + txt));
+        }
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+/*]]>*/
 </script>
 </body>
 </html>

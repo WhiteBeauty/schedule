@@ -28,7 +28,7 @@ public class TeacherLoadService {
     }
 
     public List<TeacherLoad> findByTeacherAndYear(Long teacherId, Integer year) {
-        return loadRepository.findByTeacherIdAndAcademicYear(teacherId, year);
+        return loadRepository.findByTeacherIdAndYearWithDetails(teacherId, year);
     }
 
     @Transactional

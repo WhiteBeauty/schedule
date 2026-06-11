@@ -5,12 +5,14 @@
 <aside class="sidebar" th:fragment="sidebar">
     <div class="logo">📚 Учёт нагрузки</div>
     <ul class="nav-list">
-        <li><a href="/schedule" id="nav-schedule">📅 Расписание</a></li>
-        <li><a href="/time-sync" id="nav-time-sync">⏱️ Сверка часов</a></li>
-        <li><a href="/curatorship" id="nav-curatorship">👥 Кураторство</a></li>
-        <li><a href="/teachers" id="nav-teachers">🎓 Преподаватели</a></li>
-        <li><a href="/monthly" id="nav-monthly">📊 Помесячный учёт</a></li>
-        <li><a href="/productivity" id="nav-productivity">📈 Продуктивность</a></li>
+        <li><a th:href="@{/dashboard}" id="nav-dashboard">📊 Личный кабинет</a></li>
+        <li><a th:href="@{/schedule}" id="nav-schedule">📅 Расписание</a></li>
+        <li><a th:href="@{/time-sync}" id="nav-time-sync">⏱️ Сверка часов</a></li>
+        <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>
+        <li><a th:href="@{/monthly}" id="nav-monthly">📆 Помесячный учёт</a></li>
+        <li><a th:href="@{/productivity}" id="nav-productivity">📈 Продуктивность</a></li>
+        <li><a th:href="@{/teachers}" id="nav-teachers" th:style="${isAdmin} ? 'display:block' : 'display:none'">🎓 Преподаватели</a></li>
+        <li><a th:href="@{/logout}" style="margin-top: 2rem; color: var(--danger);" id="nav-logout">🚪 Выйти</a></li>
     </ul>
 </aside>
 </body>

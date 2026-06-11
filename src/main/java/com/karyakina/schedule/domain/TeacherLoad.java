@@ -1,7 +1,9 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,14 +18,17 @@ public class TeacherLoad {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_id")
+    @JsonIgnore
     private Teacher teacher;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "group_id")
+    @JsonIgnore
     private StudyGroup group;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "discipline_id")
+    @JsonIgnore
     private Discipline discipline;
 
     @Column(nullable = false)
@@ -46,10 +51,14 @@ public class TeacherLoad {
 
     @OneToMany(mappedBy = "teacherLoad", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    @BatchSize(size = 20)
+    @JsonIgnore
     private List<ControlPoint> controlPoints = new ArrayList<>();
 
     @OneToMany(mappedBy = "teacherLoad", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    @BatchSize(size = 20)
+    @JsonIgnore
     private List<MonthlyRecord> monthlyRecords = new ArrayList<>();
 
     @Transient

@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -35,12 +36,15 @@ public class Teacher {
 
     @OneToMany(mappedBy = "teacher", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<TeacherLoad> loads = new ArrayList<>();
 
     @OneToMany(mappedBy = "teacher", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<Curatorship> curatorships = new ArrayList<>();
 
     @OneToOne(mappedBy = "teacher", cascade = CascadeType.ALL)
+    @JsonIgnore
     private User user;
 }

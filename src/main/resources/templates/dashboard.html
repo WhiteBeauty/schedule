@@ -111,45 +111,46 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="logo">📚 Расписание</div>
-        <ul class="nav-list">
-            <li><a th:href="@{/dashboard}" class="active">📊 Личный кабинет</a></li>
-            <li><a th:href="@{/schedule}">📅 Расписание</a></li>
-            <li><a th:href="@{/curatorship}">👥 Кураторство</a></li>
-            <li><a th:href="@{/monthly}">📆 Помесячный учёт</a></li>
-            <li><a th:href="@{/productivity}">📈 Продуктивность</a></li>
-            <li><a th:href="@{/time-sync}">🔄 Синхронизация</a></li>
-            <li><a th:href="@{/logout}" style="margin-top: 2rem; color: var(--danger);">🚪 Выйти</a></li>
-        </ul>
-    </aside>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-    <!-- Main content -->
-    <main class="main">
-        <h1 class="page-title">Личный кабинет преподавателя</h1>
+<main class="main">
+    <!-- Top bar for Teacher -->
+    <div th:if="${teacher != null}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: sticky; top: 0; z-index: 50;">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
 
-        <!-- Productivity bar (top bar) -->
-        <div class="productivity-bar">
-            <div class="productivity-indicator" th:classappend="${productivity.level == 'HIGH' ? 'productivity-high' : (productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
-                <span th:text="${productivity.level == 'HIGH' ? '▲' : (productivity.level == 'MEDIUM' ? '▼' : '▼▼▼')}"></span>
+        <!-- Productivity indicator -->
+        <div class="productivity-bar" style="flex: 1; margin: 0; padding: 0.5rem 1rem;">
+            <div class="productivity-indicator" th:classappend="${productivity != null && productivity.level == 'HIGH' ? 'productivity-high' : (productivity != null && productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
+                <span th:text="${productivity != null ? (productivity.level == 'HIGH' ? '▲' : (productivity.level == 'MEDIUM' ? '▼' : '▼▼▼')) : '—'}"></span>
             </div>
             <div class="productivity-info">
-                <div class="productivity-label">Индекс продуктивности</div>
-                <div class="productivity-values">
-                    Сейчас: <span th:text="${productivity.index}">0</span>% | Норма: <span th:text="${productivity.target}">0</span>%
+                <div class="productivity-label">Продуктивность</div>
+                <div class="productivity-values" th:if="${productivity != null}">
+                    <span th:text="${productivity.index}">0</span>% (норма <span th:text="${productivity.target}">100</span>%)
                 </div>
-            </div>
-            <div>
-                <span class="badge" th:classappend="${productivity.level == 'HIGH' ? 'badge-success' : (productivity.level == 'MEDIUM' ? 'badge-warning' : 'badge-danger')}">
-                    <span th:text="${productivity.level == 'HIGH' ? 'Высокая' : (productivity.level == 'MEDIUM' ? 'Средняя' : 'Очень низкая')}"></span>
-                </span>
+                <div class="productivity-values" th:unless="${productivity != null}">Нет данных</div>
             </div>
         </div>
 
+        <a th:href="@{/schedule}" class="btn btn-sm">📅 Моё расписание</a>
+    </div>
+
+    <!-- Top bar for Admin -->
+    <div th:if="${teacher == null && isAdmin}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: sticky; top: 0; z-index: 50;">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
+        <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">🎓 Просмотр всех учителей</a>
+    </div>
+
+    <div class="top-bar-spacer"></div>
+
+    <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
+    <h1 class="page-title" th:if="${teacher == null && isAdmin}">📊 Панель администратора</h1>
+
         <!-- Teacher card (clickable) -->
-        <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher.id}">
-            <div class="teacher-avatar" th:text="${teacher.initials}">ИП</div>
+        <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher != null ? teacher.id : null}" th:if="${teacher != null}">
+            <div class="teacher-avatar" th:text="${teacher.fullName != null ? teacher.fullName.substring(0, 1).toUpperCase() : '?'}">?</div>
             <div class="teacher-info">
                 <h3 th:text="${teacher.fullName}">ФИО преподавателя</h3>
                 <p class="teacher-detail">
@@ -230,10 +231,23 @@
                 </table>
             </div>
         </div>
+
+        <!-- Admin content: List of all teachers -->
+        <div th:if="${teacher == null && isAdmin}">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">🎓 Преподаватели системы</h2>
+                    <a th:href="@{/admin/teachers}" class="btn btn-primary">Посмотреть всех</a>
+                </div>
+                <div id="adminTeacherList">
+                    <p class="text-muted">Загрузка...</p>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- Modal: Full teacher info -->
-    <div class="modal-overlay" id="teacherModal">
+    <div class="modal-overlay" id="teacherModal" th:if="${teacher != null}">
         <div class="modal">
             <div class="modal-header">
                 <h3 style="margin: 0;">Полная информация</h3>
@@ -270,7 +284,7 @@
                 </table>
 
                 <h4 style="margin: 0 0 0.75rem;">Сводная статистика за <span th:text="${year}"></span> год</h4>
-                <table>
+                <table th:if="${profile != null}">
                     <tr>
                         <td style="width: 200px;"><strong>Всего дисциплин:</strong></td>
                         <td th:text="${profile.totalDisciplines}">0</td>
@@ -297,9 +311,10 @@
                         </td>
                     </tr>
                 </table>
+                <p class="text-muted" th:if="${profile == null}">Нет данных о нагрузке</p>
 
-                <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка по дисциплинам</h4>
-                <table style="font-size: 0.85rem;">
+                <h4 style="margin: 1.5rem 0 0.75rem;" th:if="${profile != null}">Нагрузка по дисциплинам</h4>
+                <table style="font-size: 0.85rem;" th:if="${profile != null}">
                     <thead>
                         <tr>
                             <th>Дисциплина</th>
@@ -407,6 +422,95 @@
                 
                 row.style.display = (matchDisc && matchGroup && matchStatus) ? '' : 'none';
             });
+        }
+    </script>
+
+    <script th:if="${isAdmin and teacher == null}">
+        // Admin: Load teacher list
+        document.addEventListener('DOMContentLoaded', () => {
+            const listContainer = document.getElementById('adminTeacherList');
+            if (!listContainer) return;
+
+            fetch('/api/teachers')
+                .then(r => r.json())
+                .then(teachers => {
+                    if (teachers.length === 0) {
+                        listContainer.innerHTML = '<p class="text-muted">Преподаватели не найдены</p>';
+                        return;
+                    }
+
+                    listContainer.innerHTML = teachers.map(t => `
+                        <div class="teacher-card" onclick="viewAdminTeacher(${t.id})" style="cursor: pointer; margin-bottom: 0.75rem;">
+                            <div class="teacher-avatar" style="width: 50px; height: 50px; font-size: 1.25rem;">${getInitials(t.fullName)}</div>
+                            <div class="teacher-info">
+                                <h3 style="font-size: 1rem; margin: 0 0 0.25rem;">${t.fullName}</h3>
+                                <p class="teacher-detail" style="font-size: 0.8rem;">📧 ${t.email || '-'}</p>
+                                <p class="teacher-detail" style="font-size: 0.8rem;">🏛️ ${t.department || '-'} | ${t.position || '-'}</p>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(e => {
+                    listContainer.innerHTML = '<p class="text-danger">Ошибка загрузки</p>';
+                });
+        });
+
+        function viewAdminTeacher(id) {
+            fetch(`/api/teachers/${id}/profile?year=2024`)
+                .then(r => r.json())
+                .then(p => {
+                    const loadsHtml = p.loads.map(l => `
+                        <tr>
+                            <td>${l.discipline}</td>
+                            <td>${l.groupName}</td>
+                            <td>${l.planned}</td>
+                            <td>${l.read}</td>
+                            <td>${l.remaining}</td>
+                        </tr>
+                    `).join('');
+
+                    const modalHtml = `
+                        <div class="modal-overlay active" id="adminTeacherModal">
+                            <div class="modal">
+                                <div class="modal-header">
+                                    <h3 style="margin: 0;">${p.fullName}</h3>
+                                    <button class="close-btn" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">×</button>
+                                </div>
+                                <div class="modal-body">
+                                    <table style="margin-bottom: 1.5rem;">
+                                        <tr><td style="width: 150px;"><strong>Email:</strong></td><td>${p.email || '-'}</td></tr>
+                                        <tr><td><strong>Кафедра:</strong></td><td>${p.department || '-'}</td></tr>
+                                        <tr><td><strong>Должность:</strong></td><td>${p.position || '-'}</td></tr>
+                                        <tr><td><strong>Телефон:</strong></td><td>${p.phone || '-'}</td></tr>
+                                        <tr><td><strong>Ставка:</strong></td><td>${p.rate || '-'} ставки</td></tr>
+                                    </table>
+                                    <h4>Нагрузка на 2024 год</h4>
+                                    <table style="font-size: 0.85rem;">
+                                        <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
+                                        <tbody>${loadsHtml}</tbody>
+                                    </table>
+                                    <div style="margin-top: 1rem; padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
+                                        <strong>Продуктивность:</strong> ${p.avgProductivity}%
+                                        <span class="badge ${p.avgProductivity >= 90 ? 'badge-success' : (p.avgProductivity >= 70 ? 'badge-warning' : 'badge-danger')}">
+                                            ${p.avgProductivity >= 90 ? 'Высокая' : (p.avgProductivity >= 70 ? 'Средняя' : 'Низкая')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button class="btn btn-outline" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">Закрыть</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                });
+        }
+
+        function getInitials(name) {
+            if (!name) return '?';
+            const parts = name.trim().split(' ');
+            if (parts.length === 1) return parts[0][0].toUpperCase();
+            return (parts[0][0] + parts[1][0]).toUpperCase();
         }
     </script>
 </body>

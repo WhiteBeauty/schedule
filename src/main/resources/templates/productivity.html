@@ -7,17 +7,13 @@
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-<aside class="sidebar">
-    <div class="logo">📚 Учёт нагрузки</div>
-    <ul class="nav-list">
-        <li><a href="/schedule">📅 Расписание</a></li>
-        <li><a href="/time-sync">⏱️ Сверка часов</a></li>
-        <li><a href="/curatorship">👥 Кураторство</a></li>
-        <li><a href="/teachers">🎓 Преподаватели</a></li>
-        <li><a href="/monthly">📊 Помесячный учёт</a></li>
-        <li><a href="/productivity" class="active">📈 Продуктивность</a></li>
-    </ul>
-</aside>
+    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
+        <h2 style="margin: 0 0 0 1rem;">📈 Продуктивность</h2>
+    </div>
+
+<div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
     <h1 class="page-title">📈 Продуктивность преподавателей</h1>

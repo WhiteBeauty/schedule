@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -35,6 +36,7 @@ public class User {
     // Связь с преподавателем (если это преподаватель)
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "teacher_id")
+    @JsonIgnore
     private Teacher teacher;
 
     private String firstName;

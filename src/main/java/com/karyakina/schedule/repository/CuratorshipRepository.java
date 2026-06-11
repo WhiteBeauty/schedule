@@ -15,4 +15,6 @@ public interface CuratorshipRepository extends JpaRepository<Curatorship, Long> 
 
     @EntityGraph(attributePaths = {"teacher", "group"})
     List<Curatorship> findByTeacherId(Long teacherId);
+
+    java.util.Optional<Curatorship> findByTeacherIdAndGroupId(Long teacherId, Long groupId);
 }

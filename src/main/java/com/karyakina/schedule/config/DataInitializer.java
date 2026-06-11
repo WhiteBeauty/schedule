@@ -4,242 +4,196 @@ import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.Month;
+import java.util.Arrays;
+import java.util.List;
 
-@Configuration
+@Component
 @RequiredArgsConstructor
-public class DataInitializer {
+public class DataInitializer implements CommandLineRunner {
 
-    private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
+    private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
     private final DisciplineRepository disciplineRepository;
     private final TeacherLoadRepository loadRepository;
-    private final ControlPointRepository controlPointRepository;
-    private final MonthlyRecordRepository monthlyRecordRepository;
     private final CuratorshipRepository curatorshipRepository;
     private final PasswordEncoder passwordEncoder;
 
-    @Bean
-    public CommandLineRunner initData() {
-        return args -> {
-            if (userRepository.count() > 0) {
-                return; // Данные уже есть
-            }
-
-            // Teachers
-            Teacher t1 = teacherRepository.save(Teacher.builder()
-                    .fullName("Иванов Сергей Петрович")
-                    .department("Кафедра математики")
-                    .position("Доцент")
-                    .email("ivanov@university.ru")
-                    .phone("+79991234567")
-                    .rate(1.0)
-                    .birthDate(LocalDate.of(1985, 3, 15))
-                    .build());
-
-            Teacher t2 = teacherRepository.save(Teacher.builder()
-                    .fullName("Петрова Анна Владимировна")
-                    .department("Кафедра информатики")
-                    .position("Профессор")
-                    .email("petrova@university.ru")
-                    .phone("+79992345678")
-                    .rate(1.0)
-                    .birthDate(LocalDate.of(1978, 7, 22))
-                    .build());
-
-            Teacher t3 = teacherRepository.save(Teacher.builder()
-                    .fullName("Сидоров Дмитрий Алексеевич")
-                    .department("Кафедра физики")
-                    .position("Старший преподаватель")
-                    .email("sidorov@university.ru")
-                    .phone("+79993456789")
-                    .rate(0.75)
-                    .birthDate(LocalDate.of(1990, 11, 5))
-                    .build());
-
-            Teacher t4 = teacherRepository.save(Teacher.builder()
-                    .fullName("Кузнецова Елена Олеговна")
-                    .department("Кафедра математики")
-                    .position("Ассистент")
-                    .email("kuznetsova@university.ru")
-                    .phone("+79994567890")
-                    .rate(0.5)
-                    .birthDate(LocalDate.of(1995, 1, 30))
-                    .build());
-
-            // Users
-            userRepository.save(User.builder()
-                    .username("teacher1")
-                    .password(passwordEncoder.encode("teacher123"))
-                    .role(User.Role.TEACHER)
-                    .teacher(t1)
-                    .build());
-
-            userRepository.save(User.builder()
+    @Override
+    @Transactional
+    public void run(String... args) {
+        // Создаём администратора
+        if (!userRepository.existsByEmail("admin@school.ru")) {
+            User admin = User.builder()
                     .username("admin")
+                    .email("admin@school.ru")
                     .password(passwordEncoder.encode("admin123"))
                     .role(User.Role.ADMIN)
-                    .build());
+                    .firstName("Администратор")
+                    .lastName("Системы")
+                    .phone("+79990000000")
+                    .birthDate(LocalDate.of(1980, 1, 1))
+                    .build();
+            userRepository.save(admin);
+            System.out.println("✅ Администратор создан: admin@school.ru / admin123");
+        }
 
-            // Study groups
-            StudyGroup g1 = groupRepository.save(StudyGroup.builder()
-                    .name("ИВТ-101")
-                    .specialty("Информатика и вычислительная техника")
-                    .course(1)
-                    .studentCount(25)
-                    .build());
+        // Создаём тестовых преподавателей
+        Teacher teacher1 = createTeacher("Иванов Иван Иванович", "Кафедра математики", "Профессор",
+                "ivanov@school.ru", "+79001111111", LocalDate.of(1975, 5, 15), "123456");
 
-            StudyGroup g2 = groupRepository.save(StudyGroup.builder()
-                    .name("ИВТ-201")
-                    .specialty("Информатика и вычислительная техника")
-                    .course(2)
-                    .studentCount(22)
-                    .build());
+        Teacher teacher2 = createTeacher("Петрова Анна Сергеевна", "Кафедра физики", "Доцент",
+                "petrova@school.ru", "+79002222222", LocalDate.of(1982, 8, 20), "123456");
 
-            StudyGroup g3 = groupRepository.save(StudyGroup.builder()
-                    .name("МТ-301")
-                    .specialty("Математика и механика")
-                    .course(3)
-                    .studentCount(18)
-                    .build());
+        Teacher teacher3 = createTeacher("Сидоров Петр Александрович", "Кафедра информатики", "Старший преподаватель",
+                "sidorov@school.ru", "+79003333333", LocalDate.of(1988, 3, 10), "123456");
 
-            StudyGroup g4 = groupRepository.save(StudyGroup.builder()
-                    .name("ФИЗ-101")
-                    .specialty("Физика")
-                    .course(1)
-                    .studentCount(20)
-                    .build());
+        // Создаём группы
+        StudyGroup group1 = createGroup("ИВТ-301", "Информационные технологии", 3, 25);
+        StudyGroup group2 = createGroup("ИВТ-302", "Информационные технологии", 3, 28);
+        StudyGroup group3 = createGroup("ФИЗ-201", "Прикладная физика", 2, 22);
+        StudyGroup group4 = createGroup("МАТ-401", "Прикладная математика", 4, 20);
 
-            // Disciplines
-            Discipline d1 = disciplineRepository.save(Discipline.builder().name("Высшая математика").code("MAT-101").build());
-            Discipline d2 = disciplineRepository.save(Discipline.builder().name("Программирование на Java").code("CS-201").build());
-            Discipline d3 = disciplineRepository.save(Discipline.builder().name("Алгоритмы и структуры данных").code("CS-301").build());
-            Discipline d4 = disciplineRepository.save(Discipline.builder().name("Общая физика").code("PHY-101").build());
-            Discipline d5 = disciplineRepository.save(Discipline.builder().name("Базы данных").code("CS-202").build());
-            Discipline d6 = disciplineRepository.save(Discipline.builder().name("Дискретная математика").code("MAT-201").build());
+        // Создаём дисциплины
+        Discipline d1 = createDiscipline("Высшая математика", "МATH-101");
+        Discipline d2 = createDiscipline("Физика", "PHYS-101");
+        Discipline d3 = createDiscipline("Программирование", "CS-201");
+        Discipline d4 = createDiscipline("Базы данных", "CS-202");
+        Discipline d5 = createDiscipline("Статистика", "STAT-101");
 
-            // Teacher loads
-            TeacherLoad l1 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t1).group(g1).discipline(d1)
-                    .plannedHours(120).firstSemesterHours(60).secondSemesterHours(60)
-                    .controlPointType1("Зачёт").controlPointType2("Экзамен")
-                    .readHours(85).academicYear(2024).build());
+        // Нагрузка для Иванова
+        createLoad(teacher1, group1, d1, 72, 36, 36, "КР", "Экзамен", 45, 2024);
+        createLoad(teacher1, group2, d1, 80, 40, 40, "КР", "Экзамен", 50, 2024);
+        createLoad(teacher1, group3, d5, 54, 27, 27, "Зачёт", null, 30, 2024);
 
-            TeacherLoad l2 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t1).group(g3).discipline(d1)
-                    .plannedHours(90).firstSemesterHours(45).secondSemesterHours(45)
-                    .controlPointType1("КР").controlPointType2("-")
-                    .readHours(60).academicYear(2024).build());
+        // Нагрузка для Петровой
+        createLoad(teacher2, group3, d2, 68, 34, 34, "КР", "Экзамен", 55, 2024);
+        createLoad(teacher2, group4, d2, 72, 36, 36, "КР", "Экзамен", 40, 2024);
+        createLoad(teacher2, group1, d1, 36, 18, 18, "Зачёт", null, 20, 2024);
 
-            TeacherLoad l3 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t2).group(g1).discipline(d2)
-                    .plannedHours(100).firstSemesterHours(50).secondSemesterHours(50)
-                    .controlPointType1("ДЗ").controlPointType2("Э")
-                    .readHours(95).academicYear(2024).build());
+        // Нагрузка для Сидорова
+        createLoad(teacher3, group1, d3, 108, 54, 54, "КР", "Зачёт", 80, 2024);
+        createLoad(teacher3, group2, d3, 108, 54, 54, "КР", "Зачёт", 75, 2024);
+        createLoad(teacher3, group1, d4, 72, 36, 36, "КР", "Зачёт", 50, 2024);
+        createLoad(teacher3, group2, d4, 72, 36, 36, "КР", "Зачёт", 45, 2024);
 
-            TeacherLoad l4 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t2).group(g2).discipline(d3)
-                    .plannedHours(80).firstSemesterHours(40).secondSemesterHours(40)
-                    .controlPointType1("Зачёт").controlPointType2("Экзамен")
-                    .readHours(70).academicYear(2024).build());
+        // Кураторство
+        createCuratorship(teacher1, group1, 12, Arrays.asList("Собрание", "Экскурсия", "Консультация"), "Иванов И.И.");
+        createCuratorship(teacher2, group3, 10, Arrays.asList("Собрание", "Мероприятие"), "Петрова А.С.");
+        createCuratorship(teacher3, group1, 8, Arrays.asList("Собрание"), "Сидоров П.А.");
 
-            TeacherLoad l5 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t2).group(g2).discipline(d5)
-                    .plannedHours(60).firstSemesterHours(30).secondSemesterHours(30)
-                    .controlPointType1("КР").controlPointType2("-")
-                    .readHours(30).academicYear(2024).build());
-
-            TeacherLoad l6 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t3).group(g4).discipline(d4)
-                    .plannedHours(110).firstSemesterHours(55).secondSemesterHours(55)
-                    .controlPointType1("ДЗ").controlPointType2("Экзамен")
-                    .readHours(40).academicYear(2024).build());
-
-            TeacherLoad l7 = loadRepository.save(TeacherLoad.builder()
-                    .teacher(t4).group(g1).discipline(d6)
-                    .plannedHours(70).firstSemesterHours(35).secondSemesterHours(35)
-                    .controlPointType1("Зачёт").controlPointType2("-")
-                    .readHours(65).academicYear(2024).build());
-
-            // Control points
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l1).type(ControlPoint.ControlPointType.KR).plannedDate(LocalDate.of(2024, 10, 15)).actualDate(LocalDate.of(2024, 10, 15)).status(ControlPoint.ControlPointStatus.ON_TIME).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l1).type(ControlPoint.ControlPointType.ZACHET).plannedDate(LocalDate.of(2024, 12, 20)).actualDate(LocalDate.of(2024, 12, 22)).status(ControlPoint.ControlPointStatus.OVERDUE).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l1).type(ControlPoint.ControlPointType.EXAM).plannedDate(LocalDate.of(2025, 1, 15)).status(ControlPoint.ControlPointStatus.PLANNED).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l2).type(ControlPoint.ControlPointType.KR).plannedDate(LocalDate.of(2024, 11, 1)).actualDate(LocalDate.of(2024, 11, 1)).status(ControlPoint.ControlPointStatus.ON_TIME).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l3).type(ControlPoint.ControlPointType.KR).plannedDate(LocalDate.of(2024, 10, 20)).actualDate(LocalDate.of(2024, 10, 20)).status(ControlPoint.ControlPointStatus.ON_TIME).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l3).type(ControlPoint.ControlPointType.ZACHET).plannedDate(LocalDate.of(2024, 12, 25)).status(ControlPoint.ControlPointStatus.PLANNED).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l4).type(ControlPoint.ControlPointType.KR).plannedDate(LocalDate.of(2024, 11, 10)).actualDate(LocalDate.of(2024, 11, 12)).status(ControlPoint.ControlPointStatus.OVERDUE).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l5).type(ControlPoint.ControlPointType.ZACHET).plannedDate(LocalDate.of(2024, 11, 20)).status(ControlPoint.ControlPointStatus.PLANNED).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l6).type(ControlPoint.ControlPointType.KR).plannedDate(LocalDate.of(2024, 10, 5)).status(ControlPoint.ControlPointStatus.PLANNED).build());
-            controlPointRepository.save(ControlPoint.builder().teacherLoad(l7).type(ControlPoint.ControlPointType.EXAM).plannedDate(LocalDate.of(2024, 12, 15)).actualDate(LocalDate.of(2024, 12, 15)).status(ControlPoint.ControlPointStatus.ON_TIME).build());
-
-            // Monthly records
-            createMonthlyRecord(l1, 9, 2024, 20, null, "", "system");
-            createMonthlyRecord(l1, 10, 2024, 25, null, "", "system");
-            createMonthlyRecord(l1, 11, 2024, 22, 24, "Доп. занятия", "admin");
-            createMonthlyRecord(l1, 12, 2024, 18, null, "", "system");
-            createMonthlyRecord(l2, 9, 2024, 15, null, "", "system");
-            createMonthlyRecord(l2, 10, 2024, 20, null, "", "system");
-            createMonthlyRecord(l2, 11, 2024, 15, null, "", "system");
-            createMonthlyRecord(l2, 12, 2024, 10, null, "", "system");
-            createMonthlyRecord(l3, 9, 2024, 20, null, "", "system");
-            createMonthlyRecord(l3, 10, 2024, 25, null, "", "system");
-            createMonthlyRecord(l3, 11, 2024, 25, null, "", "system");
-            createMonthlyRecord(l3, 12, 2024, 25, null, "", "system");
-            createMonthlyRecord(l4, 9, 2024, 15, null, "", "system");
-            createMonthlyRecord(l4, 10, 2024, 20, null, "", "system");
-            createMonthlyRecord(l4, 11, 2024, 20, null, "", "system");
-            createMonthlyRecord(l4, 12, 2024, 15, null, "", "system");
-            createMonthlyRecord(l5, 9, 2024, 8, null, "", "system");
-            createMonthlyRecord(l5, 10, 2024, 10, null, "", "system");
-            createMonthlyRecord(l5, 11, 2024, 12, null, "", "system");
-            createMonthlyRecord(l6, 9, 2024, 10, null, "", "system");
-            createMonthlyRecord(l6, 10, 2024, 15, null, "", "system");
-            createMonthlyRecord(l6, 11, 2024, 15, null, "", "system");
-            createMonthlyRecord(l7, 9, 2024, 15, null, "", "system");
-            createMonthlyRecord(l7, 10, 2024, 20, null, "", "system");
-            createMonthlyRecord(l7, 11, 2024, 15, null, "", "system");
-            createMonthlyRecord(l7, 12, 2024, 15, null, "", "system");
-
-            // Curatorships
-            Curatorship c1 = curatorshipRepository.save(Curatorship.builder()
-                    .teacher(t1).group(g1).hours(36).responsiblePerson("Иванов С.П.").build());
-            c1.getEvents().add("Встреча первокурсников");
-            c1.getEvents().add("Профилактическая беседа");
-            c1.getEvents().add("День открытых дверей кафедры");
-            c1.getLogs().add("2024-09-05: Назначен куратором группы ИВТ-101");
-            c1.getLogs().add("2024-10-12: Проведено собрание о промежуточной аттестации");
-            curatorshipRepository.save(c1);
-
-            Curatorship c2 = curatorshipRepository.save(Curatorship.builder()
-                    .teacher(t2).group(g2).hours(36).responsiblePerson("Петрова А.В.").build());
-            c2.getEvents().add("Семинар по профориентации");
-            c2.getEvents().add("Встреча с работодателями");
-            c2.getLogs().add("2024-09-10: Назначена куратором группы ИВТ-201");
-            curatorshipRepository.save(c2);
-
-            Curatorship c3 = curatorshipRepository.save(Curatorship.builder()
-                    .teacher(t3).group(g4).hours(24).responsiblePerson("Сидоров Д.А.").build());
-            c3.getEvents().add("Научный кружок");
-            c3.getLogs().add("2024-09-15: Назначен куратором группы ФИЗ-101");
-            curatorshipRepository.save(c3);
-        };
+        System.out.println("✅ Тестовые данные загружены успешно!");
+        System.out.println("📧 Учителя: ivanov@school.ru, petrova@school.ru, sidorov@school.ru / 123456");
+        System.out.println("📧 Админ: admin@school.ru / admin123");
     }
 
-    private void createMonthlyRecord(TeacherLoad load, int month, int year, int hours, Integer adjusted, String note, String changedBy) {
-        monthlyRecordRepository.save(MonthlyRecord.builder()
-                .teacherLoad(load)
-                .month(month)
-                .year(year)
-                .hours(hours)
-                .adjustedHours(adjusted)
-                .note(note)
-                .changedBy(changedBy)
-                .build());
+    private Teacher createTeacher(String fullName, String department, String position,
+                                   String email, String phone, LocalDate birthDate, String password) {
+        Teacher existingTeacher = teacherRepository.findAll().stream()
+                .filter(t -> t.getEmail().equals(email))
+                .findFirst()
+                .orElse(null);
+
+        if (existingTeacher != null) {
+            System.out.println("✅ Преподаватель уже существует: " + fullName);
+            return existingTeacher;
+        }
+
+        if (!userRepository.existsByEmail(email)) {
+            User user = User.builder()
+                    .username(fullName.split(" ")[1].toLowerCase())
+                    .email(email)
+                    .password(passwordEncoder.encode(password))
+                    .role(User.Role.TEACHER)
+                    .firstName(fullName.split(" ")[1])
+                    .lastName(fullName.split(" ")[0])
+                    .phone(phone)
+                    .birthDate(birthDate)
+                    .build();
+            userRepository.save(user);
+
+            Teacher teacher = Teacher.builder()
+                    .fullName(fullName)
+                    .department(department)
+                    .position(position)
+                    .email(email)
+                    .phone(phone)
+                    .rate(1.0)
+                    .birthDate(birthDate)
+                    .user(user)
+                    .build();
+            teacher = teacherRepository.save(teacher);
+            user.setTeacher(teacher);
+            userRepository.save(user);
+            System.out.println("✅ Преподаватель создан: " + fullName);
+            return teacher;
+        }
+
+        throw new RuntimeException("User with email " + email + " already exists without teacher profile");
+    }
+
+    private StudyGroup createGroup(String name, String specialty, int course, int studentCount) {
+        return groupRepository.findByname(name)
+                .orElseGet(() -> groupRepository.save(StudyGroup.builder()
+                        .name(name)
+                        .specialty(specialty)
+                        .course(course)
+                        .studentCount(studentCount)
+                        .build()));
+    }
+
+    private Discipline createDiscipline(String name, String code) {
+        return disciplineRepository.findByname(name)
+                .orElseGet(() -> disciplineRepository.save(Discipline.builder()
+                        .name(name)
+                        .code(code)
+                        .build()));
+    }
+
+    private void createLoad(Teacher teacher, StudyGroup group, Discipline discipline,
+                            int plannedHours, int firstSemester, int secondSemester,
+                            String cp1, String cp2, int readHours, int year) {
+        TeacherLoad load = TeacherLoad.builder()
+                .teacher(teacher)
+                .group(group)
+                .discipline(discipline)
+                .plannedHours(plannedHours)
+                .firstSemesterHours(firstSemester)
+                .secondSemesterHours(secondSemester)
+                .controlPointType1(cp1)
+                .controlPointType2(cp2)
+                .readHours(readHours)
+                .academicYear(year)
+                .build();
+        load = loadRepository.save(load);
+
+        // Создаём помесячные записи
+        for (int month = 9; month <= 12; month++) {
+            MonthlyRecord record = MonthlyRecord.builder()
+                    .teacherLoad(load)
+                    .month(month)
+                    .year(year)
+                    .hours(Math.max(0, readHours / 4))
+                    .build();
+            load.getMonthlyRecords().add(record);
+        }
+    }
+
+    private void createCuratorship(Teacher teacher, StudyGroup group, int hours,
+                                    List<String> events, String responsible) {
+        curatorshipRepository.findByTeacherIdAndGroupId(teacher.getId(), group.getId())
+                .orElseGet(() -> curatorshipRepository.save(Curatorship.builder()
+                        .teacher(teacher)
+                        .group(group)
+                        .hours(hours)
+                        .events(events)
+                        .responsiblePerson(responsible)
+                        .build()));
     }
 }

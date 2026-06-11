@@ -32,8 +32,15 @@ body {
     flex-direction: column;
     padding: 1rem 0;
     position: fixed;
+    top: 0;
+    left: 0;
     height: 100vh;
     z-index: 100;
+}
+
+/* Top bar spacer to prevent content overlap */
+.top-bar-spacer {
+    height: 60px;
 }
 
 .logo {

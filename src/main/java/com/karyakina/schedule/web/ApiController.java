@@ -8,6 +8,7 @@ import com.karyakina.schedule.repository.*;
 import com.karyakina.schedule.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayOutputStream;
@@ -30,6 +31,9 @@ public class ApiController {
     private final StudyGroupRepository groupRepository;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthService authService;
 
     @PostMapping("/time-sync")
     public ResponseEntity<TimeSyncDto> timeSync(@RequestBody Map<String, Long> body) {
@@ -60,7 +64,86 @@ public class ApiController {
 
     @GetMapping("/teachers")
     public ResponseEntity<List<Teacher>> teachers() {
-        return ResponseEntity.ok(teacherRepository.findAll());
+        List<Teacher> teachers = teacherRepository.findAll();
+        // Загружаем email из User через Join
+        teachers.forEach(t -> {
+            if (t.getUser() != null && t.getEmail() == null) {
+                t.setEmail(t.getUser().getEmail());
+            }
+        });
+        return ResponseEntity.ok(teachers);
+    }
+
+    @PostMapping("/teachers")
+    public ResponseEntity<Teacher> createTeacher(@RequestBody Map<String, Object> body) {
+        String email = (String) body.get("email");
+        String fullName = (String) body.get("fullName");
+        String department = (String) body.get("department");
+        String position = (String) body.get("position");
+        Double rate = ((Number) body.get("rate")).doubleValue();
+        String phone = (String) body.get("phone");
+        String password = (String) body.get("password");
+
+        // Check if user exists
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+
+        // Create or update teacher profile
+        Teacher teacher = new Teacher();
+        teacher.setUser(user);
+        teacher.setFullName(fullName);
+        teacher.setDepartment(department);
+        teacher.setPosition(position);
+        teacher.setRate(rate);
+        teacher.setPhone(phone);
+
+        // Set password if provided
+        if (password != null && !password.isEmpty()) {
+            user.setPassword(passwordEncoder.encode(password));
+            userRepository.save(user);
+        }
+
+        teacher = teacherRepository.save(teacher);
+        return ResponseEntity.ok(teacher);
+    }
+
+    @PutMapping("/teachers/{id}")
+    public ResponseEntity<Teacher> updateTeacher(@PathVariable Long id,
+                                                  @RequestBody Map<String, Object> body) {
+        Teacher teacher = teacherRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Teacher not found: " + id));
+
+        String fullName = (String) body.get("fullName");
+        String department = (String) body.get("department");
+        String position = (String) body.get("position");
+        Double rate = ((Number) body.get("rate")).doubleValue();
+        String phone = (String) body.get("phone");
+        String password = (String) body.get("password");
+
+        teacher.setFullName(fullName);
+        teacher.setDepartment(department);
+        teacher.setPosition(position);
+        teacher.setRate(rate);
+        teacher.setPhone(phone);
+
+        // Update password if provided
+        if (password != null && !password.isEmpty()) {
+            User user = teacher.getUser();
+            if (user != null) {
+                user.setPassword(passwordEncoder.encode(password));
+                userRepository.save(user);
+            }
+        }
+
+        teacher = teacherRepository.save(teacher);
+        return ResponseEntity.ok(teacher);
+    }
+
+    @GetMapping("/teachers/{id}")
+    public ResponseEntity<Teacher> getTeacher(@PathVariable Long id) {
+        Teacher teacher = teacherRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Teacher not found: " + id));
+        return ResponseEntity.ok(teacher);
     }
 
     @GetMapping("/teachers/{id}/profile")
@@ -146,5 +229,64 @@ public class ApiController {
             .header("Content-Type", "text/csv;charset=UTF-8")
             .header("Content-Disposition", "attachment;filename=monthly_hours_" + year + ".csv")
             .body(bytes);
+    }
+
+    @PostMapping("/admin/teachers")
+    public ResponseEntity<?> createTeacherByAdmin(@RequestBody Map<String, Object> body) {
+        try {
+            String email = (String) body.get("email");
+            String username = (String) body.getOrDefault("username", email.split("@")[0]);
+            String fullName = (String) body.get("fullName");
+            String department = (String) body.get("department");
+            String position = (String) body.get("position");
+            Double rate = ((Number) body.get("rate")).doubleValue();
+            String phone = (String) body.get("phone");
+            String password = (String) body.get("password");
+            String birthDateStr = (String) body.get("birthDate");
+
+            if (userRepository.existsByEmail(email)) {
+                return ResponseEntity.badRequest().body("Email уже зарегистрирован");
+            }
+
+            java.time.LocalDate birthDate = null;
+            if (birthDateStr != null && !birthDateStr.isEmpty()) {
+                birthDate = java.time.LocalDate.parse(birthDateStr);
+            }
+
+            String[] nameParts = fullName.trim().split("\\s+");
+            String firstName = nameParts.length > 1 ? nameParts[1] : "";
+            String lastName = nameParts[0];
+
+            com.karyakina.schedule.domain.Teacher teacher = com.karyakina.schedule.domain.Teacher.builder()
+                    .fullName(fullName)
+                    .department(department)
+                    .position(position)
+                    .email(email)
+                    .phone(phone)
+                    .rate(rate)
+                    .birthDate(birthDate)
+                    .build();
+            teacher = teacherRepository.save(teacher);
+
+            com.karyakina.schedule.domain.User user = com.karyakina.schedule.domain.User.builder()
+                    .username(username)
+                    .email(email)
+                    .password(passwordEncoder.encode(password))
+                    .role(com.karyakina.schedule.domain.User.Role.TEACHER)
+                    .teacher(teacher)
+                    .firstName(firstName)
+                    .lastName(lastName)
+                    .phone(phone)
+                    .birthDate(birthDate)
+                    .build();
+            userRepository.save(user);
+
+            teacher.setUser(user);
+            teacherRepository.save(teacher);
+
+            return ResponseEntity.ok(teacher);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Ошибка: " + e.getMessage());
+        }
     }
 }

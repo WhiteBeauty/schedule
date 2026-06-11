@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -16,10 +17,12 @@ public class Curatorship {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_id")
+    @JsonIgnore
     private Teacher teacher;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "group_id")
+    @JsonIgnore
     private StudyGroup group;
 
     private Integer hours;

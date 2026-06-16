@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление расписанием</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+        <h1 class="page-title" style="margin:0">📋 Управление расписанием</h1>
+        <div style="display:flex;gap:0.5rem">
+            <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
+            <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
+            <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
+        </div>
+    </div>
+
+    <!-- Year filter -->
+    <div class="card" style="margin-bottom:1.5rem">
+        <div class="filters">
+            <label>Учебный год:
+                <select id="yearSelect" onchange="loadSchedule()">
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                </select>
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="loadSchedule()">🔄 Обновить</button>
+            <button class="btn btn-sm btn-outline" onclick="exportCsv()">📥 Экспорт CSV</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="deleteSelectedBtn" style="display:none;background:var(--danger);color:#fff">🗑️ Удалить выбранные (<span id="selectedCount">0</span>)</button>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid" style="margin-bottom:1.5rem">
+        <div class="stat">
+            <div class="stat-label">Всего записей</div>
+            <div class="stat-value" id="statTotal">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Всего преподавателей</div>
+            <div class="stat-value" id="statTeachers">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Плановых часов</div>
+            <div class="stat-value" id="statPlanned">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Вычитано часов</div>
+            <div class="stat-value" id="statRead">0</div>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="card" style="margin-bottom:1.5rem">
+        <div class="filters">
+            <input type="text" id="searchInput" placeholder="🔍 Поиск по преподавателю, дисциплине или группе..." oninput="filterTable()">
+            <select id="filterTeacher" onchange="filterTable()">
+                <option value="">Все преподаватели</option>
+            </select>
+            <select id="filterGroup" onchange="filterTable()">
+                <option value="">Все группы</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Schedule table -->
+    <div class="card">
+        <table id="scheduleTable">
+            <thead>
+            <tr>
+                <th style="width:40px"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th>Преподаватель</th>
+                <th>Дисциплина</th>
+                <th>Группа (специальность, курс)</th>
+                <th>План (час)</th>
+                <th>Вычитано (час)</th>
+                <th>Осталось</th>
+                <th>Прогресс</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="scheduleBody"></tbody>
+        </table>
+    </div>
+</main>
+
+<!-- Modal Create/Edit -->
+<div class="modal-overlay" id="scheduleModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0" id="modalTitle">Добавить запись</h3>
+            <button class="close-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="scheduleForm">
+                <input type="hidden" id="editId">
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Преподаватель *</label>
+                    <select id="teacherSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Выберите преподавателя</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дисциплина *</label>
+                    <select id="disciplineSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Выберите дисциплину</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Группа *</label>
+                    <select id="groupSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Выберите группу</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Плановых часов *</label>
+                    <input type="number" id="plannedHours" required min="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Учебный год *</label>
+                    <input type="number" id="academicYear" required min="2020" max="2030" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Вычитано часов</label>
+                    <input type="number" id="readHours" min="0" value="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Контрольная точка 1</label>
+                    <select id="controlPoint1" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Не указана</option>
+                        <option value="ДЗ">ДЗ</option>
+                        <option value="Зачёт">Зачёт</option>
+                        <option value="Экзамен">Экзамен</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Контрольная точка 2</label>
+                    <select id="controlPoint2" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Не указана</option>
+                        <option value="ДЗ">ДЗ</option>
+                        <option value="Зачёт">Зачёт</option>
+                        <option value="Экзамен">Экзамен</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="saveSchedule()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Confirm Delete -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal" style="max-width:400px">
+        <div class="modal-header">
+            <h3 style="margin:0">Подтверждение удаления</h3>
+            <button class="close-btn" onclick="closeDeleteModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p>Вы уверены, что хотите удалить выбранные записи расписания?</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeDeleteModal()">Отмена</button>
+            <button class="btn btn-danger" id="confirmDeleteBtn" style="background:var(--danger)">Удалить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Groups -->
+<div class="modal-overlay" id="groupsModal">
+    <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+            <h3 style="margin:0">🏛️ Управление группами</h3>
+            <button class="close-btn" onclick="closeGroupsModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+                <input type="text" id="newGroupName" placeholder="Название группы" style="flex:1">
+                <input type="number" id="newGroupCourse" placeholder="Курс" style="width:80px" min="1" max="6">
+                <input type="text" id="newGroupSpecialty" placeholder="Специальность" style="flex:1">
+                <button class="btn btn-primary" onclick="addGroup()">➕</button>
+            </div>
+            <table id="groupsTable">
+                <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Действия</th></tr></thead>
+                <tbody id="groupsBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Disciplines -->
+<div class="modal-overlay" id="disciplinesModal">
+    <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+            <h3 style="margin:0">📚 Управление дисциплинами</h3>
+            <button class="close-btn" onclick="closeDisciplinesModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+                <input type="text" id="newDisciplineCode" placeholder="Код" style="width:100px">
+                <input type="text" id="newDisciplineName" placeholder="Название дисциплины" style="flex:1">
+                <button class="btn btn-primary" onclick="addDiscipline()">➕</button>
+            </div>
+            <table id="disciplinesTable">
+                <thead><tr><th>Код</th><th>Название</th><th>Действия</th></tr></thead>
+                <tbody id="disciplinesBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let scheduleData = [];
+let teachersList = [];
+let scheduleIdToDelete = null;
+let selectedIds = new Set();
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSchedule();
+    loadSelectOptions();
+});
+
+function loadSelectOptions() {
+    // Load teachers
+    fetch('/api/teachers')
+        .then(r => r.json())
+        .then(data => {
+            teachersList = data;
+            const select = document.getElementById('teacherSelect');
+            const filter = document.getElementById('filterTeacher');
+            select.innerHTML = '<option value="">Выберите преподавателя</option>';
+            filter.innerHTML = '<option value="">Все преподаватели</option>';
+            data.forEach(t => {
+                const opt1 = document.createElement('option');
+                opt1.value = t.id;
+                opt1.textContent = t.fullName;
+                select.appendChild(opt1);
+
+                const opt2 = document.createElement('option');
+                opt2.value = t.fullName;
+                opt2.textContent = t.fullName;
+                filter.appendChild(opt2);
+            });
+        });
+
+    // Load disciplines
+    fetch('/api/disciplines')
+        .then(r => r.json())
+        .then(data => {
+            const select = document.getElementById('disciplineSelect');
+            data.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.code ? `${d.code} - ${d.name}` : d.name;
+                select.appendChild(opt);
+            });
+        });
+
+    // Load groups
+    fetch('/api/groups')
+        .then(r => r.json())
+        .then(data => {
+            const select = document.getElementById('groupSelect');
+            const filter = document.getElementById('filterGroup');
+            select.innerHTML = '<option value="">Выберите группу</option>';
+            filter.innerHTML = '<option value="">Все группы</option>';
+            data.forEach(g => {
+                const opt1 = document.createElement('option');
+                opt1.value = g.id;
+                opt1.textContent = g.name;
+                select.appendChild(opt1);
+
+                const opt2 = document.createElement('option');
+                opt2.value = g.id;
+                opt2.textContent = g.name;
+                filter.appendChild(opt2);
+            });
+        });
+}
+
+function loadSchedule() {
+    const year = document.getElementById('yearSelect').value;
+    fetch(`/api/schedule?year=${year}`)
+        .then(r => r.json())
+        .then(data => {
+            scheduleData = data;
+            selectedIds.clear();
+            updateSelectedCount();
+            renderTable(data);
+            updateStats(data);
+        });
+}
+
+function renderTable(data) {
+    const tbody = document.getElementById('scheduleBody');
+    tbody.innerHTML = '';
+
+    data.forEach(load => {
+        const remaining = load.plannedHours - load.readHours;
+        const completion = load.plannedHours > 0 ? (load.readHours * 100 / load.plannedHours) : 0;
+        let status, statusClass;
+
+        if (completion >= 100) { status = 'Осуществлено'; statusClass = 'badge-success'; }
+        else if (completion >= 80) { status = 'В норме'; statusClass = 'badge-warning'; }
+        else if (completion >= 50) { status = 'Отставание'; statusClass = 'badge-warning'; }
+        else { status = 'Критическое отставание'; statusClass = 'badge-danger'; }
+
+        const groupName = load.group?.name || '-';
+        const specialty = load.group?.specialty || '';
+        const course = load.group?.course ? `${load.group.course}-й курс` : '';
+        const groupDisplay = specialty || course
+            ? `${groupName} <small class="text-muted">(${specialty}, ${course})</small>`
+            : groupName;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="checkbox" class="row-checkbox" value="${load.id}" onchange="updateSelectedCount()"></td>
+            <td>${load.teacher?.fullName || '-'}</td>
+            <td>${load.discipline?.name || '-'} ${load.discipline?.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
+            <td>${groupDisplay}</td>
+            <td>${load.plannedHours}</td>
+            <td>${load.readHours}</td>
+            <td class="${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
+            <td><div class="progress" style="width:100px">
+                <div class="progress-bar ${completion >= 100 ? 'success' : completion >= 80 ? 'warning' : 'danger'}" style="width:${Math.min(completion, 100)}%"></div>
+            </div></td>
+            <td><span class="badge ${statusClass}">${status}</span></td>
+            <td>
+                <button class="btn btn-sm" onclick="openEditModal(${load.id})">✏️</button>
+                <button class="btn btn-sm btn-outline" onclick="openDeleteModal(${load.id})">🗑️</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (cb.checked) {
+            selectedIds.add(parseInt(cb.value));
+        } else {
+            selectedIds.delete(parseInt(cb.value));
+        }
+    });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+    checkboxes.forEach(cb => selectedIds.add(parseInt(cb.value)));
+
+    // Remove unchecked
+    document.querySelectorAll('.row-checkbox:not(:checked)').forEach(cb => {
+        selectedIds.delete(parseInt(cb.value));
+    });
+
+    const count = selectedIds.size;
+    document.getElementById('selectedCount').textContent = count;
+    document.getElementById('deleteSelectedBtn').style.display = count > 0 ? 'inline-block' : 'none';
+}
+
+function deleteSelected() {
+    if (selectedIds.size === 0) return;
+    document.getElementById('deleteModal').classList.add('active');
+    document.getElementById('confirmDeleteBtn').onclick = () => {
+        fetch('/api/schedule/delete-batch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify([...selectedIds])
+        }).then(r => {
+            if (r.ok) {
+                closeDeleteModal();
+                loadSchedule();
+            } else {
+                alert('Ошибка удаления');
+            }
+        });
+    };
+}
+
+function updateStats(data) {
+    document.getElementById('statTotal').textContent = data.length;
+    const teachers = new Set(data.map(l => l.teacher?.id)).size;
+    document.getElementById('statTeachers').textContent = teachers;
+    const totalPlanned = data.reduce((sum, l) => sum + l.plannedHours, 0);
+    const totalRead = data.reduce((sum, l) => sum + l.readHours, 0);
+    document.getElementById('statPlanned').textContent = totalPlanned;
+    document.getElementById('statRead').textContent = totalRead;
+}
+
+function filterTable() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const teacherFilter = document.getElementById('filterTeacher').value;
+    const groupFilter = document.getElementById('filterGroup').value;
+
+    const filtered = scheduleData.filter(load => {
+        const teacherName = (load.teacher?.fullName || '').toLowerCase();
+        const disciplineName = (load.discipline?.name || '').toLowerCase();
+        const groupName = (load.group?.name || '').toLowerCase();
+        const matchesSearch = !search || teacherName.includes(search) || disciplineName.includes(search) || groupName.includes(search);
+        const matchesTeacher = !teacherFilter || teacherName.includes(teacherFilter.toLowerCase());
+        const matchesGroup = !groupFilter || load.group?.id == groupFilter;
+        return matchesSearch && matchesTeacher && matchesGroup;
+    });
+
+    renderTable(filtered);
+}
+
+function openCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Добавить запись';
+    document.getElementById('scheduleForm').reset();
+    document.getElementById('editId').value = '';
+    document.getElementById('academicYear').value = document.getElementById('yearSelect').value;
+    document.getElementById('scheduleModal').classList.add('active');
+}
+
+function openEditModal(id) {
+    const load = scheduleData.find(l => l.id === id);
+    if (!load) return;
+
+    document.getElementById('modalTitle').textContent = 'Редактировать запись';
+    document.getElementById('editId').value = load.id;
+    document.getElementById('teacherSelect').value = load.teacher?.id || '';
+    document.getElementById('disciplineSelect').value = load.discipline?.id || '';
+    document.getElementById('groupSelect').value = load.group?.id || '';
+    document.getElementById('plannedHours').value = load.plannedHours;
+    document.getElementById('academicYear').value = load.academicYear;
+    document.getElementById('readHours').value = load.readHours;
+    document.getElementById('controlPoint1').value = load.controlPointType1 || '';
+    document.getElementById('controlPoint2').value = load.controlPointType2 || '';
+    document.getElementById('scheduleModal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('scheduleModal').classList.remove('active');
+}
+
+function saveSchedule() {
+    const editId = document.getElementById('editId').value;
+    const teacherId = document.getElementById('teacherSelect').value;
+    const disciplineId = document.getElementById('disciplineSelect').value;
+    const groupId = document.getElementById('groupSelect').value;
+    const plannedHours = document.getElementById('plannedHours').value;
+    const academicYear = document.getElementById('academicYear').value;
+    const readHours = document.getElementById('readHours').value;
+    const controlPoint1 = document.getElementById('controlPoint1').value;
+    const controlPoint2 = document.getElementById('controlPoint2').value;
+
+    if (!teacherId || !disciplineId || !groupId || !plannedHours || !academicYear) {
+        alert('Заполните обязательные поля');
+        return;
+    }
+
+    const data = {
+        teacherId,
+        disciplineId,
+        groupId,
+        plannedHours: parseInt(plannedHours),
+        academicYear: parseInt(academicYear),
+        readHours: parseInt(readHours) || 0,
+        controlPointType1: controlPoint1 || null,
+        controlPointType2: controlPoint2 || null
+    };
+
+    const url = editId ? `/api/schedule/${editId}` : '/api/schedule';
+    const method = editId ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => {
+        if (r.ok) {
+            closeModal();
+            loadSchedule();
+        } else {
+            alert('Ошибка сохранения');
+        }
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+
+function openDeleteModal(id) {
+    scheduleIdToDelete = id;
+    document.getElementById('deleteModal').classList.add('active');
+    document.getElementById('confirmDeleteBtn').onclick = () => deleteSchedule();
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteModal').classList.remove('active');
+    scheduleIdToDelete = null;
+    selectedIds.clear();
+    updateSelectedCount();
+}
+
+function deleteSchedule() {
+    if (!scheduleIdToDelete) return;
+    fetch(`/api/schedule/${scheduleIdToDelete}`, { method: 'DELETE' })
+        .then(r => {
+            if (r.ok) {
+                closeDeleteModal();
+                loadSchedule();
+            } else {
+                alert('Ошибка удаления');
+            }
+        });
+}
+
+function exportCsv() {
+    const year = document.getElementById('yearSelect').value;
+    window.open(`/api/monthly/export/csv?year=${year}`, '_blank');
+}
+
+// Groups management
+function openGroupsModal() {
+    document.getElementById('groupsModal').classList.add('active');
+    loadGroups();
+}
+
+function closeGroupsModal() {
+    document.getElementById('groupsModal').classList.remove('active');
+}
+
+function loadGroups() {
+    fetch('/api/admin/groups')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('groupsBody');
+            tbody.innerHTML = '';
+            data.forEach(g => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${g.name}</td>
+                    <td>${g.course}</td>
+                    <td>${g.specialty || '-'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="editGroup(${g.id}, '${g.name}', ${g.course}, '${g.specialty || ''}')">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})" style="background:var(--danger);color:#fff">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+}
+
+function addGroup() {
+    const name = document.getElementById('newGroupName').value;
+    const course = document.getElementById('newGroupCourse').value;
+    const specialty = document.getElementById('newGroupSpecialty').value;
+
+    if (!name || !course) {
+        alert('Введите название и курс');
+        return;
+    }
+
+    fetch('/api/admin/groups', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, course: parseInt(course), specialty})
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('newGroupName').value = '';
+            document.getElementById('newGroupCourse').value = '';
+            document.getElementById('newGroupSpecialty').value = '';
+            loadGroups();
+        } else {
+            alert('Ошибка добавления');
+        }
+    });
+}
+
+function editGroup(id, name, course, specialty) {
+    const newName = prompt('Название группы:', name);
+    if (!newName) return;
+    const newCourse = prompt('Курс:', course);
+    const newSpecialty = prompt('Специальность:', specialty);
+
+    fetch(`/api/admin/groups/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: newName, course: parseInt(newCourse), specialty: newSpecialty})
+    }).then(r => {
+        if (r.ok) loadGroups();
+        else alert('Ошибка обновления');
+    });
+}
+
+function deleteGroup(id) {
+    if (!confirm('Удалить группу?')) return;
+    fetch(`/api/admin/groups/${id}`, {method: 'DELETE'})
+        .then(r => { if (r.ok) loadGroups(); else alert('Ошибка удаления'); });
+}
+
+// Disciplines management
+function openDisciplinesModal() {
+    document.getElementById('disciplinesModal').classList.add('active');
+    loadDisciplines();
+}
+
+function closeDisciplinesModal() {
+    document.getElementById('disciplinesModal').classList.remove('active');
+}
+
+function loadDisciplines() {
+    fetch('/api/admin/disciplines')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('disciplinesBody');
+            tbody.innerHTML = '';
+            data.forEach(d => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${d.code || '-'}</td>
+                    <td>${d.name}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="editDiscipline(${d.id}, '${d.code || ''}', '${d.name}')">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteDiscipline(${d.id})" style="background:var(--danger);color:#fff">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+}
+
+function addDiscipline() {
+    const code = document.getElementById('newDisciplineCode').value;
+    const name = document.getElementById('newDisciplineName').value;
+
+    if (!name) {
+        alert('Введите название дисциплины');
+        return;
+    }
+
+    fetch('/api/admin/disciplines', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code, name})
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('newDisciplineCode').value = '';
+            document.getElementById('newDisciplineName').value = '';
+            loadDisciplines();
+        } else {
+            alert('Ошибка добавления');
+        }
+    });
+}
+
+function editDiscipline(id, code, name) {
+    const newCode = prompt('Код дисциплины:', code);
+    const newName = prompt('Название дисциплины:', name);
+    if (!newName) return;
+
+    fetch(`/api/admin/disciplines/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: newCode, name: newName})
+    }).then(r => {
+        if (r.ok) loadDisciplines();
+        else alert('Ошибка обновления');
+    });
+}
+
+function deleteDiscipline(id) {
+    if (!confirm('Удалить дисциплину?')) return;
+    fetch(`/api/admin/disciplines/${id}`, {method: 'DELETE'})
+        .then(r => { if (r.ok) loadDisciplines(); else alert('Ошибка удаления'); });
+}
+</script>
+</body>
+</html>

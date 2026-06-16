@@ -81,14 +81,28 @@ body {
 .main {
     margin-left: var(--sidebar-width);
     flex: 1;
-    padding: 1.5rem 2rem;
+    padding: 4rem 2rem 2rem;
     max-width: calc(100vw - var(--sidebar-width));
+    min-height: 100vh;
+}
+
+.page-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
 }
 
 .page-title {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
-    margin: 0 0 1.25rem;
+    margin: 0 0 0.5rem;
+    color: var(--text);
+}
+
+.page-subtitle {
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin: 0;
 }
 
 /* Cards */

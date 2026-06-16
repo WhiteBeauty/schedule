@@ -6,10 +6,12 @@ import com.karyakina.schedule.dto.ProductivityDto;
 import com.karyakina.schedule.dto.TeacherProfileDto;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.Month;
 import java.time.format.TextStyle;
 import java.util.*;
@@ -44,6 +46,16 @@ public class TeacherLoadService {
         Map<Long, List<TeacherLoad>> byTeacher = loads.stream()
                 .collect(Collectors.groupingBy(l -> l.getTeacher().getId()));
 
+        // Рассчитываем целевое значение на текущую дату
+        int[] academicYears = AcademicYearUtil.getCurrentAcademicYear();
+        int currentYear = LocalDate.now().getYear();
+        int currentMonth = LocalDate.now().getMonthValue();
+
+        // Определяем прогресс учебного года (0.0 - 1.0)
+        // Учебный год: сентябрь - май (9 месяцев)
+        int progress = calculateAcademicYearProgress();
+        double targetProgress = Math.min(progress * 100, 100);
+
         List<ProductivityDto> result = new ArrayList<>();
         byTeacher.forEach((teacherId, teacherLoads) -> {
             Teacher t = teacherLoads.get(0).getTeacher();
@@ -57,27 +69,85 @@ public class TeacherLoadService {
                     .filter(cp -> cp.getStatus() == ControlPoint.ControlPointStatus.ON_TIME)
                     .count();
 
-            double planPart = totalPlan > 0 ? (totalRead / totalPlan) : 0;
-            double timePart = totalCp > 0 ? ((double) onTimeCp / totalCp) : 1.0;
+            // Точность учёта (100 - процент корректировок)
+            long totalAdjustments = teacherLoads.stream()
+                    .mapToLong(l -> l.getMonthlyRecords().stream()
+                            .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
+                            .count())
+                    .sum();
+            long totalRecords = teacherLoads.stream()
+                    .mapToLong(l -> l.getMonthlyRecords().size())
+                    .sum();
+            double accuracy = totalRecords > 0
+                    ? 100.0 - ((double) totalAdjustments / totalRecords * 100)
+                    : 100.0;
 
-            double index = (planPart * 0.6 + timePart * 0.4) * 100.0;
-            index = Math.round(index * 100.0) / 100.0;
+            // Процент выполнения плана
+            double planCompletion = totalPlan > 0 ? (totalRead / totalPlan) * 100 : 0;
 
-            String color = index >= 90 ? "success" : (index >= 70 ? "warning" : "danger");
+            // Своевременность контрольных точек
+            double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
+
+            // Итоговая продуктивность: план 50%, своевременность 30%, точность 20%
+            double index = (planCompletion * 0.5) + (timeliness * 0.3) + (accuracy * 0.2);
+            index = Math.round(Math.max(0, Math.min(100, index)) * 100.0) / 100.0;
+
+            String level;
+            String color;
+            if (index >= 90) {
+                level = "HIGH";
+                color = "success";
+            } else if (index >= 70) {
+                level = "MEDIUM";
+                color = "warning";
+            } else {
+                level = "LOW";
+                color = "danger";
+            }
 
             result.add(ProductivityDto.builder()
                     .teacherId(teacherId)
                     .teacherName(t.getFullName())
                     .productivityIndex(index)
                     .color(color)
-                    .planCompletionPercent(Math.round(planPart * 10000.0) / 100.0)
-                    .timelinessPercent(Math.round(timePart * 10000.0) / 100.0)
-                    .formulaUsed("(Вычитано/План)*0.6 + (Своевременность_КР/Всего_КР)*0.4 * 100")
+                    .level(level)
+                    .planCompletionPercent(Math.round(planCompletion * 100.0) / 100.0)
+                    .timelinessPercent(Math.round(timeliness * 100.0) / 100.0)
+                    .accuracyPercent(Math.round(accuracy * 100.0) / 100.0)
+                    .targetProgress(Math.round(targetProgress * 100.0) / 100.0)
+                    .formulaUsed("(План*0.5) + (Своевременность*0.3) + (Точность*0.2)")
                     .build());
         });
 
         result.sort(Comparator.comparingDouble(ProductivityDto::getProductivityIndex).reversed());
         return result;
+    }
+
+    private int calculateAcademicYearProgress() {
+        int[] academicYears = AcademicYearUtil.getCurrentAcademicYear();
+        int currentYear = LocalDate.now().getYear();
+        int currentMonth = LocalDate.now().getMonthValue();
+
+        // Учебный год: сентябрь (9) - май (5)
+        // Начало: сентябрь текущего или прошлого года
+        int startYear = academicYears[0];
+        int startMonth = 9; // Сентябрь
+
+        LocalDate startDate = LocalDate.of(startYear, startMonth, 1);
+        LocalDate endDate = startDate.plusMonths(9); // Май
+        LocalDate today = LocalDate.now();
+
+        if (today.isBefore(startDate)) {
+            return 0;
+        }
+        if (today.isAfter(endDate)) {
+            return 100;
+        }
+
+        long totalDays = startDate.until(endDate).getDays();
+        long elapsedDays = startDate.until(today).getDays();
+
+        return (int) ((double) elapsedDays / totalDays * 100);
     }
 
     public TeacherProfileDto buildProfile(Long teacherId, Integer year) {
@@ -156,7 +226,7 @@ public class TeacherLoadService {
                 .orElseThrow(() -> new NoSuchElementException("Teacher not found: " + teacherId));
         List<TeacherLoad> loads = loadRepository.findByTeacherIdAndAcademicYear(teacherId, year);
 
-        // Продуктивность
+        // Продуктивность по новой формуле
         double totalPlan = loads.stream().mapToInt(TeacherLoad::getPlannedHours).sum();
         double totalRead = loads.stream().mapToInt(TeacherLoad::getReadHours).sum();
 
@@ -166,18 +236,53 @@ public class TeacherLoadService {
                 .filter(cp -> cp.getStatus() == ControlPoint.ControlPointStatus.ON_TIME)
                 .count();
 
-        double planPart = totalPlan > 0 ? (totalRead / totalPlan) : 0;
-        double timePart = totalCp > 0 ? ((double) onTimeCp / totalCp) : 1.0;
-        double index = (planPart * 0.6 + timePart * 0.4) * 100.0;
-        index = Math.round(index * 100.0) / 100.0;
+        // Точность учёта
+        long totalAdjustments = loads.stream()
+                .mapToLong(l -> l.getMonthlyRecords().stream()
+                        .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
+                        .count())
+                .sum();
+        long totalRecords = loads.stream()
+                .mapToLong(l -> l.getMonthlyRecords().size())
+                .sum();
+        double accuracy = totalRecords > 0
+                ? 100.0 - ((double) totalAdjustments / totalRecords * 100)
+                : 100.0;
 
-        String level = index >= 90 ? "HIGH" : (index >= 70 ? "MEDIUM" : "LOW");
-        double target = 100.0;
+        // Процент выполнения плана
+        double planCompletion = totalPlan > 0 ? (totalRead / totalPlan) * 100 : 0;
+
+        // Своевременность контрольных точек
+        double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
+
+        // Итоговая продуктивность: план 50%, своевременность 30%, точность 20%
+        double index = (planCompletion * 0.5) + (timeliness * 0.3) + (accuracy * 0.2);
+        index = Math.round(Math.max(0, Math.min(100, index)) * 100.0) / 100.0;
+
+        String level;
+        String color;
+        if (index >= 90) {
+            level = "HIGH";
+            color = "success";
+        } else if (index >= 70) {
+            level = "MEDIUM";
+            color = "warning";
+        } else {
+            level = "LOW";
+            color = "danger";
+        }
+
+        // Рассчитываем целевое значение на текущую дату
+        double targetProgress = calculateAcademicYearProgress();
 
         DashboardDto.ProductivityBarDto productivity = DashboardDto.ProductivityBarDto.builder()
                 .index(index)
-                .target(target)
+                .target(Math.round(targetProgress * 100.0) / 100.0)
                 .level(level)
+                .color(color)
+                .planCompletionPercent(Math.round(planCompletion * 100.0) / 100.0)
+                .timelinessPercent(Math.round(timeliness * 100.0) / 100.0)
+                .accuracyPercent(Math.round(accuracy * 100.0) / 100.0)
                 .build();
 
         // Нагрузка — строки таблицы

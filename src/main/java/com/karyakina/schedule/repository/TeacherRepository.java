@@ -15,4 +15,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
     List<Teacher> findAll();
 
     Optional<Teacher> findById(Long id);
+
+    @EntityGraph(attributePaths = {"user"})
+    Optional<Teacher> findByUserId(Long userId);
 }

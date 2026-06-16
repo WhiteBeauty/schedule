@@ -43,23 +43,9 @@
             color: var(--muted);
             margin: 0.15rem 0;
         }
-        .top-bar {
-            background: #fff;
-            border-bottom: 1px solid var(--border);
-            padding: 0.75rem 2rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
     </style>
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">🎓 Все преподаватели</h2>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
@@ -141,6 +127,80 @@
         </div>
     </div>
 
+    <!-- Modal Add Load -->
+    <div class="modal-overlay" id="addLoadModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0">Добавить нагрузку</h3>
+                <button class="close-btn" onclick="closeAddLoadModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="addLoadTeacherId">
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дисциплина *</label>
+                    <select id="addLoadDiscipline" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Группа *</label>
+                    <select id="addLoadGroup" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Плановых часов *</label>
+                    <input type="number" id="addLoadPlanned" min="0" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Учебный год *</label>
+                    <input type="number" id="addLoadYear" value="2025" min="2020" max="2030" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeAddLoadModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="saveAddLoad()">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Assign Curatorship -->
+    <div class="modal-overlay" id="assignCuratorModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0">Назначить кураторство</h3>
+                <button class="close-btn" onclick="closeAssignCuratorModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="assignCuratorTeacherId">
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Группа *</label>
+                    <select id="assignCuratorGroup" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кураторские часы (план)</label>
+                    <input type="number" id="assignCuratorHours" value="36" min="0" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeAssignCuratorModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="saveAssignCurator()">Назначить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Approve Hours -->
+    <div class="modal-overlay" id="approveHoursModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3 style="margin: 0">Утверждение часов</h3>
+                <button class="close-btn" onclick="closeApproveHoursModal()">×</button>
+            </div>
+            <div class="modal-body" id="approveHoursBody">
+                <!-- Заполняется динамически -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeApproveHoursModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentTeacherId = null;
         let isEditMode = false;
@@ -167,10 +227,14 @@
                             <div class="teacher-avatar">${getInitials(t.fullName)}</div>
                             <div class="teacher-info">
                                 <h3>${t.fullName}</h3>
-                                <p class="teacher-detail">📧 ${t.email || 'Не указан'}</p>
-                                <p class="teacher-detail">📱 ${t.phone || 'Не указан'}</p>
-                                <p class="teacher-detail">🏛️ ${t.department || 'Не указана'} | ${t.position || 'Не указана'}</p>
-                                <p class="teacher-detail">⭐ ${t.rate || '-'} ставки</p>
+                                <p class="teacher-detail">${t.email}</p>
+                                <p class="teacher-detail">${t.department || 'Кафедра не указана'}</p>
+                                <p class="teacher-detail">${t.position || 'Должность не указана'}</p>
+                                <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <button class="btn btn-sm" onclick="event.stopPropagation(); openAddLoadModal(${t.id}, '${t.fullName}')">➕ Нагрузка</button>
+                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openAssignCuratorModal(${t.id}, '${t.fullName}')">👥 Кураторство</button>
+                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openApproveHoursModal(${t.id}, '${t.fullName}')">✅ Часы</button>
+                                </div>
                             </div>
                         </div>
                     `).join('');
@@ -184,11 +248,13 @@
         function viewTeacher(id) {
             currentTeacherId = id;
             isEditMode = false;
-            
+            const year = /*[[${year}]]*/ 2025;
+
             Promise.all([
                 fetch(`/api/teachers/${id}`).then(r => r.json()),
-                fetch(`/api/teachers/${id}/profile?year=2024`).then(r => r.json())
-            ]).then(([teacher, profile]) => {
+                fetch(`/api/teachers/${id}/profile?year=${year}`).then(r => r.json()),
+                fetch(`/api/curatorships/teacher/${id}`).then(r => r.json()).catch(() => [])
+            ]).then(([teacher, profile, curatorships]) => {
                 const body = document.getElementById('modalBody');
                 const loadsHtml = profile.loads.map(l => `
                     <tr>
@@ -204,7 +270,19 @@
                 document.getElementById('editBtn').style.display = 'inline-block';
                 document.getElementById('saveBtn').style.display = 'none';
 
+                const curatorshipHtml = curatorships && curatorships.length > 0
+                    ? `<ul style="margin: 0; padding-left: 1.2rem;">${curatorships.map(c =>
+                        `<li>${c.group.name} (${c.group.specialty || '—'}, ${c.group.course} курс)</li>`
+                      ).join('')}</ul>`
+                    : '<p class="text-muted">Нет закреплённых групп</p>';
+
                 body.innerHTML = `
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button class="btn btn-sm" onclick="addLoad(${teacher.id})">➕ Добавить нагрузку</button>
+                        <button class="btn btn-sm btn-outline" onclick="assignCuratorship(${teacher.id})">👥 Назначить кураторство</button>
+                        <button class="btn btn-sm btn-outline" onclick="approveHours(${teacher.id})">✅ Утвердить сверку часов</button>
+                    </div>
+
                     <table style="margin-bottom: 1.5rem;">
                         <tr><td style="width: 180px;"><strong>Email:</strong></td><td>${teacher.email || '-'}</td></tr>
                         <tr><td><strong>ФИО:</strong></td><td>${teacher.fullName}</td></tr>
@@ -215,7 +293,10 @@
                         <tr><td><strong>Ставка:</strong></td><td>${teacher.rate || '-'} ставки</td></tr>
                     </table>
 
-                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на 2024 год</h4>
+                    <h4 style="margin: 1.5rem 0 0.75rem;">Кураторство</h4>
+                    ${curatorshipHtml}
+
+                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на <span th:text="${year}">2025</span> год</h4>
                     <table style="font-size: 0.85rem;">
                         <thead>
                             <tr>
@@ -381,6 +462,183 @@
             if (!dateStr) return '-';
             const d = new Date(dateStr);
             return d.toLocaleDateString('ru-RU');
+        }
+
+        function addLoad(teacherId) {
+            // Загрузка дисциплин и групп
+            Promise.all([
+                fetch('/api/disciplines').then(r => r.json()),
+                fetch('/api/groups').then(r => r.json())
+            ]).then(([disciplines, groups]) => {
+                const discSelect = document.getElementById('addLoadDiscipline');
+                const groupSelect = document.getElementById('addLoadGroup');
+
+                discSelect.innerHTML = '<option value="">Выберите дисциплину</option>';
+                disciplines.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = d.code ? `${d.code} - ${d.name}` : d.name;
+                    discSelect.appendChild(opt);
+                });
+
+                groupSelect.innerHTML = '<option value="">Выберите группу</option>';
+                groups.forEach(g => {
+                    const opt = document.createElement('option');
+                    opt.value = g.id;
+                    opt.textContent = g.name;
+                    groupSelect.appendChild(opt);
+                });
+
+                document.getElementById('addLoadTeacherId').value = teacherId;
+                document.getElementById('addLoadModal').classList.add('active');
+            });
+        }
+
+        function openAddLoadModal(teacherId, teacherName) {
+            addLoad(teacherId);
+        }
+
+        function closeAddLoadModal() {
+            document.getElementById('addLoadModal').classList.remove('active');
+        }
+
+        function saveAddLoad() {
+            const teacherId = document.getElementById('addLoadTeacherId').value;
+            const disciplineId = document.getElementById('addLoadDiscipline').value;
+            const groupId = document.getElementById('addLoadGroup').value;
+            const plannedHours = document.getElementById('addLoadPlanned').value;
+            const year = document.getElementById('addLoadYear').value;
+
+            if (!disciplineId || !groupId || !plannedHours) {
+                alert('Заполните все поля');
+                return;
+            }
+
+            fetch('/api/schedule', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    teacherId, disciplineId, groupId,
+                    plannedHours: parseInt(plannedHours),
+                    academicYear: parseInt(year),
+                    readHours: 0
+                })
+            }).then(r => {
+                if (r.ok) {
+                    alert('Нагрузка добавлена');
+                    closeAddLoadModal();
+                    loadTeachers();
+                } else {
+                    alert('Ошибка добавления');
+                }
+            });
+        }
+
+        function assignCuratorship(teacherId) {
+            fetch('/api/groups')
+                .then(r => r.json())
+                .then(groups => {
+                    const select = document.getElementById('assignCuratorGroup');
+                    select.innerHTML = '<option value="">Выберите группу</option>';
+                    groups.forEach(g => {
+                        const opt = document.createElement('option');
+                        opt.value = g.id;
+                        opt.textContent = g.name;
+                        select.appendChild(opt);
+                    });
+
+                    document.getElementById('assignCuratorTeacherId').value = teacherId;
+                    document.getElementById('assignCuratorModal').classList.add('active');
+                });
+        }
+
+        function openAssignCuratorModal(teacherId, teacherName) {
+            assignCuratorship(teacherId);
+        }
+
+        function closeAssignCuratorModal() {
+            document.getElementById('assignCuratorModal').classList.remove('active');
+        }
+
+        function saveAssignCurator() {
+            const teacherId = document.getElementById('assignCuratorTeacherId').value;
+            const groupId = document.getElementById('assignCuratorGroup').value;
+            const hours = document.getElementById('assignCuratorHours').value;
+
+            if (!groupId) {
+                alert('Выберите группу');
+                return;
+            }
+
+            fetch('/api/curatorships', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    teacherId: parseInt(teacherId),
+                    groupId: parseInt(groupId),
+                    hours: parseInt(hours)
+                })
+            }).then(r => {
+                if (r.ok) {
+                    alert('Кураторство назначено');
+                    closeAssignCuratorModal();
+                    loadTeachers();
+                } else {
+                    alert('Ошибка назначения');
+                }
+            });
+        }
+
+        function approveHours(teacherId) {
+            const year = /*[[${year}]]*/ 2025;
+            fetch(`/api/teachers/${teacherId}/profile?year=${year}`)
+                .then(r => r.json())
+                .then(profile => {
+                    const body = document.getElementById('approveHoursBody');
+
+                    if (!profile.loads || profile.loads.length === 0) {
+                        body.innerHTML = '<p class="text-muted">Нет записей для утверждения</p>';
+                    } else {
+                        body.innerHTML = `
+                            <p><strong>Преподаватель:</strong> ${profile.teacherName}</p>
+                            <table style="width:100%;font-size:0.85rem">
+                                <thead>
+                                    <tr>
+                                        <th>Дисциплина</th>
+                                        <th>Группа</th>
+                                        <th>План</th>
+                                        <th>Вычитано</th>
+                                        <th>Осталось</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${profile.loads.map(l => `
+                                        <tr>
+                                            <td>${l.discipline}</td>
+                                            <td>${l.groupName}</td>
+                                            <td>${l.planned}</td>
+                                            <td>${l.read}</td>
+                                            <td>${l.remaining}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            <div style="margin-top:1rem;padding:1rem;background:#f0fdf4;border-radius:0.5rem">
+                                <strong>Итого:</strong> план ${profile.totalPlanned}, вычитано ${profile.totalRead}, осталось ${profile.totalRemaining}
+                            </div>
+                        `;
+                    }
+
+                    document.getElementById('approveHoursModal').classList.add('active');
+                });
+        }
+
+        function openApproveHoursModal(teacherId, teacherName) {
+            approveHours(teacherId);
+        }
+
+        function closeApproveHoursModal() {
+            document.getElementById('approveHoursModal').classList.remove('active');
         }
     </script>
 </body>

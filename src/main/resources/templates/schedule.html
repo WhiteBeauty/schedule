@@ -7,20 +7,21 @@
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">📅 Расписание</h2>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">📋 Учёт нагрузки по дисциплинам (учебный год <span id="yearLabel">2024</span>)</h2>
+            <h2 class="card-title">📋 Учёт нагрузки по дисциплинам (учебный год <span id="yearLabel" th:text="${year}">2025</span>)</h2>
             <div class="filters">
-                <label>Год: <select id="yearSelect"><option value="2024" selected>2024</option><option value="2025">2025</option></select></label>
+                <label>Год:
+                    <select id="yearSelect" th:value="${year}">
+                        <option value="2025">2025</option>
+                        <option value="2026" selected>2026</option>
+                        <option value="2027">2027</option>
+                        <option value="2028">2028</option>
+                    </select>
+                </label>
                 <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
             </div>
         </div>
@@ -42,7 +43,7 @@
         </table>
     </div>
 
-    <div class="grid">
+    <div class="grid" style="margin-top: 1.5rem;">
         <div class="stat">
             <div class="stat-label">Всего дисциплин</div>
             <div class="stat-value" id="statLoads">0</div>
@@ -82,7 +83,11 @@
     </div>
 </div>
 
-<script>
+<script th:inline="javascript">
+const teacherId = /*[[${teacherId}]]*/ null;
+const isAdmin = /*[[${isAdmin}]]*/ false;
+const defaultYear = /*[[${year}]]*/ 2025;
+
 let currentLoadId = null;
 let loadData = null;
 
@@ -90,11 +95,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const yearSelect = document.getElementById('yearSelect');
     const yearLabel = document.getElementById('yearLabel');
 
+    yearSelect.value = defaultYear;
+    yearLabel.textContent = defaultYear;
+
     loadData = () => {
         const year = yearSelect.value;
         yearLabel.textContent = year;
 
-        fetch(`/api/loads?year=${year}`)
+        const url = isAdmin
+            ? `/api/schedule?year=${year}`
+            : `/api/loads?year=${year}`;
+
+        fetch(url)
             .then(res => res.json())
             .then(data => {
                 const tbody = document.getElementById('loadBody');
@@ -105,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 data.forEach(load => {
                     totalPlanned += load.plannedHours;
                     totalRead += load.readHours;
-                    totalCp += load.controlPoints.length;
+                    totalCp += load.controlPoints ? load.controlPoints.length : 0;
 
                     const remaining = load.plannedHours - load.readHours;
                     const completion = load.plannedHours > 0 ? (load.readHours * 100 / load.plannedHours) : 0;
@@ -118,9 +130,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>${load.teacher.fullName}</td>
-                        <td>${load.discipline.name} ${load.discipline.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
-                        <td>${load.group.name}</td>
+                        <td>${load.teacher?.fullName || '-'}</td>
+                        <td>${load.discipline?.name || '-'} ${load.discipline?.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
+                        <td>${load.group?.name || '-'}</td>
                         <td>${load.plannedHours}</td>
                         <td>${load.readHours}</td>
                         <td class="${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
@@ -128,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="progress-bar ${completion >= 100 ? 'success' : completion >= 80 ? 'warning' : 'danger'}" style="width:${Math.min(completion, 100)}%"></div>
                         </div></td>
                         <td><span class="badge ${statusClass}">${status}</span></td>
-                        <td><button class="btn btn-sm" onclick="openEdit(${load.id}, '${load.teacher.fullName}', '${load.discipline.name}', '${load.group.name}', ${load.readHours})">✏️</button></td>
+                        <td><button class="btn btn-sm" onclick="openEdit(${load.id}, '${load.teacher?.fullName || ''}', '${load.discipline?.name || ''}', '${load.group?.name || ''}', ${load.readHours})">✏️</button></td>
                     `;
                     tbody.appendChild(tr);
                 });
@@ -137,10 +149,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('statPlanned').textContent = totalPlanned;
                 document.getElementById('statRead').textContent = totalRead;
                 document.getElementById('statCp').textContent = totalCp;
+            })
+            .catch(e => {
+                console.error('Error loading data:', e);
+                document.getElementById('loadBody').innerHTML = '<tr><td colspan="9" class="text-danger">Ошибка загрузки данных</td></tr>';
             });
     };
 
-    yearSelect.value = yearSelect.getAttribute('data-default') || '2024';
     loadData();
 });
 

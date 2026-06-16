@@ -4,9 +4,17 @@
 <body>
 <aside class="sidebar" th:fragment="sidebar">
     <div class="logo">📚 Учёт нагрузки</div>
+    <div style="padding: 0 1.25rem; margin-bottom: 0.75rem; font-size: 0.75rem; color: var(--muted);">
+        Учебный год: <strong th:text="${currentAcademicYear}">2025-2026</strong>
+    </div>
     <ul class="nav-list">
         <li><a th:href="@{/dashboard}" id="nav-dashboard">📊 Личный кабинет</a></li>
-        <li><a th:href="@{/schedule}" id="nav-schedule">📅 Расписание</a></li>
+        <li><a th:href="@{/schedule}" id="nav-schedule">📅 Моё расписание</a></li>
+        <li th:if="${isAdmin}" style="border-top: 1px solid var(--border); margin-top: 0.5rem; padding-top: 0.5rem;">
+            <small style="padding: 0 1.25rem; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Администратор</small>
+        </li>
+        <li th:if="${isAdmin}"><a th:href="@{/admin/schedule}" id="nav-admin-schedule">📋 Управление расписанием</a></li>
+        <li th:if="${isAdmin}"><a th:href="@{/admin/teachers}" id="nav-admin-teachers">👥 Управление преподавателями</a></li>
         <li><a th:href="@{/time-sync}" id="nav-time-sync">⏱️ Сверка часов</a></li>
         <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>
         <li><a th:href="@{/monthly}" id="nav-monthly">📆 Помесячный учёт</a></li>

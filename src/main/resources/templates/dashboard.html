@@ -115,21 +115,26 @@
 
 <main class="main">
     <!-- Top bar for Teacher -->
-    <div th:if="${teacher != null}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: sticky; top: 0; z-index: 50;">
+    <div th:if="${teacher != null}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
 
         <!-- Productivity indicator -->
         <div class="productivity-bar" style="flex: 1; margin: 0; padding: 0.5rem 1rem;">
             <div class="productivity-indicator" th:classappend="${productivity != null && productivity.level == 'HIGH' ? 'productivity-high' : (productivity != null && productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
-                <span th:text="${productivity != null ? (productivity.level == 'HIGH' ? '▲' : (productivity.level == 'MEDIUM' ? '▼' : '▼▼▼')) : '—'}"></span>
+                <span th:text="${productivity != null ? (productivity.level == 'HIGH' ? '▲▲▲' : (productivity.level == 'MEDIUM' ? '▲' : '▼▼▼')) : '—'}"></span>
             </div>
             <div class="productivity-info">
                 <div class="productivity-label">Продуктивность</div>
                 <div class="productivity-values" th:if="${productivity != null}">
-                    <span th:text="${productivity.index}">0</span>% (норма <span th:text="${productivity.target}">100</span>%)
+                    <span th:text="${#numbers.formatDecimal(productivity.index, 1, 1)}">0</span>% (сейчас: <span th:text="${#numbers.formatDecimal(productivity.index, 1, 1)}">0</span>%, норма: <span th:text="${#numbers.formatDecimal(productivity.target, 1, 1)}">0</span>%)
                 </div>
                 <div class="productivity-values" th:unless="${productivity != null}">Нет данных</div>
+                <div style="font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem;" th:if="${productivity != null}">
+                    План: <span th:text="${#numbers.formatDecimal(productivity.planCompletionPercent, 1, 1)}">0</span>% |
+                    Своевременность: <span th:text="${#numbers.formatDecimal(productivity.timelinessPercent, 1, 1)}">0</span>% |
+                    Точность: <span th:text="${#numbers.formatDecimal(productivity.accuracyPercent, 1, 1)}">0</span>%
+                </div>
             </div>
         </div>
 
@@ -137,13 +142,11 @@
     </div>
 
     <!-- Top bar for Admin -->
-    <div th:if="${teacher == null && isAdmin}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: sticky; top: 0; z-index: 50;">
+    <div th:if="${teacher == null && isAdmin}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
         <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">🎓 Просмотр всех учителей</a>
     </div>
-
-    <div class="top-bar-spacer"></div>
 
     <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
     <h1 class="page-title" th:if="${teacher == null && isAdmin}">📊 Панель администратора</h1>
@@ -171,6 +174,7 @@
         <div class="tabs">
             <a href="#load" class="tab active">Нагрузка на <span th:text="${year}"></span></a>
             <a th:href="@{/monthly(year=${year})}" class="tab">Помесячный учёт</a>
+            <a th:href="@{/curatorship}" class="tab">Кураторство</a>
         </div>
 
         <!-- Load table -->
@@ -456,7 +460,8 @@
         });
 
         function viewAdminTeacher(id) {
-            fetch(`/api/teachers/${id}/profile?year=2024`)
+            const year = /*[[${year}]]*/ 2025;
+            fetch(`/api/teachers/${id}/profile?year=${year}`)
                 .then(r => r.json())
                 .then(p => {
                     const loadsHtml = p.loads.map(l => `
@@ -484,7 +489,7 @@
                                         <tr><td><strong>Телефон:</strong></td><td>${p.phone || '-'}</td></tr>
                                         <tr><td><strong>Ставка:</strong></td><td>${p.rate || '-'} ставки</td></tr>
                                     </table>
-                                    <h4>Нагрузка на 2024 год</h4>
+                    <h4>Нагрузка на <span th:text="${year}">2025</span> год</h4>
                                     <table style="font-size: 0.85rem;">
                                         <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
                                         <tbody>${loadsHtml}</tbody>

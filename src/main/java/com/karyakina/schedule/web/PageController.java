@@ -6,6 +6,7 @@ import com.karyakina.schedule.dto.DashboardDto;
 import com.karyakina.schedule.repository.TeacherRepository;
 import com.karyakina.schedule.repository.UserRepository;
 import com.karyakina.schedule.service.TeacherLoadService;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
@@ -27,19 +28,24 @@ public class PageController {
     }
 
     @GetMapping("/dashboard")
-    public String dashboard(Model model, Authentication authentication) {
+    public String dashboard(Model model, Authentication authentication,
+                            @RequestParam(name = "year", required = false) Integer yearParam) {
         String email = authentication.getName();
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
 
         Teacher teacher = user.getTeacher();
         if (teacher == null) {
             if (user.getRole() == User.Role.ADMIN) {
                 // Для ADMIN без учителя показываем пустую страницу
                 model.addAttribute("teacher", null);
-                model.addAttribute("year", 2024);
+                model.addAttribute("year", year);
                 model.addAttribute("productivity", null);
                 model.addAttribute("loads", java.util.Collections.emptyList());
                 model.addAttribute("totalDisciplines", 0);
@@ -56,7 +62,6 @@ public class PageController {
             }
         }
 
-        Integer year = 2024;
         DashboardDto dto = teacherLoadService.buildDashboard(teacher.getId(), year);
 
         model.addAttribute("teacher", dto);
@@ -77,13 +82,16 @@ public class PageController {
 
     @GetMapping("/schedule")
     public String schedule(Model model, Authentication authentication,
-                           @RequestParam(name = "year", defaultValue = "2024") Integer year) {
+                           @RequestParam(name = "year", required = false) Integer yearParam) {
         Teacher teacher = getTeacherFromAuth(authentication);
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("year", year);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         if (teacher != null) {
             model.addAttribute("teacherId", teacher.getId());
         } else {
@@ -100,6 +108,8 @@ public class PageController {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
         return "time-sync";
     }
 
@@ -108,8 +118,17 @@ public class PageController {
         Teacher teacher = getTeacherFromAuth(authentication);
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
+
+        // Для админа показываем страницу управления кураторством
+        if (user.getRole() == User.Role.ADMIN) {
+            return "curatorship-admin";
+        }
+
         return "curatorship";
     }
 
@@ -121,38 +140,70 @@ public class PageController {
         return user.getRole() == User.Role.ADMIN ? "admin-teachers" : "teachers";
     }
 
-    @GetMapping("/admin/teachers")
-    public String adminTeachers(Model model, Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN) {
-            return "redirect:/dashboard";
-        }
-        return "admin-teachers";
-    }
-
     @GetMapping("/monthly")
     public String monthly(Authentication authentication, Model model,
-                          @RequestParam(name = "year", defaultValue = "2024") Integer year) {
+                          @RequestParam(name = "year", required = false) Integer yearParam) {
         Teacher teacher = getTeacherFromAuth(authentication);
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("year", year);
         model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         return "monthly";
     }
 
     @GetMapping("/productivity")
     public String productivity(Authentication authentication, Model model,
-                               @RequestParam(name = "year", defaultValue = "2024") Integer year) {
+                               @RequestParam(name = "year", required = false) Integer yearParam) {
         Teacher teacher = getTeacherFromAuth(authentication);
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("year", year);
         model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         return "productivity";
+    }
+
+    @GetMapping("/admin/schedule")
+    public String adminSchedule(Model model, Authentication authentication,
+                                @RequestParam(name = "year", required = false) Integer yearParam) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return "redirect:/dashboard";
+        }
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
+        model.addAttribute("isAdmin", true);
+        model.addAttribute("year", year);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        return "admin-schedule";
+    }
+
+    @GetMapping("/admin/teachers")
+    public String adminTeachers(Model model, Authentication authentication,
+                                @RequestParam(name = "year", required = false) Integer yearParam) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return "redirect:/dashboard";
+        }
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
+        model.addAttribute("isAdmin", true);
+        model.addAttribute("year", year);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        return "admin-teachers";
     }
 
     private Teacher getTeacherFromAuth(Authentication authentication) {

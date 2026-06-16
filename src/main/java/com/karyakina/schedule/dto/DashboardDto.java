@@ -40,6 +40,10 @@ public class DashboardDto {
         private double index;
         private double target;
         private String level; // HIGH, MEDIUM, LOW
+        private String color; // success, warning, danger
+        private double planCompletionPercent;
+        private double timelinessPercent;
+        private double accuracyPercent;
     }
 
     @Data @Builder

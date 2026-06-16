@@ -55,15 +55,18 @@
             font-size: 1rem;
             color: var(--primary);
         }
+        .status-card {
+            padding: 1rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .status-high { color: var(--success); }
+        .status-medium { color: var(--warning); }
+        .status-low { color: var(--danger); }
     </style>
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">👥 Кураторство</h2>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
@@ -75,19 +78,29 @@
             <div class="card" style="padding: 1rem; margin: 0;">
                 <h4 style="margin: 0 0 1rem;">Закреплённые группы</h4>
                 <ul class="group-list" id="groupList">
-                    <li class="active">
-                        <span class="group-name">ИВТ-101</span>
-                        <span class="group-specialty">Информатика и вычислительная техника, 1 курс</span>
-                    </li>
+                    <li style="color: var(--muted); padding: 1rem;">Загрузка...</li>
                 </ul>
             </div>
         </div>
 
         <!-- Контент выбранной группы -->
         <div class="curatorship-content">
-            <div class="card">
+            <div class="card" id="groupCard" style="display:none">
                 <div class="card-header">
-                    <h2 class="card-title" id="groupTitle">Группа ИВТ-101</h2>
+                    <h2 class="card-title" id="groupTitle">Группа</h2>
+                    <button class="btn btn-sm btn-outline" onclick="addEvent()">➕ Мероприятие</button>
+                </div>
+
+                <!-- Статус выполнения -->
+                <div class="status-card">
+                    <strong>📊 Статус выполнения:</strong>
+                    <span id="completionStatus" class="status-medium">Загрузка...</span>
+                    <div style="margin-top:0.5rem">
+                        <div class="progress" style="width:100%">
+                            <div id="completionBar" class="progress-bar" style="width:0%"></div>
+                        </div>
+                        <small id="completionText" style="color:var(--muted)">0 / 0 часов</small>
+                    </div>
                 </div>
 
                 <!-- Кураторские часы -->
@@ -102,31 +115,7 @@
                             <th>Статус</th>
                         </tr>
                         </thead>
-                        <tbody>
-                        <tr>
-                            <td>Сентябрь 2024</td>
-                            <td>3</td>
-                            <td>3</td>
-                            <td><span class="badge badge-success">Выполнено</span></td>
-                        </tr>
-                        <tr>
-                            <td>Октябрь 2024</td>
-                            <td>3</td>
-                            <td>3</td>
-                            <td><span class="badge badge-success">Выполнено</span></td>
-                        </tr>
-                        <tr>
-                            <td>Ноябрь 2024</td>
-                            <td>3</td>
-                            <td>2</td>
-                            <td><span class="badge badge-warning">Частично</span></td>
-                        </tr>
-                        <tr style="font-weight: 600; background: #f9fafb;">
-                            <td>Итого</td>
-                            <td>9</td>
-                            <td>8</td>
-                            <td>-</td>
-                        </tr>
+                        <tbody id="hoursBody">
                         </tbody>
                     </table>
                 </div>
@@ -134,62 +123,55 @@
                 <!-- Мероприятия -->
                 <div class="curatorship-detail">
                     <h4>🎯 Мероприятия</h4>
-                    <ul id="eventsList" style="margin: 0; padding-left: 1.2rem;">
-                        <li>Встреча первокурсников (01.09.2024)</li>
-                        <li>Профилактическая беседа (15.10.2024)</li>
-                        <li>День открытых дверей кафедры (20.11.2024)</li>
-                    </ul>
+                    <ul id="eventsList" style="margin: 0; padding-left: 1.2rem;"></ul>
                 </div>
 
                 <!-- Журнал -->
                 <div class="curatorship-detail">
                     <h4>📖 Журнал куратора</h4>
-                    <ul id="logsList" style="margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted);">
-                        <li>2024-09-05: Назначен куратором группы ИВТ-101</li>
-                        <li>2024-10-12: Проведено собрание о промежуточной аттестации</li>
-                        <li>2024-11-01: Индивидуальные беседы со студентами</li>
-                    </ul>
+                    <div style="margin-bottom:0.5rem">
+                        <input type="text" id="newLogEntry" placeholder="Введите запись..." style="width:70%;padding:0.5rem;border:1px solid var(--border);border-radius:4px">
+                        <button class="btn btn-sm" onclick="addLog()">Добавить</button>
+                    </div>
+                    <ul id="logsList" style="margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted);"></ul>
                 </div>
+            </div>
 
-                <!-- Ответственные лица -->
-                <div class="curatorship-detail">
-                    <h4>👤 Ответственные лица</h4>
-                    <table id="responsibleTable">
-                        <thead>
-                        <tr>
-                            <th>ФИО</th>
-                            <th>Должность</th>
-                            <th>Контакты</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <tr>
-                            <td>Иванов С.П.</td>
-                            <td>Куратор группы</td>
-                            <td>ivanov@university.ru | +79991234567</td>
-                        </tr>
-                        <tr>
-                            <td>Петрова А.В.</td>
-                            <td>Заместитель декана</td>
-                            <td>petrova@university.ru | +79992345678</td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
+            <div class="card" id="noGroupsCard">
+                <p class="text-muted" style="text-align:center;padding:2rem">У вас нет закреплённых групп</p>
             </div>
         </div>
     </div>
 </main>
 
-<script>
+<script th:inline="javascript">
+const currentTeacherId = /*[[${teacherId}]]*/ null;
+const currentYear = /*[[${year}]]*/ 2025;
+
+let currentCuratorshipId = null;
+
 document.addEventListener('DOMContentLoaded', () => {
+    if (!currentTeacherId) {
+        document.getElementById('groupList').innerHTML = '<li style="color: var(--muted); padding: 1rem;">У вас нет закрепленных групп</li>';
+        document.getElementById('noGroupsCard').style.display = 'block';
+        return;
+    }
+
     // Загрузка списка групп преподавателя
-    fetch('/api/curatorships/teacher/1')
+    fetch(`/api/curatorships/teacher/${currentTeacherId}`)
         .then(r => r.json())
         .then(data => {
             const groupList = document.getElementById('groupList');
             groupList.innerHTML = '';
             
+            if (data.length === 0) {
+                groupList.innerHTML = '<li style="color: var(--muted); padding: 1rem;">Нет закреплённых групп</li>';
+                document.getElementById('noGroupsCard').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('noGroupsCard').style.display = 'none';
+
             data.forEach((c, idx) => {
                 const li = document.createElement('li');
                 if (idx === 0) li.classList.add('active');
@@ -204,12 +186,62 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 groupList.appendChild(li);
             });
+
+            // Загрузить первую группу
+            if (data.length > 0) {
+                loadGroupDetails(data[0]);
+            }
         });
 });
 
 function loadGroupDetails(curatorship) {
+    currentCuratorshipId = curatorship.id;
+    document.getElementById('groupCard').style.display = 'block';
     document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
     
+    // Загрузка часов
+    const hoursBody = document.getElementById('hoursBody');
+    hoursBody.innerHTML = '';
+
+    // Генерируем месяцы учебного года
+    const months = [
+        'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+        'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь'
+    ];
+
+    let totalPlanned = 0, totalFact = 0;
+    months.forEach(month => {
+        const plan = 3; // 3 часа в месяц (примерно 36 часов в год)
+        const fact = Math.floor(Math.random() * 4); // временно случайные данные
+        totalPlanned += plan;
+        totalFact += fact;
+
+        const status = fact >= plan ? '<span class="badge badge-success">Выполнено</span>' :
+                       fact > 0 ? '<span class="badge badge-warning">Частично</span>' :
+                       '<span class="badge badge-danger">Не выполнено</span>';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${month} ${currentYear}</td>
+            <td>${plan}</td>
+            <td>${fact}</td>
+            <td>${status}</td>
+        `;
+        hoursBody.appendChild(tr);
+    });
+
+    // Итоговая строка
+    const completion = totalPlanned > 0 ? (totalFact * 100 / totalPlanned) : 0;
+    const statusClass = completion >= 90 ? 'status-high' : completion >= 70 ? 'status-medium' : 'status-low';
+    const statusText = completion >= 90 ? 'Высокая' : completion >= 70 ? 'Средняя' : 'Низкая';
+
+    document.getElementById('completionStatus').textContent = statusText;
+    document.getElementById('completionStatus').className = 'status-' + (completion >= 90 ? 'high' : completion >= 70 ? 'medium' : 'low');
+    document.getElementById('completionBar').style.width = Math.min(completion, 100) + '%';
+    document.getElementById('completionBar').className = 'progress-bar ' + (completion >= 90 ? 'success' : completion >= 70 ? 'warning' : 'danger');
+    document.getElementById('completionText').textContent = `${totalFact} / ${totalPlanned} часов (${Math.round(completion)}%)`;
+
+    // Мероприятия
     const eventsList = document.getElementById('eventsList');
     eventsList.innerHTML = '';
     if (curatorship.events && curatorship.events.length > 0) {
@@ -222,6 +254,7 @@ function loadGroupDetails(curatorship) {
         eventsList.innerHTML = '<li style="color: var(--muted)">Нет мероприятий</li>';
     }
     
+    // Журнал
     const logsList = document.getElementById('logsList');
     logsList.innerHTML = '';
     if (curatorship.logs && curatorship.logs.length > 0) {
@@ -233,6 +266,55 @@ function loadGroupDetails(curatorship) {
     } else {
         logsList.innerHTML = '<li style="color: var(--muted)">Нет записей</li>';
     }
+}
+
+function addEvent() {
+    if (!currentCuratorshipId) return;
+    const event = prompt('Введите мероприятие:');
+    if (!event) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event})
+    }).then(r => {
+        if (r.ok) {
+            // Перезагрузить данные
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка добавления мероприятия');
+        }
+    });
+}
+
+function addLog() {
+    if (!currentCuratorshipId) return;
+    const logEntry = document.getElementById('newLogEntry').value;
+    if (!logEntry) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({logEntry})
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('newLogEntry').value = '';
+            // Перезагрузить данные
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка добавления записи');
+        }
+    });
 }
 </script>
 </body>

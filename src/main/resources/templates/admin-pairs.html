@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расписание пар</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+        <h1 class="page-title" style="margin:0">📅 Расписание пар</h1>
+        <div style="display:flex;gap:0.5rem">
+            <button class="btn btn-outline" onclick="openSickLeavesModal()">🤒 Больничные</button>
+            <button class="btn btn-primary" onclick="openCreatePairModal()">➕ Добавить пару</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.5rem">
+        <div class="filters">
+            <label>Учебный год:
+                <select id="yearSelect" onchange="loadPairs()">
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                </select>
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="loadPairs()">🔄 Обновить</button>
+            <button class="btn btn-sm btn-primary" onclick="autoDeduct()">⏱️ Автовычет часов</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <table id="pairsTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th>
+                <th>Дисциплина</th>
+                <th>Группа</th>
+                <th>День</th>
+                <th>Время</th>
+                <th>Аудитория</th>
+            <th>Неделя</th>
+            <th>Действия</th>
+        </tr>
+        </thead>
+        <tbody id="pairsBody"></tbody>
+    </table>
+</div>
+</main>
+
+<!-- Modal Edit Pair -->
+<div class="modal-overlay" id="editPairModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Редактировать пару</h3>
+            <button class="close-btn" onclick="closeEditPairModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Преподаватель</label>
+                <input type="text" id="editTeacherName" disabled style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px;background:#f3f4f6">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дисциплина</label>
+                <input type="text" id="editDisciplineName" disabled style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px;background:#f3f4f6">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Группа</label>
+                <input type="text" id="editGroupName" disabled style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px;background:#f3f4f6">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">День недели *</label>
+                <select id="editDayOfWeek" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <option value="MONDAY">Понедельник</option>
+                    <option value="TUESDAY">Вторник</option>
+                    <option value="WEDNESDAY">Среда</option>
+                    <option value="THURSDAY">Четверг</option>
+                    <option value="FRIDAY">Пятница</option>
+                    <option value="SATURDAY">Суббота</option>
+                </select>
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Время начала *</label>
+                <input type="time" id="editStartTime" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Время конца *</label>
+                <input type="time" id="editEndTime" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Аудитория *</label>
+                <input type="text" id="editClassroom" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (1-18, пустое = каждая)</label>
+                <input type="number" id="editAcademicWeek" min="1" max="18" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeEditPairModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="saveEditPair()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Create Pair -->
+<div class="modal-overlay" id="pairModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Добавить пару</h3>
+            <button class="close-btn" onclick="closePairModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Преподаватель *</label>
+                <select id="teacherSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px" onchange="onTeacherChange()">
+                    <option value="">Выберите преподавателя</option>
+                </select>
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Группа *</label>
+                <select id="groupSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px" onchange="onGroupChange()">
+                    <option value="">Сначала выберите преподавателя</option>
+                </select>
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дисциплина *</label>
+                <select id="disciplineSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px" onchange="onDisciplineChange()">
+                    <option value="">Сначала выберите группу</option>
+                </select>
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">День недели *</label>
+                <select id="dayOfWeek" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <option value="MONDAY">Понедельник</option>
+                    <option value="TUESDAY">Вторник</option>
+                    <option value="WEDNESDAY">Среда</option>
+                    <option value="THURSDAY">Четверг</option>
+                    <option value="FRIDAY">Пятница</option>
+                    <option value="SATURDAY">Суббота</option>
+                </select>
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Время начала *</label>
+                <input type="time" id="startTime" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Время конца *</label>
+                <input type="time" id="endTime" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Аудитория *</label>
+                <input type="text" id="classroom" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (1-18, пустое = каждая)</label>
+                <input type="number" id="academicWeek" min="1" max="18" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closePairModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="savePair()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Sick Leaves -->
+<div class="modal-overlay" id="sickLeavesModal">
+    <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+            <h3 style="margin:0">🤒 Больничные листы</h3>
+            <button class="close-btn" onclick="closeSickLeavesModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+                <select id="sickTeacher" style="flex:1;min-width:150px;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <option value="">Выберите преподавателя</option>
+                </select>
+                <input type="date" id="sickStart" placeholder="Начало" style="padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <input type="date" id="sickEnd" placeholder="Конец" style="padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <input type="text" id="sickReason" placeholder="Причина" style="flex:1;min-width:150px;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <button class="btn btn-primary" onclick="addSickLeave()">➕</button>
+            </div>
+            <table id="sickTable">
+                <thead><tr><th>Преподаватель</th><th>Начало</th><th>Конец</th><th>Причина</th><th>Действия</th></tr></thead>
+                <tbody id="sickBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let pairsData = [];
+let loadsData = [];
+let teachersData = [];
+let groupsData = [];
+let disciplinesData = [];
+let sickLeavesData = [];
+
+let selectedTeacherId = null;
+let selectedGroupId = null;
+let selectedTeacherLoadId = null;
+let editingPairId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadPairs();
+    loadTeachers();
+    loadGroups();
+    loadDisciplines();
+
+    // Загружаем нагрузки для текущего года
+    const year = document.getElementById('yearSelect').value;
+    fetch(`/api/loads?year=${year}`)
+        .then(r => r.json())
+        .then(data => {
+            console.log('Loaded loads:', data);
+            loadsData = data;
+        });
+});
+
+function loadTeachers() {
+    fetch('/api/teachers')
+        .then(r => r.json())
+        .then(data => {
+            teachersData = data;
+            const select = document.getElementById('teacherSelect');
+            const sickSelect = document.getElementById('sickTeacher');
+            select.innerHTML = '<option value="">Выберите преподавателя</option>';
+            sickSelect.innerHTML = '<option value="">Выберите преподавателя</option>';
+            data.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.fullName;
+                select.appendChild(opt);
+
+                const sickOpt = opt.cloneNode(true);
+                sickSelect.appendChild(sickOpt);
+            });
+        });
+}
+
+function loadGroups() {
+    fetch('/api/groups')
+        .then(r => r.json())
+        .then(data => {
+            groupsData = data;
+        });
+}
+
+function loadDisciplines() {
+    fetch('/api/disciplines')
+        .then(r => r.json())
+        .then(data => {
+            disciplinesData = data;
+        });
+}
+
+function onTeacherChange() {
+    selectedTeacherId = document.getElementById('teacherSelect').value;
+    selectedGroupId = null;
+    selectedTeacherLoadId = null;
+
+    console.log('Teacher selected:', selectedTeacherId);
+
+    const groupSelect = document.getElementById('groupSelect');
+    const disciplineSelect = document.getElementById('disciplineSelect');
+
+    groupSelect.innerHTML = '<option value="">Выберите группу</option>';
+    disciplineSelect.innerHTML = '<option value="">Сначала выберите преподавателя</option>';
+    disciplineSelect.disabled = true;
+
+    if (!selectedTeacherId) {
+        groupSelect.disabled = true;
+        return;
+    }
+
+    groupSelect.disabled = false;
+
+    // Фильтруем нагрузки по преподавателю
+    const teacherLoads = loadsData.filter(l => l.teacher.id == selectedTeacherId);
+    const uniqueGroupIds = [...new Set(teacherLoads.map(l => l.group.id))];
+
+    console.log('Teacher loads:', teacherLoads.length, 'Groups:', uniqueGroupIds);
+
+    uniqueGroupIds.forEach(groupId => {
+        const group = groupsData.find(g => g.id == groupId);
+        if (group) {
+            const opt = document.createElement('option');
+            opt.value = group.id;
+            opt.textContent = group.name;
+            groupSelect.appendChild(opt);
+        }
+    });
+}
+
+function onGroupChange() {
+    selectedGroupId = document.getElementById('groupSelect').value;
+    selectedTeacherLoadId = null;
+
+    console.log('Group selected:', selectedGroupId);
+
+    const disciplineSelect = document.getElementById('disciplineSelect');
+    disciplineSelect.innerHTML = '<option value="">Сначала выберите группу</option>';
+    disciplineSelect.disabled = true;
+
+    if (!selectedGroupId) {
+        return;
+    }
+
+    disciplineSelect.disabled = false;
+
+    // Фильтруем нагрузки по преподавателю и группе
+    const teacherLoads = loadsData.filter(l =>
+        l.teacher.id == selectedTeacherId && l.group.id == selectedGroupId
+    );
+
+    console.log('Filtered loads:', teacherLoads.length);
+
+    const uniqueDisciplineIds = [...new Set(teacherLoads.map(l => l.discipline.id))];
+
+    uniqueDisciplineIds.forEach(discId => {
+        const disc = disciplinesData.find(d => d.id == discId);
+        if (disc) {
+            const opt = document.createElement('option');
+            opt.value = discId;
+            opt.textContent = disc.name;
+            disciplineSelect.appendChild(opt);
+        }
+    });
+}
+
+function onDisciplineChange() {
+    const discId = document.getElementById('disciplineSelect').value;
+
+    if (!discId) {
+        selectedTeacherLoadId = null;
+        return;
+    }
+
+    // Находим нагрузку по преподавателю, группе и дисциплине
+    const load = loadsData.find(l =>
+        l.teacher.id == selectedTeacherId &&
+        l.group.id == selectedGroupId &&
+        l.discipline.id == discId
+    );
+
+    console.log('Looking for load:', {
+        teacherId: selectedTeacherId,
+        groupId: selectedGroupId,
+        disciplineId: discId,
+        found: load
+    });
+
+    if (load) {
+        selectedTeacherLoadId = load.id;
+        console.log('Selected teacherLoadId:', selectedTeacherLoadId);
+    } else {
+        console.warn('Load not found! Available loads:', loadsData);
+        selectedTeacherLoadId = null;
+    }
+}
+
+function loadPairs() {
+    const year = document.getElementById('yearSelect').value;
+    Promise.all([
+        fetch(`/api/pairs?year=${year}`).then(r => r.json()),
+        fetch(`/api/loads?year=${year}`).then(r => r.json())
+    ]).then(([pairs, loads]) => {
+        pairsData = pairs;
+        loadsData = loads;
+        renderPairs();
+    });
+}
+
+function renderPairs() {
+    const tbody = document.getElementById('pairsBody');
+    tbody.innerHTML = '';
+
+    if (pairsData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:2rem">Нет расписания пар</td></tr>';
+        return;
+    }
+
+    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт','SATURDAY':'Сб'};
+
+    pairsData.forEach(p => {
+        const tr = document.createElement('tr');
+        const loadId = p.teacherLoad ? p.teacherLoad.id : null;
+        tr.innerHTML = `
+            <td>${p.teacherLoad.teacher.fullName}</td>
+            <td>${p.teacherLoad.discipline.name}</td>
+            <td>${p.teacherLoad.group.name}</td>
+            <td>${dayNames[p.dayOfWeek] || p.dayOfWeek}</td>
+            <td>${p.startTime.substring(0,5)} - ${p.endTime.substring(0,5)}</td>
+            <td>${p.classroom}</td>
+            <td>${p.academicWeek || 'Каждую'}</td>
+            <td>
+                <button class="btn btn-sm btn-outline" onclick="openEditPairModal(${p.id}, '${p.teacherLoad.teacher.fullName.replace(/'/g, "\\'")}', '${p.teacherLoad.discipline.name.replace(/'/g, "\\'")}', '${p.teacherLoad.group.name.replace(/'/g, "\\'")}', '${p.dayOfWeek}', '${p.startTime}', '${p.endTime}', '${p.classroom}', ${p.academicWeek || ''})" style="background:#3b82f6;color:#fff;margin-right:0.25rem">✏️</button>
+                <button class="btn btn-sm btn-danger" onclick="deletePair(${p.id})" style="background:var(--danger);color:#fff">🗑️</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function openCreatePairModal() {
+    document.getElementById('teacherSelect').value = '';
+    document.getElementById('groupSelect').value = '';
+    document.getElementById('groupSelect').disabled = true;
+    document.getElementById('disciplineSelect').value = '';
+    document.getElementById('disciplineSelect').disabled = true;
+    document.getElementById('dayOfWeek').value = 'MONDAY';
+    document.getElementById('startTime').value = '';
+    document.getElementById('endTime').value = '';
+    document.getElementById('classroom').value = '';
+    document.getElementById('academicWeek').value = '';
+    selectedTeacherId = null;
+    selectedGroupId = null;
+    selectedTeacherLoadId = null;
+    document.getElementById('pairModal').classList.add('active');
+}
+
+function closePairModal() {
+    document.getElementById('pairModal').classList.remove('active');
+}
+
+function savePair() {
+    const teacherId = selectedTeacherId;
+    const groupId = selectedGroupId;
+    const disciplineId = document.getElementById('disciplineSelect').value;
+    const dayOfWeek = document.getElementById('dayOfWeek').value;
+    const startTime = document.getElementById('startTime').value;
+    const endTime = document.getElementById('endTime').value;
+    const classroom = document.getElementById('classroom').value;
+    const academicWeek = document.getElementById('academicWeek').value;
+    const year = document.getElementById('yearSelect').value;
+
+    console.log('Saving pair:', {
+        teacherId,
+        groupId,
+        disciplineId,
+        dayOfWeek,
+        startTime,
+        endTime,
+        classroom,
+        academicWeek,
+        year
+    });
+
+    if (!teacherId || !groupId || !disciplineId) {
+        alert('Выберите преподавателя, группу и дисциплину');
+        return;
+    }
+
+    if (!dayOfWeek || !startTime || !endTime || !classroom) {
+        alert('Заполните все обязательные поля');
+        return;
+    }
+
+    const data = {
+        teacherId: parseInt(teacherId),
+        groupId: parseInt(groupId),
+        disciplineId: parseInt(disciplineId),
+        dayOfWeek,
+        startTime,
+        endTime,
+        classroom,
+        academicWeek: academicWeek ? parseInt(academicWeek) : null,
+        academicYear: parseInt(year)
+    };
+
+    fetch('/api/pairs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => {
+        if (r.ok) {
+            closePairModal();
+            loadPairs();
+        } else {
+            alert('Ошибка добавления. Убедитесь, что нагрузка существует.');
+        }
+    });
+}
+
+function deletePair(id) {
+    if (!confirm('Удалить эту пару из расписания?')) return;
+    fetch(`/api/pairs/${id}`, {method: 'DELETE'})
+        .then(r => { if (r.ok) loadPairs(); else alert('Ошибка удаления'); });
+}
+
+function autoDeduct() {
+    if (!confirm('Выполнить автоматический вычет часов по расписанию?\n\nЧасы будут вычтены для пар, которые прошли сегодня, если преподаватель не на больничном.')) return;
+    
+    fetch('/api/auto-deduct', {method: 'POST'})
+        .then(r => {
+            if (r.ok) {
+                alert('Автовычет выполнен');
+                loadPairs();
+            } else {
+                alert('Ошибка автовычета');
+            }
+        });
+}
+
+// Edit Pair Modal
+function openEditPairModal(id, teacherName, disciplineName, groupName, dayOfWeek, startTime, endTime, classroom, academicWeek) {
+    editingPairId = id;
+    document.getElementById('editTeacherName').value = teacherName;
+    document.getElementById('editDisciplineName').value = disciplineName;
+    document.getElementById('editGroupName').value = groupName;
+    document.getElementById('editDayOfWeek').value = dayOfWeek;
+    document.getElementById('editStartTime').value = startTime;
+    document.getElementById('editEndTime').value = endTime;
+    document.getElementById('editClassroom').value = classroom;
+    document.getElementById('editAcademicWeek').value = academicWeek || '';
+    document.getElementById('editPairModal').classList.add('active');
+}
+
+function closeEditPairModal() {
+    document.getElementById('editPairModal').classList.remove('active');
+    editingPairId = null;
+}
+
+function saveEditPair() {
+    if (!editingPairId) return;
+
+    const dayOfWeek = document.getElementById('editDayOfWeek').value;
+    const startTime = document.getElementById('editStartTime').value;
+    const endTime = document.getElementById('editEndTime').value;
+    const classroom = document.getElementById('editClassroom').value;
+    const academicWeek = document.getElementById('editAcademicWeek').value;
+
+    if (!dayOfWeek || !startTime || !endTime || !classroom) {
+        alert('Заполните все обязательные поля');
+        return;
+    }
+
+    const data = {
+        dayOfWeek,
+        startTime,
+        endTime,
+        classroom,
+        academicWeek: academicWeek ? parseInt(academicWeek) : null
+    };
+
+    fetch(`/api/pairs/${editingPairId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => {
+        if (r.ok) {
+            closeEditPairModal();
+            loadPairs();
+        } else {
+            alert('Ошибка сохранения');
+        }
+    });
+}
+
+// Sick Leaves
+function openSickLeavesModal() {
+    document.getElementById('sickLeavesModal').classList.add('active');
+    loadSickLeaves();
+}
+
+function closeSickLeavesModal() {
+    document.getElementById('sickLeavesModal').classList.remove('active');
+}
+
+function loadSickLeaves() {
+    fetch('/api/sick-leaves')
+        .then(r => r.json())
+        .then(data => {
+            sickLeavesData = data;
+            const tbody = document.getElementById('sickBody');
+            tbody.innerHTML = '';
+            data.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${s.teacher.fullName}</td>
+                    <td>${s.startDate}</td>
+                    <td>${s.endDate}</td>
+                    <td>${s.reason || '-'}</td>
+                    <td><button class="btn btn-sm btn-danger" onclick="deleteSickLeave(${s.id})" style="background:var(--danger);color:#fff">🗑️</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+}
+
+function addSickLeave() {
+    const teacherId = document.getElementById('sickTeacher').value;
+    const startDate = document.getElementById('sickStart').value;
+    const endDate = document.getElementById('sickEnd').value;
+    const reason = document.getElementById('sickReason').value || '';
+
+    if (!teacherId || !startDate || !endDate) {
+        alert('Выберите преподавателя и даты');
+        return;
+    }
+
+    const data = {
+        teacherId: parseInt(teacherId),
+        startDate,
+        endDate,
+        reason,
+        academicYear: 2026
+    };
+
+    fetch('/api/sick-leaves', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('sickTeacher').value = '';
+            document.getElementById('sickStart').value = '';
+            document.getElementById('sickEnd').value = '';
+            document.getElementById('sickReason').value = '';
+            loadSickLeaves();
+        } else {
+            alert('Ошибка добавления');
+        }
+    });
+}
+
+function deleteSickLeave(id) {
+    if (!confirm('Удалить больничный лист?')) return;
+    fetch(`/api/sick-leaves/${id}`, {method: 'DELETE'})
+        .then(r => { if (r.ok) loadSickLeaves(); else alert('Ошибка удаления'); });
+}
+</script>
+</body>
+</html>

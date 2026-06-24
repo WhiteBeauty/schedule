@@ -25,10 +25,10 @@
             <h2 class="card-title">Фильтры</h2>
         </div>
         <div class="filters">
-            <label>Преподаватель: <select id="filterTeacher"><option value="">Все</option></select></label>
+            <label th:if="${isAdmin}">Преподаватель: <select id="filterTeacher"><option value="">Все</option></select></label>
             <label>Группа: <select id="filterGroup"><option value="">Все</option></select></label>
             <label>Дисциплина: <select id="filterDiscipline"><option value="">Все</option></select></label>
-            <label>Год: <select id="yearSelect"><option value="2024" selected>2024</option><option value="2025">2025</option></select></label>
+            <label>Год: <select id="yearSelect"><option value="2026" selected>2026</option><option value="2027">2027</option></select></label>
             <button class="btn" onclick="applyFilters()">Применить</button>
         </div>
     </div>
@@ -83,62 +83,68 @@ let allRecords = [];
 let currentRecordId = null;
 
 async function init() {
-    const [teachers, groups, disciplines] = await Promise.all([
-        fetch('/api/teachers').then(r => r.json()),
-        fetch('/api/groups').then(r => r.json()),
-        fetch('/api/disciplines').then(r => r.json())
-    ]);
+    const isAdmin = /*[[${isAdmin}]]*/ false;
 
-    const tSel = document.getElementById('filterTeacher');
-    teachers.forEach(t => tSel.add(new Option(t.fullName, t.id)));
-    const gSel = document.getElementById('filterGroup');
-    groups.forEach(g => gSel.add(new Option(g.name, g.id)));
-    const dSel = document.getElementById('filterDiscipline');
-    disciplines.forEach(d => dSel.add(new Option(d.name, d.id)));
+    // Загружаем фильтры только для админа
+    if (isAdmin) {
+        const [teachers, groups, disciplines] = await Promise.all([
+            fetch('/api/teachers').then(r => r.json()),
+            fetch('/api/groups').then(r => r.json()),
+            fetch('/api/disciplines').then(r => r.json())
+        ]);
+
+        const tSel = document.getElementById('filterTeacher');
+        teachers.forEach(t => tSel.add(new Option(t.fullName, t.id)));
+        const gSel = document.getElementById('filterGroup');
+        groups.forEach(g => gSel.add(new Option(g.name, g.id)));
+        const dSel = document.getElementById('filterDiscipline');
+        disciplines.forEach(d => dSel.add(new Option(d.name, d.id)));
+    }
 
     await loadData();
 }
 
 async function loadData() {
     const year = document.getElementById('yearSelect').value;
-    allLoads = await fetch(`/api/loads?year=${year}`).then(r => r.json());
 
-    // Flatten all monthly records
-    allRecords = [];
-    allLoads.forEach(load => {
-        load.monthlyRecords.forEach(rec => {
-            allRecords.push({
-                ...rec,
-                teacherName: load.teacher.fullName,
-                teacherId: load.teacher.id,
-                disciplineName: load.discipline.name,
-                disciplineId: load.discipline.id,
-                groupName: load.group.name,
-                groupId: load.group.id
-            });
-        });
-    });
+    // Используем новый endpoint для monthly records
+    allRecords = await fetch(`/api/monthly-records?year=${year}`)
+        .then(r => r.json())
+        .catch(() => []);
 
     applyFilters();
 }
 
 function applyFilters() {
+    const isAdmin = /*[[${isAdmin}]]*/ false;
     const tFilter = document.getElementById('filterTeacher').value;
     const gFilter = document.getElementById('filterGroup').value;
     const dFilter = document.getElementById('filterDiscipline').value;
 
     const filtered = allRecords.filter(r => {
-        return (!tFilter || r.teacherId == tFilter) &&
-               (!gFilter || r.groupId == gFilter) &&
-               (!dFilter || r.disciplineId == dFilter);
+        let match = true;
+        if (!isAdmin) {
+            // Для преподавателя показываем только его записи (фильтрация на сервере)
+            return true;
+        }
+        if (tFilter && r.teacherId != tFilter) match = false;
+        if (gFilter && r.groupId != gFilter) match = false;
+        if (dFilter && r.disciplineId != dFilter) match = false;
+        return match;
     });
 
     const tbody = document.getElementById('monthlyBody');
     tbody.innerHTML = '';
 
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-muted" style="text-align:center;padding:2rem">Нет данных за выбранный период</td></tr>';
+        return;
+    }
+
+    const monthNames = ['','январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
     filtered.forEach(r => {
-        const monthNames = ['','январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
         const tr = document.createElement('tr');
+        const hasId = r.id != null && r.id !== 0;
         tr.innerHTML = `
             <td>${r.teacherName}</td>
             <td>${r.disciplineName}</td>
@@ -148,7 +154,7 @@ function applyFilters() {
             <td class="${r.adjustedHours != null ? 'text-success' : ''}">${r.adjustedHours != null ? r.adjustedHours : '-'}</td>
             <td>${r.note || '-'}</td>
             <td>${r.changedBy || '-'}</td>
-            <td><button class="btn btn-sm" onclick="openAdjust(${r.id}, '${r.teacherName}', '${r.disciplineName}', ${r.hours}, '${(r.note || '').replace(/'/g, "\\'")}')">✏️</button></td>
+            <td>${hasId ? `<button class="btn btn-sm" onclick="openAdjust(${r.id}, '${r.teacherName.replace(/'/g, "\\'")}', '${r.disciplineName.replace(/'/g, "\\'")}', ${r.hours}, '${(r.note || '').replace(/'/g, "\\'")}')">✏️</button>` : '-'}</td>
         `;
         tbody.appendChild(tr);
     });

@@ -146,7 +146,7 @@
 
 <script th:inline="javascript">
 const currentTeacherId = /*[[${teacherId}]]*/ null;
-const currentYear = /*[[${year}]]*/ 2025;
+const currentYear = 2026;
 
 let currentCuratorshipId = null;
 
@@ -159,7 +159,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Загрузка списка групп преподавателя
     fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('Ошибка загрузки');
+            return r.json();
+        })
         .then(data => {
             const groupList = document.getElementById('groupList');
             groupList.innerHTML = '';
@@ -191,6 +194,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.length > 0) {
                 loadGroupDetails(data[0]);
             }
+        })
+        .catch(e => {
+            console.error('Error loading curatorships:', e);
+            document.getElementById('groupList').innerHTML = '<li style="color: var(--muted); padding: 1rem;">Ошибка загрузки</li>';
         });
 });
 
@@ -242,30 +249,148 @@ function loadGroupDetails(curatorship) {
     document.getElementById('completionText').textContent = `${totalFact} / ${totalPlanned} часов (${Math.round(completion)}%)`;
 
     // Мероприятия
+    renderEvents(curatorship);
+
+    // Журнал
+    renderLogs(curatorship);
+}
+
+function renderEvents(curatorship) {
     const eventsList = document.getElementById('eventsList');
     eventsList.innerHTML = '';
     if (curatorship.events && curatorship.events.length > 0) {
-        curatorship.events.forEach(e => {
+        curatorship.events.forEach((e, idx) => {
             const li = document.createElement('li');
-            li.textContent = e;
+            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem';
+            li.innerHTML = `
+                <span>${e}</span>
+                <div style="display:flex;gap:0.25rem">
+                    <button class="btn btn-sm" onclick="editEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">✏️</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">🗑️</button>
+                </div>
+            `;
             eventsList.appendChild(li);
         });
     } else {
         eventsList.innerHTML = '<li style="color: var(--muted)">Нет мероприятий</li>';
     }
-    
-    // Журнал
+}
+
+function renderLogs(curatorship) {
     const logsList = document.getElementById('logsList');
     logsList.innerHTML = '';
     if (curatorship.logs && curatorship.logs.length > 0) {
-        curatorship.logs.forEach(l => {
+        curatorship.logs.forEach((l, idx) => {
             const li = document.createElement('li');
-            li.textContent = l;
+            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem';
+            li.innerHTML = `
+                <span>${l}</span>
+                <div style="display:flex;gap:0.25rem">
+                    <button class="btn btn-sm" onclick="editLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">✏️</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">🗑️</button>
+                </div>
+            `;
             logsList.appendChild(li);
         });
     } else {
         logsList.innerHTML = '<li style="color: var(--muted)">Нет записей</li>';
     }
+}
+
+function deleteEvent(eventIdx) {
+    if (!currentCuratorshipId) return;
+    if (!confirm('Удалить это мероприятие?')) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/event/${eventIdx}`, {
+        method: 'DELETE'
+    }).then(r => {
+        if (r.ok) {
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка удаления');
+        }
+    });
+}
+
+function editEvent(eventIdx) {
+    if (!currentCuratorshipId) return;
+    const eventsList = document.getElementById('eventsList');
+    const items = eventsList.querySelectorAll('li span');
+    const currentEvent = items[eventIdx]?.textContent.trim();
+    if (currentEvent === undefined) return;
+
+    const event = prompt('Редактировать мероприятие:', currentEvent);
+    if (!event) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ eventIdx, event })
+    }).then(r => {
+        if (r.ok) {
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка редактирования');
+        }
+    });
+}
+
+function deleteLog(logIdx) {
+    if (!currentCuratorshipId) return;
+    if (!confirm('Удалить эту запись?')) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/log/${logIdx}`, {
+        method: 'DELETE'
+    }).then(r => {
+        if (r.ok) {
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка удаления');
+        }
+    });
+}
+
+function editLog(logIdx) {
+    if (!currentCuratorshipId) return;
+    const logsList = document.getElementById('logsList');
+    const items = logsList.querySelectorAll('li span');
+    const currentLog = items[logIdx]?.textContent.trim();
+    if (currentLog === undefined) return;
+
+    const logEntry = prompt('Редактировать запись:', currentLog);
+    if (!logEntry) return;
+
+    fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ logIdx, logEntry })
+    }).then(r => {
+        if (r.ok) {
+            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const c = data.find(x => x.id === currentCuratorshipId);
+                    if (c) loadGroupDetails(c);
+                });
+        } else {
+            alert('Ошибка редактирования');
+        }
+    });
 }
 
 function addEvent() {
@@ -279,7 +404,6 @@ function addEvent() {
         body: JSON.stringify({event})
     }).then(r => {
         if (r.ok) {
-            // Перезагрузить данные
             fetch(`/api/curatorships/teacher/${currentTeacherId}`)
                 .then(r => r.json())
                 .then(data => {
@@ -304,7 +428,6 @@ function addLog() {
     }).then(r => {
         if (r.ok) {
             document.getElementById('newLogEntry').value = '';
-            // Перезагрузить данные
             fetch(`/api/curatorships/teacher/${currentTeacherId}`)
                 .then(r => r.json())
                 .then(data => {

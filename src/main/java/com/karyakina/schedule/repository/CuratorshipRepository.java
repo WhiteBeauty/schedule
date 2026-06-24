@@ -17,4 +17,8 @@ public interface CuratorshipRepository extends JpaRepository<Curatorship, Long> 
     List<Curatorship> findByTeacherId(Long teacherId);
 
     java.util.Optional<Curatorship> findByTeacherIdAndGroupId(Long teacherId, Long groupId);
+
+    /** Найти все кураторства для данной группы */
+    @EntityGraph(attributePaths = {"teacher", "group"})
+    java.util.List<Curatorship> findByGroupId(Long groupId);
 }

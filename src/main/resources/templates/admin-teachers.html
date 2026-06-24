@@ -150,7 +150,7 @@
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Учебный год *</label>
-                    <input type="number" id="addLoadYear" value="2025" min="2020" max="2030" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    <input type="number" id="addLoadYear" value="2026" min="2026" max="2030" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
                 </div>
             </div>
             <div class="modal-footer">
@@ -204,10 +204,19 @@
     <script>
         let currentTeacherId = null;
         let isEditMode = false;
+        let allCuratorships = [];
 
         document.addEventListener('DOMContentLoaded', () => {
-            loadTeachers();
+            loadCuratorships().then(() => loadTeachers());
         });
+
+        async function loadCuratorships() {
+            allCuratorships = await fetch('/api/curatorships').then(r => r.json()).catch(() => []);
+        }
+
+        function getTeacherCuratorships(teacherId) {
+            return allCuratorships.filter(c => c.teacher.id == teacherId);
+        }
 
         function loadTeachers() {
             fetch('/api/teachers')
@@ -222,7 +231,13 @@
                         return;
                     }
 
-                    list.innerHTML = teachers.map(t => `
+                    list.innerHTML = teachers.map(t => {
+                        const curatorships = getTeacherCuratorships(t.id);
+                        const curatorshipDisplay = curatorships.length > 0
+                            ? curatorships.map(c => `<span class="badge" style="background:var(--primary);color:#fff;margin-right:0.25rem">${c.group.name}</span>`).join('')
+                            : '<span class="text-muted" style="font-size:0.85rem">Нет кураторства</span>';
+
+                        return `
                         <div class="teacher-card" onclick="viewTeacher(${t.id})">
                             <div class="teacher-avatar">${getInitials(t.fullName)}</div>
                             <div class="teacher-info">
@@ -230,14 +245,17 @@
                                 <p class="teacher-detail">${t.email}</p>
                                 <p class="teacher-detail">${t.department || 'Кафедра не указана'}</p>
                                 <p class="teacher-detail">${t.position || 'Должность не указана'}</p>
+                                <div style="margin:0.75rem 0; font-size:0.9rem">
+                                    <strong>👥 Кураторство:</strong> ${curatorshipDisplay}
+                                </div>
                                 <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                     <button class="btn btn-sm" onclick="event.stopPropagation(); openAddLoadModal(${t.id}, '${t.fullName}')">➕ Нагрузка</button>
-                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openAssignCuratorModal(${t.id}, '${t.fullName}')">👥 Кураторство</button>
+                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openCuratorshipMenu(${t.id}, '${t.fullName}')">👥 Кураторство</button>
                                     <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openApproveHoursModal(${t.id}, '${t.fullName}')">✅ Часы</button>
                                 </div>
                             </div>
                         </div>
-                    `).join('');
+                    `}).join('');
                 })
                 .catch(e => {
                     console.error('Error:', e);
@@ -248,7 +266,7 @@
         function viewTeacher(id) {
             currentTeacherId = id;
             isEditMode = false;
-            const year = /*[[${year}]]*/ 2025;
+            const year = 2026;
 
             Promise.all([
                 fetch(`/api/teachers/${id}`).then(r => r.json()),
@@ -296,7 +314,7 @@
                     <h4 style="margin: 1.5rem 0 0.75rem;">Кураторство</h4>
                     ${curatorshipHtml}
 
-                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на <span th:text="${year}">2025</span> год</h4>
+                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на <span th:text="${year}">2026</span> год</h4>
                     <table style="font-size: 0.85rem;">
                         <thead>
                             <tr>
@@ -534,6 +552,49 @@
             });
         }
 
+        function openCuratorshipMenu(teacherId, teacherName) {
+            const curatorships = getTeacherCuratorships(teacherId);
+
+            if (curatorships.length === 0) {
+                // Нет кураторства - предлагаем добавить
+                if (confirm(`У преподавателя ${teacherName} нет кураторства. Назначить?`)) {
+                    openAssignCuratorModal(teacherId, teacherName);
+                }
+            } else {
+                // Есть кураторство - показываем меню
+                const options = curatorships.map((c, idx) =>
+                    `${idx + 1}. Группа ${c.group.name} (курс ${c.group.course})\n`
+                ).join('');
+
+                const choice = prompt(
+                    `Кураторство преподавателя ${teacherName}:\n\n${options}\n` +
+                    `Введите номер группы для удаления или "0" для добавления нового, "cancel" для отмены:`
+                );
+
+                if (choice === null || choice === 'cancel') return;
+
+                if (choice === '0') {
+                    openAssignCuratorModal(teacherId, teacherName);
+                } else {
+                    const idx = parseInt(choice) - 1;
+                    if (idx >= 0 && idx < curatorships.length) {
+                        const c = curatorships[idx];
+                        if (confirm(`Удалить кураторство группы ${c.group.name}?`)) {
+                            fetch(`/api/curatorships/${c.id}`, { method: 'DELETE' })
+                                .then(r => {
+                                    if (r.ok) {
+                                        loadCuratorships().then(loadTeachers);
+                                        alert('Кураторство удалено');
+                                    } else {
+                                        alert('Ошибка удаления');
+                                    }
+                                });
+                        }
+                    }
+                }
+            }
+        }
+
         function assignCuratorship(teacherId) {
             fetch('/api/groups')
                 .then(r => r.json())
@@ -584,13 +645,13 @@
                     closeAssignCuratorModal();
                     loadTeachers();
                 } else {
-                    alert('Ошибка назначения');
+                    r.text().then(txt => alert('Ошибка: ' + txt));
                 }
             });
         }
 
         function approveHours(teacherId) {
-            const year = /*[[${year}]]*/ 2025;
+            const year = 2026;
             fetch(`/api/teachers/${teacherId}/profile?year=${year}`)
                 .then(r => r.json())
                 .then(profile => {

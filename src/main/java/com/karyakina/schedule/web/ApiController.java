@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,12 +32,14 @@ public class ApiController {
     private final TeacherLoadService teacherLoadService;
     private final CuratorshipService curatorshipService;
     private final MonthlyRecordService monthlyRecordService;
+    private final ScheduleService scheduleService;
     private final TeacherLoadRepository loadRepository;
     private final CuratorshipRepository curatorshipRepository;
     private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
+    private final SickLeaveRepository sickLeaveRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
@@ -163,7 +168,7 @@ public class ApiController {
         return ResponseEntity.ok(teacher);
     }
 
-    @GetMapping("/teachers/{id}/profile")
+@GetMapping("/teachers/{id}/profile")
     public ResponseEntity<TeacherProfileDto> teacherProfile(@PathVariable Long id,
                                                             @RequestParam(defaultValue = "2026") Integer year) {
         return ResponseEntity.ok(teacherLoadService.buildProfile(id, year));
@@ -195,7 +200,7 @@ public class ApiController {
         }
     }
 
-    @GetMapping("/productivity")
+@GetMapping("/productivity")
     public ResponseEntity<List<ProductivityDto>> productivity(@RequestParam(defaultValue = "2026") Integer year) {
         return ResponseEntity.ok(teacherLoadService.calculateProductivity(year));
     }
@@ -203,6 +208,56 @@ public class ApiController {
     @GetMapping("/monthly/{loadId}")
     public ResponseEntity<List<MonthlyRecord>> monthlyByLoad(@PathVariable Long loadId) {
         return ResponseEntity.ok(monthlyRecordService.findByLoad(loadId));
+    }
+
+    /** Получить все monthly records с информацией о нагрузке */
+    @GetMapping("/monthly-records")
+    public ResponseEntity<List<Map<String, Object>>> getMonthlyRecords(
+            @RequestParam(defaultValue = "2026") Integer year,
+            Authentication authentication) {
+        try {
+            User user = userRepository.findByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            List<TeacherLoad> loads;
+            if (user.getRole() == User.Role.ADMIN) {
+                // Админ видит все нагрузки
+                loads = loadRepository.findByAcademicYear(year);
+            } else {
+                // Преподаватель видит только свои
+                Teacher teacher = user.getTeacher();
+                if (teacher == null) {
+                    return ResponseEntity.ok(new ArrayList<>());
+                }
+                loads = loadRepository.findByTeacherIdAndAcademicYear(teacher.getId(), year);
+            }
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (TeacherLoad load : loads) {
+                List<MonthlyRecord> records = monthlyRecordService.findByLoad(load.getId());
+                for (MonthlyRecord rec : records) {
+                    Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("id", rec.getId());
+                    item.put("month", rec.getMonth());
+                    item.put("year", rec.getYear());
+                    item.put("hours", rec.getHours());
+                    item.put("adjustedHours", rec.getAdjustedHours());
+                    item.put("note", rec.getNote());
+                    item.put("changedBy", rec.getChangedBy());
+                    item.put("teacherId", load.getTeacher().getId());
+                    item.put("teacherName", load.getTeacher().getFullName());
+                    item.put("disciplineId", load.getDiscipline().getId());
+                    item.put("disciplineName", load.getDiscipline().getName());
+                    item.put("groupId", load.getGroup().getId());
+                    item.put("groupName", load.getGroup().getName());
+                    result.add(item);
+                }
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(new ArrayList<>());
+        }
     }
 
     @PostMapping("/monthly/{recordId}/adjust")
@@ -219,16 +274,59 @@ public class ApiController {
         return ResponseEntity.ok(curatorshipService.findByTeacherId(teacherId));
     }
 
-    @GetMapping("/curatorships/teacher/by-id/{id}")
-    public ResponseEntity<Curatorship> curatorshipById(@PathVariable Long id) {
-        return curatorshipRepository.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    /** Получить все curatorship текущего авторизованного преподавателя */
+    @GetMapping("/curatorships/my")
+    public ResponseEntity<List<Curatorship>> getMyCuratorships(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getRole() == User.Role.ADMIN) {
+            return ResponseEntity.ok(curatorshipService.findAll());
+        }
+
+        Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+        if (teacher != null) {
+            return ResponseEntity.ok(curatorshipService.findByTeacherId(teacher.getId()));
+        }
+        return ResponseEntity.ok(new ArrayList<>());
+    }
+
+    /** Получить curatorship по ID с проверкой прав */
+    @GetMapping("/curatorships/by-id/{id}")
+    public ResponseEntity<Curatorship> curatorshipById(@PathVariable Long id, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Curatorship curatorship = curatorshipRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
+
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
+        return ResponseEntity.ok(curatorship);
     }
 
     @GetMapping("/monthly/export/csv")
-    public ResponseEntity<byte[]> exportMonthlyCsv(@RequestParam(defaultValue = "2024") Integer year) {
-        List<TeacherLoad> loads = teacherLoadService.findByYear(year);
+    public ResponseEntity<byte[]> exportMonthlyCsv(
+            @RequestParam(defaultValue = "2026") Integer year,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        List<TeacherLoad> loads;
+        if (user.getRole() == User.Role.ADMIN) {
+            loads = teacherLoadService.findByYear(year);
+        } else {
+            Teacher teacher = user.getTeacher();
+            if (teacher == null) {
+                return ResponseEntity.ok(new byte[0]);
+            }
+            loads = loadRepository.findByTeacherIdAndAcademicYear(teacher.getId(), year);
+        }
 
         StringBuilder csv = new StringBuilder();
         // BOM для корректного отображения кириллицы в Excel
@@ -239,7 +337,8 @@ public class ApiController {
                                 "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"};
 
         loads.forEach(load -> {
-            load.getMonthlyRecords().forEach(rec -> {
+            List<MonthlyRecord> records = monthlyRecordService.findByLoad(load.getId());
+            records.forEach(rec -> {
                 String monthStr = rec.getMonth() > 0 && rec.getMonth() < monthNames.length
                     ? monthNames[rec.getMonth()]
                     : String.valueOf(rec.getMonth());
@@ -329,7 +428,7 @@ public class ApiController {
 
     @GetMapping("/schedule")
     public ResponseEntity<List<TeacherLoad>> getSchedule(
-            @RequestParam(defaultValue = "2024") Integer year,
+            @RequestParam(defaultValue = "2026") Integer year,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -373,7 +472,12 @@ public class ApiController {
             load.setReadHours(0);
             load.setAcademicYear(academicYear);
 
-            return ResponseEntity.ok(loadRepository.save(load));
+            TeacherLoad savedLoad = loadRepository.save(load);
+
+            // Создаём monthly records для всех 12 месяцев
+            monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
+
+            return ResponseEntity.ok(savedLoad);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();
@@ -447,7 +551,7 @@ public class ApiController {
     // ==================== Curatorship Management ====================
 
     @PostMapping("/curatorships")
-    public ResponseEntity<Curatorship> assignCuratorship(
+    public ResponseEntity<?> assignCuratorship(
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -466,6 +570,18 @@ public class ApiController {
             StudyGroup group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
 
+            // Проверяем, есть ли уже такое кураторство у этого преподавателя для этой группы
+            var existing = curatorshipRepository.findByTeacherIdAndGroupId(teacherId, groupId);
+            if (existing.isPresent()) {
+                return ResponseEntity.badRequest().body("Этот преподаватель уже является куратором данной группы");
+            }
+
+            // Проверяем, нет ли уже другого куратора у этой группы (один куратор на группу)
+            var existingCurators = curatorshipRepository.findByGroupId(groupId);
+            if (!existingCurators.isEmpty()) {
+                return ResponseEntity.badRequest().body("У этой группы уже есть куратор. Одна группа может иметь только одного преподавателя-куратора.");
+            }
+
             Curatorship curatorship = new Curatorship();
             curatorship.setTeacher(teacher);
             curatorship.setGroup(group);
@@ -475,7 +591,7 @@ public class ApiController {
 
             return ResponseEntity.ok(curatorshipRepository.save(curatorship));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body("Ошибка: " + e.getMessage());
         }
     }
 
@@ -530,16 +646,79 @@ public class ApiController {
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN && user.getRole() != User.Role.TEACHER) {
-            return ResponseEntity.status(403).build();
-        }
 
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
+        // Проверка прав: админ или преподаватель, которому принадлежит это curatorship
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
         String event = body.get("event");
         if (event != null && !event.isEmpty()) {
             curatorship.getEvents().add(event);
+            curatorship = curatorshipRepository.save(curatorship);
+        }
+
+        return ResponseEntity.ok(curatorship);
+    }
+
+    @DeleteMapping("/curatorships/{id}/event/{eventIdx}")
+    public ResponseEntity<Curatorship> deleteEvent(
+            @PathVariable Long id,
+            @PathVariable Integer eventIdx,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Curatorship curatorship = curatorshipRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
+
+        // Проверка прав
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
+        if (eventIdx >= 0 && eventIdx < curatorship.getEvents().size()) {
+            curatorship.getEvents().remove(eventIdx.intValue());
+            curatorship = curatorshipRepository.save(curatorship);
+        }
+
+        return ResponseEntity.ok(curatorship);
+    }
+
+    @PutMapping("/curatorships/{id}/event")
+    public ResponseEntity<Curatorship> updateEvent(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Curatorship curatorship = curatorshipRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
+
+        // Проверка прав
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
+        Object eventIdxObj = body.get("eventIdx");
+        Integer eventIdx = eventIdxObj != null ? Integer.valueOf(eventIdxObj.toString()) : null;
+        String event = body.get("event") != null ? body.get("event").toString() : null;
+
+        if (eventIdx != null && eventIdx >= 0 && eventIdx < curatorship.getEvents().size() && event != null) {
+            curatorship.getEvents().set(eventIdx.intValue(), event);
             curatorship = curatorshipRepository.save(curatorship);
         }
 
@@ -553,16 +732,79 @@ public class ApiController {
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN && user.getRole() != User.Role.TEACHER) {
-            return ResponseEntity.status(403).build();
-        }
 
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
+        // Проверка прав
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
         String logEntry = body.get("logEntry");
         if (logEntry != null && !logEntry.isEmpty()) {
             curatorship.getLogs().add(logEntry);
+            curatorship = curatorshipRepository.save(curatorship);
+        }
+
+        return ResponseEntity.ok(curatorship);
+    }
+
+    @DeleteMapping("/curatorships/{id}/log/{logIdx}")
+    public ResponseEntity<Curatorship> deleteLog(
+            @PathVariable Long id,
+            @PathVariable Integer logIdx,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Curatorship curatorship = curatorshipRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
+
+        // Проверка прав
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
+        if (logIdx >= 0 && logIdx < curatorship.getLogs().size()) {
+            curatorship.getLogs().remove(logIdx.intValue());
+            curatorship = curatorshipRepository.save(curatorship);
+        }
+
+        return ResponseEntity.ok(curatorship);
+    }
+
+    @PutMapping("/curatorships/{id}/log")
+    public ResponseEntity<Curatorship> updateLog(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Curatorship curatorship = curatorshipRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
+
+        // Проверка прав
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
+            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+        }
+
+        Object logIdxObj = body.get("logIdx");
+        Integer logIdx = logIdxObj != null ? Integer.valueOf(logIdxObj.toString()) : null;
+        String logEntry = body.get("logEntry") != null ? body.get("logEntry").toString() : null;
+
+        if (logIdx != null && logIdx >= 0 && logIdx < curatorship.getLogs().size() && logEntry != null) {
+            curatorship.getLogs().set(logIdx.intValue(), logEntry);
             curatorship = curatorshipRepository.save(curatorship);
         }
 
@@ -712,6 +954,251 @@ public class ApiController {
         }
 
         disciplineRepository.deleteById(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // ==================== Schedule (Pairs) Management ====================
+
+    @GetMapping("/pairs")
+    public ResponseEntity<List<Schedule>> getPairs(
+            @RequestParam(defaultValue = "2026") Integer year,
+            Authentication authentication) {
+        try {
+            User user = userRepository.findByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            System.out.println("=== GET /pairs === User: " + user.getEmail() + ", Role: " + user.getRole() + ", Year: " + year);
+
+            if (user.getRole() == User.Role.ADMIN) {
+                List<Schedule> schedules = scheduleService.findByYear(year);
+                System.out.println("ADMIN: Found " + schedules.size() + " schedules");
+                return ResponseEntity.ok(schedules);
+            } else {
+                Teacher teacher = user.getTeacher();
+                if (teacher == null) {
+                    System.out.println("Teacher profile not found for user: " + user.getEmail());
+                    return ResponseEntity.ok(new ArrayList<>());
+                }
+                System.out.println("Teacher ID: " + teacher.getId());
+                List<Schedule> schedules = scheduleService.findByTeacherIdAndYear(teacher.getId(), year);
+                System.out.println("TEACHER: Found " + schedules.size() + " schedules");
+                return ResponseEntity.ok(schedules != null ? schedules : new ArrayList<>());
+            }
+        } catch (Exception e) {
+            System.err.println("=== ERROR in /pairs ===");
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(new ArrayList<>());
+        }
+    }
+
+    @PostMapping("/pairs")
+    public ResponseEntity<Schedule> createPair(
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        try {
+            // Пробуем получить teacherLoadId напрямую
+            Object teacherLoadIdObj = body.get("teacherLoadId");
+            Long teacherLoadId = null;
+
+            if (teacherLoadIdObj != null) {
+                teacherLoadId = Long.valueOf(teacherLoadIdObj.toString());
+            } else {
+                // Если teacherLoadId нет, пробуем найти по teacherId, groupId, disciplineId
+                Object teacherIdObj = body.get("teacherId");
+                Object groupIdObj = body.get("groupId");
+                Object disciplineIdObj = body.get("disciplineId");
+
+                if (teacherIdObj != null && groupIdObj != null && disciplineIdObj != null) {
+                    Long teacherId = Long.valueOf(teacherIdObj.toString());
+                    Long groupId = Long.valueOf(groupIdObj.toString());
+                    Long disciplineId = Long.valueOf(disciplineIdObj.toString());
+
+                    List<TeacherLoad> loads = loadRepository.findAll();
+                    for (TeacherLoad load : loads) {
+                        if (load.getTeacher().getId().equals(teacherId) &&
+                            load.getGroup().getId().equals(groupId) &&
+                            load.getDiscipline().getId().equals(disciplineId)) {
+                            teacherLoadId = load.getId();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (teacherLoadId == null) {
+                return ResponseEntity.badRequest().body(null);
+            }
+
+            Object dayOfWeekObj = body.get("dayOfWeek");
+            Object startTimeObj = body.get("startTime");
+            Object endTimeObj = body.get("endTime");
+            Object classroomObj = body.get("classroom");
+            Object academicYearObj = body.get("academicYear");
+
+            if (dayOfWeekObj == null || startTimeObj == null || endTimeObj == null || classroomObj == null || academicYearObj == null) {
+                System.err.println("Missing required fields in request: " + body);
+                return ResponseEntity.badRequest().body(null);
+            }
+
+            String dayOfWeek = dayOfWeekObj.toString();
+            String startTime = startTimeObj.toString();
+            String endTime = endTimeObj.toString();
+            String classroom = classroomObj.toString();
+            Integer academicWeek = body.containsKey("academicWeek") && body.get("academicWeek") != null ?
+                Integer.valueOf(body.get("academicWeek").toString()) : null;
+            Integer academicYear = Integer.valueOf(academicYearObj.toString());
+
+            return ResponseEntity.ok(scheduleService.createSchedule(
+                teacherLoadId,
+                DayOfWeek.valueOf(dayOfWeek.toUpperCase()),
+                LocalTime.parse(startTime),
+                LocalTime.parse(endTime),
+                classroom,
+                academicWeek,
+                academicYear
+            ));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @DeleteMapping("/pairs/{id}")
+    public ResponseEntity<Void> deletePair(
+            @PathVariable Long id,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        scheduleService.deleteSchedule(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/pairs/{id}")
+    public ResponseEntity<Schedule> updatePair(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        try {
+            String dayOfWeek = body.get("dayOfWeek").toString();
+            String startTime = body.get("startTime").toString();
+            String endTime = body.get("endTime").toString();
+            String classroom = body.get("classroom").toString();
+            Integer academicWeek = body.containsKey("academicWeek") && body.get("academicWeek") != null ?
+                Integer.valueOf(body.get("academicWeek").toString()) : null;
+
+            return ResponseEntity.ok(scheduleService.updateSchedule(
+                id,
+                DayOfWeek.valueOf(dayOfWeek.toUpperCase()),
+                LocalTime.parse(startTime),
+                LocalTime.parse(endTime),
+                classroom,
+                academicWeek
+            ));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // ==================== Sick Leave Management ====================
+
+    @GetMapping("/sick-leaves")
+    public ResponseEntity<List<SickLeave>> getSickLeaves(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getRole() == User.Role.ADMIN) {
+            return ResponseEntity.ok(sickLeaveRepository.findAll());
+        } else {
+            Teacher teacher = user.getTeacher();
+            if (teacher == null) {
+                return ResponseEntity.ok(new ArrayList<>());
+            }
+            return ResponseEntity.ok(sickLeaveRepository.findByTeacherId(teacher.getId()));
+        }
+    }
+
+    @PostMapping("/sick-leaves")
+    public ResponseEntity<SickLeave> createSickLeave(
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Long teacherId;
+        if (user.getRole() == User.Role.ADMIN) {
+            teacherId = Long.valueOf(body.get("teacherId").toString());
+        } else {
+            Teacher teacher = user.getTeacher();
+            if (teacher == null) {
+                return ResponseEntity.status(403).build();
+            }
+            teacherId = teacher.getId();
+        }
+
+        try {
+            Teacher teacher = teacherRepository.findById(teacherId)
+                    .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
+            LocalDate startDate = LocalDate.parse(body.get("startDate").toString());
+            LocalDate endDate = LocalDate.parse(body.get("endDate").toString());
+            // Причина: всегда передаём, даже если пустая
+            String reason = body.get("reason") != null ? body.get("reason").toString() : "";
+            Integer academicYear = Integer.valueOf(body.get("academicYear").toString());
+
+            SickLeave sickLeave = SickLeave.builder()
+                    .teacher(teacher)
+                    .startDate(startDate)
+                    .endDate(endDate)
+                    .reason(reason)
+                    .academicYear(academicYear)
+                    .build();
+
+            return ResponseEntity.ok(sickLeaveRepository.save(sickLeave));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @DeleteMapping("/sick-leaves/{id}")
+    public ResponseEntity<Void> deleteSickLeave(
+            @PathVariable Long id,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN && user.getRole() != User.Role.TEACHER) {
+            return ResponseEntity.status(403).build();
+        }
+
+        sickLeaveRepository.deleteById(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/auto-deduct")
+    public ResponseEntity<Void> autoDeduct(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        scheduleService.autoDeductHours(2026);
         return ResponseEntity.ok().build();
     }
 }

@@ -22,4 +22,12 @@ public class CuratorshipService {
     public List<Curatorship> findByTeacherId(Long teacherId) {
         return repository.findByTeacherId(teacherId);
     }
+
+    public List<Curatorship> findByGroupId(Long groupId) {
+        return repository.findByGroupId(groupId);
+    }
+
+    public java.util.Optional<Curatorship> findByTeacherIdAndGroupId(Long teacherId, Long groupId) {
+        return repository.findByTeacherIdAndGroupId(teacherId, groupId);
+    }
 }

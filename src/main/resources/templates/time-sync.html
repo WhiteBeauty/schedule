@@ -144,7 +144,7 @@ let allLoads = [];
 document.addEventListener('DOMContentLoaded', loadData);
 
 function loadData() {
-    const year = 2024;
+    const year = 2026;
     fetch(`/api/loads?year=${year}`)
         .then(r => r.json())
         .then(data => {

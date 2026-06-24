@@ -14,6 +14,7 @@
             <small style="padding: 0 1.25rem; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Администратор</small>
         </li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/schedule}" id="nav-admin-schedule">📋 Управление расписанием</a></li>
+        <li th:if="${isAdmin}"><a th:href="@{/admin/pairs}" id="nav-admin-pairs">📅 Расписание пар</a></li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/teachers}" id="nav-admin-teachers">👥 Управление преподавателями</a></li>
         <li><a th:href="@{/time-sync}" id="nav-time-sync">⏱️ Сверка часов</a></li>
         <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>

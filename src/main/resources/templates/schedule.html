@@ -3,189 +3,311 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Расписание и учёт нагрузки</title>
+    <title>Моё расписание</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .schedule-layout {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .schedule-sidebar {
+            width: 250px;
+            flex-shrink: 0;
+        }
+        .schedule-content {
+            flex: 1;
+        }
+        .day-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .day-list li {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: .15s;
+        }
+        .day-list li:hover {
+            background: #f3f4f6;
+        }
+        .day-list li.active {
+            background: #e0e7ff;
+            border-left: 4px solid var(--primary);
+            color: var(--primary-dark);
+            font-weight: 600;
+        }
+        .pair-card {
+            padding: 1rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+            margin-bottom: 0.75rem;
+            border: 1px solid var(--border);
+        }
+        .pair-time {
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .pair-details {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+        }
+    </style>
 </head>
 <body>
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">📋 Учёт нагрузки по дисциплинам (учебный год <span id="yearLabel" th:text="${year}">2025</span>)</h2>
-            <div class="filters">
-                <label>Год:
-                    <select id="yearSelect" th:value="${year}">
-                        <option value="2025">2025</option>
-                        <option value="2026" selected>2026</option>
-                        <option value="2027">2027</option>
-                        <option value="2028">2028</option>
-                    </select>
-                </label>
-                <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
-            </div>
-        </div>
-        <table id="loadTable">
-            <thead>
-            <tr>
-                <th>Преподаватель</th>
-                <th>Дисциплина</th>
-                <th>Группа</th>
-                <th>План (час)</th>
-                <th>Вычитано (час)</th>
-                <th>Осталось</th>
-                <th>Прогресс</th>
-                <th>Статус</th>
-                <th>Действия</th>
-            </tr>
-            </thead>
-            <tbody id="loadBody"></tbody>
-        </table>
-    </div>
+    <h1 class="page-title">📅 Моё расписание</h1>
 
-    <div class="grid" style="margin-top: 1.5rem;">
-        <div class="stat">
-            <div class="stat-label">Всего дисциплин</div>
-            <div class="stat-value" id="statLoads">0</div>
+    <div class="schedule-layout">
+        <div class="card" style="padding: 1rem; margin: 0;">
+            <h4 style="margin: 0 0 1rem;">Дни недели</h4>
+            <ul class="day-list" id="dayList">
+                <li class="active" data-day="MONDAY">Понедельник</li>
+                <li data-day="TUESDAY">Вторник</li>
+                <li data-day="WEDNESDAY">Среда</li>
+                <li data-day="THURSDAY">Четверг</li>
+                <li data-day="FRIDAY">Пятница</li>
+                <li data-day="SATURDAY">Суббота</li>
+            </ul>
         </div>
-        <div class="stat">
-            <div class="stat-label">Плановых часов</div>
-            <div class="stat-value" id="statPlanned">0</div>
-        </div>
-        <div class="stat">
-            <div class="stat-label">Вычитано часов</div>
-            <div class="stat-value" id="statRead">0</div>
-        </div>
-        <div class="stat">
-            <div class="stat-label">Всего КР/зачётов</div>
-            <div class="stat-value" id="statCp">0</div>
+
+        <div class="schedule-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title" id="dayTitle">Понедельник</h2>
+                    <div class="filters">
+                        <label>Год:
+                            <select id="yearSelect" th:value="${year}">
+                                <option value="2026" selected>2026</option>
+                                <option value="2027">2027</option>
+                            </select>
+                        </label>
+                        <button class="btn btn-sm btn-outline" onclick="loadPairs()">🔄 Обновить</button>
+                    </div>
+                </div>
+                <div id="pairsContainer">
+                    <p class="text-muted" style="text-align:center;padding:2rem">Загрузка...</p>
+                </div>
+            </div>
         </div>
     </div>
 </main>
 
-<div class="modal-overlay" id="editModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3 style="margin:0">Корректировка часов</h3>
-            <button class="close-btn" onclick="closeModal()">×</button>
-        </div>
-        <div class="modal-body">
-            <p><strong>Преподаватель:</strong> <span id="editTeacher"></span></p>
-            <p><strong>Дисциплина:</strong> <span id="editDiscipline"></span></p>
-            <p><strong>Группа:</strong> <span id="editGroup"></span></p>
-            <label>Фактически вычитано часов:</label>
-            <input type="number" id="readHoursInput" min="0" style="width:120px">
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeModal()">Отмена</button>
-            <button class="btn" onclick="saveReadHours()">Сохранить</button>
-        </div>
-    </div>
-</div>
-
 <script th:inline="javascript">
 const teacherId = /*[[${teacherId}]]*/ null;
-const isAdmin = /*[[${isAdmin}]]*/ false;
-const defaultYear = /*[[${year}]]*/ 2025;
+const defaultYear = 2026;
+let currentDay = 'MONDAY';
+let pairsData = [];
+let isAdmin = /*[[${isAdmin}]]*/ false;
 
-let currentLoadId = null;
-let loadData = null;
+const dayNames = {
+    'MONDAY': 'Понедельник',
+    'TUESDAY': 'Вторник',
+    'WEDNESDAY': 'Среда',
+    'THURSDAY': 'Четверг',
+    'FRIDAY': 'Пятница',
+    'SATURDAY': 'Суббота'
+};
+
+// Устанавливаем текущий день недели при загрузке
+function getCurrentDayOfWeek() {
+    const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+    const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
+    // Преобразуем: Sunday=0 -> index 6, Monday=1 -> index 0, etc.
+    const index = today === 0 ? 6 : today - 1;
+    return days[index] || 'MONDAY';
+}
 
 document.addEventListener('DOMContentLoaded', () => {
-    const yearSelect = document.getElementById('yearSelect');
-    const yearLabel = document.getElementById('yearLabel');
+    // Устанавливаем активный день недели - сегодняшний
+    currentDay = getCurrentDayOfWeek();
+    document.querySelectorAll('.day-list li').forEach(li => {
+        li.classList.remove('active');
+        if (li.dataset.day === currentDay) {
+            li.classList.add('active');
+        }
+    });
+    document.getElementById('dayTitle').textContent = dayNames[currentDay];
 
-    yearSelect.value = defaultYear;
-    yearLabel.textContent = defaultYear;
+    // Обработчики дней недели
+    document.querySelectorAll('.day-list li').forEach(li => {
+        li.addEventListener('click', () => {
+            document.querySelectorAll('.day-list li').forEach(l => l.classList.remove('active'));
+            li.classList.add('active');
+            currentDay = li.dataset.day;
+            document.getElementById('dayTitle').textContent = dayNames[currentDay];
+            renderPairs();
+        });
+    });
 
-    loadData = () => {
-        const year = yearSelect.value;
-        yearLabel.textContent = year;
+    document.getElementById('yearSelect').addEventListener('change', loadPairs);
 
-        const url = isAdmin
-            ? `/api/schedule?year=${year}`
-            : `/api/loads?year=${year}`;
-
-        fetch(url)
-            .then(res => res.json())
-            .then(data => {
-                const tbody = document.getElementById('loadBody');
-                tbody.innerHTML = '';
-
-                let totalPlanned = 0, totalRead = 0, totalCp = 0;
-
-                data.forEach(load => {
-                    totalPlanned += load.plannedHours;
-                    totalRead += load.readHours;
-                    totalCp += load.controlPoints ? load.controlPoints.length : 0;
-
-                    const remaining = load.plannedHours - load.readHours;
-                    const completion = load.plannedHours > 0 ? (load.readHours * 100 / load.plannedHours) : 0;
-                    let status, statusClass;
-
-                    if (completion >= 100) { status = 'Осуществлено'; statusClass = 'badge-success'; }
-                    else if (completion >= 80) { status = 'В норме'; statusClass = 'badge-warning'; }
-                    else if (completion >= 50) { status = 'Отставание'; statusClass = 'badge-warning'; }
-                    else { status = 'Критическое отставание'; statusClass = 'badge-danger'; }
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${load.teacher?.fullName || '-'}</td>
-                        <td>${load.discipline?.name || '-'} ${load.discipline?.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
-                        <td>${load.group?.name || '-'}</td>
-                        <td>${load.plannedHours}</td>
-                        <td>${load.readHours}</td>
-                        <td class="${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
-                        <td><div class="progress" style="width:100px">
-                            <div class="progress-bar ${completion >= 100 ? 'success' : completion >= 80 ? 'warning' : 'danger'}" style="width:${Math.min(completion, 100)}%"></div>
-                        </div></td>
-                        <td><span class="badge ${statusClass}">${status}</span></td>
-                        <td><button class="btn btn-sm" onclick="openEdit(${load.id}, '${load.teacher?.fullName || ''}', '${load.discipline?.name || ''}', '${load.group?.name || ''}', ${load.readHours})">✏️</button></td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-
-                document.getElementById('statLoads').textContent = data.length;
-                document.getElementById('statPlanned').textContent = totalPlanned;
-                document.getElementById('statRead').textContent = totalRead;
-                document.getElementById('statCp').textContent = totalCp;
-            })
-            .catch(e => {
-                console.error('Error loading data:', e);
-                document.getElementById('loadBody').innerHTML = '<tr><td colspan="9" class="text-danger">Ошибка загрузки данных</td></tr>';
-            });
-    };
-
-    loadData();
+    loadPairs();
 });
 
-function openEdit(id, teacher, discipline, group, readHours) {
-    currentLoadId = id;
-    document.getElementById('editTeacher').textContent = teacher;
-    document.getElementById('editDiscipline').textContent = discipline;
-    document.getElementById('editGroup').textContent = group;
-    document.getElementById('readHoursInput').value = readHours;
-    document.getElementById('editModal').classList.add('active');
+function loadPairs() {
+    const year = document.getElementById('yearSelect').value;
+
+    fetch(`/api/pairs?year=${year}`)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('Ошибка сервера: ' + res.status);
+            }
+            return res.json();
+        })
+        .then(data => {
+            // Убедимся, что data - это массив
+            pairsData = Array.isArray(data) ? data : [];
+            renderPairs();
+        })
+        .catch(e => {
+            console.error('Error loading pairs:', e);
+            document.getElementById('pairsContainer').innerHTML = '<p class="text-danger">Ошибка загрузки расписания: ' + e.message + '</p>';
+        });
 }
 
-function closeModal() {
-    document.getElementById('editModal').classList.remove('active');
-    currentLoadId = null;
+function renderPairs() {
+    const container = document.getElementById('pairsContainer');
+    container.innerHTML = '';
+
+    const filtered = pairsData.filter(p => p.dayOfWeek === currentDay);
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Нет пар в этот день</p>';
+        return;
+    }
+
+    // Сортировка по времени
+    filtered.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    filtered.forEach(p => {
+        const startTime = p.startTime.substring(0, 5);
+        const endTime = p.endTime.substring(0, 5);
+        const week = p.academicWeek ? `${p.academicWeek} нед.` : 'каждую нед.';
+
+        const div = document.createElement('div');
+        div.className = 'pair-card';
+
+        let actionsHtml = '';
+        if (isAdmin) {
+            actionsHtml = `
+                <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+                    <button class="btn btn-sm" onclick="openEditPairModal(${p.id}, '${p.dayOfWeek}', '${p.startTime}', '${p.endTime}', '${p.classroom}', ${p.academicWeek || 'null'})">✏️ Изменить</button>
+                    <button class="btn btn-sm btn-danger" onclick="deletePair(${p.id})">🗑️ Удалить</button>
+                </div>
+            `;
+        }
+
+        div.innerHTML = `
+            <div class="pair-time">🕐 ${startTime} - ${endTime}</div>
+            <div class="pair-details">
+                <strong>${p.teacherLoad.discipline.name}</strong><br>
+                <span class="text-muted">Группа: ${p.teacherLoad.group.name}</span><br>
+                <span class="text-muted">Аудитория: ${p.classroom}</span> |
+                <span class="text-muted">${week}</span>
+                ${actionsHtml}
+            </div>
+        `;
+        container.appendChild(div);
+    });
 }
 
-function saveReadHours() {
-    if (!currentLoadId) return;
-    const hours = parseInt(document.getElementById('readHoursInput').value) || 0;
+function deletePair(id) {
+    if (!confirm('Вы уверены, что хотите удалить эту пару?')) return;
 
-    fetch(`/api/loads/${currentLoadId}/read-hours`, {
-        method: 'POST',
+    fetch(`/api/pairs/${id}`, {
+        method: 'DELETE'
+    }).then(r => {
+        if (r.ok) {
+            loadPairs();
+        } else {
+            alert('Ошибка при удалении пары');
+        }
+    });
+}
+
+function openEditPairModal(id, dayOfWeek, startTime, endTime, classroom, academicWeek) {
+    document.getElementById('editPairId').value = id;
+    document.getElementById('editDayOfWeek').value = dayOfWeek;
+    document.getElementById('editStartTime').value = startTime;
+    document.getElementById('editEndTime').value = endTime;
+    document.getElementById('editClassroom').value = classroom;
+    document.getElementById('editAcademicWeek').value = academicWeek || '';
+    document.getElementById('editPairModal').classList.add('active');
+}
+
+function closeEditPairModal() {
+    document.getElementById('editPairModal').classList.remove('active');
+}
+
+function saveEditPair() {
+    const id = document.getElementById('editPairId').value;
+    const dayOfWeek = document.getElementById('editDayOfWeek').value;
+    const startTime = document.getElementById('editStartTime').value;
+    const endTime = document.getElementById('editEndTime').value;
+    const classroom = document.getElementById('editClassroom').value;
+    const academicWeek = document.getElementById('editAcademicWeek').value;
+
+    fetch(`/api/pairs/${id}`, {
+        method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({readHours: hours})
-    }).then(() => {
-        closeModal();
-        loadData();
+        body: JSON.stringify({
+            dayOfWeek,
+            startTime,
+            endTime,
+            classroom,
+            academicWeek: academicWeek ? parseInt(academicWeek) : null
+        })
+    }).then(r => {
+        if (r.ok) {
+            closeEditPairModal();
+            loadPairs();
+        } else {
+            alert('Ошибка при сохранении изменений');
+        }
     });
 }
 </script>
+
+<!-- Modal: Edit Pair -->
+<div class="modal-overlay" id="editPairModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">✏️ Редактировать пару</h3>
+            <button class="close-btn" onclick="closeEditPairModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editPairId">
+            <label>День недели:</label>
+            <select id="editDayOfWeek" style="width:100%;margin-bottom:1rem">
+                <option value="MONDAY">Понедельник</option>
+                <option value="TUESDAY">Вторник</option>
+                <option value="WEDNESDAY">Среда</option>
+                <option value="THURSDAY">Четверг</option>
+                <option value="FRIDAY">Пятница</option>
+                <option value="SATURDAY">Суббота</option>
+            </select>
+
+            <label>Время начала:</label>
+            <input type="time" id="editStartTime" style="width:100%;margin-bottom:1rem">
+
+            <label>Время конца:</label>
+            <input type="time" id="editEndTime" style="width:100%;margin-bottom:1rem">
+
+            <label>Аудитория:</label>
+            <input type="text" id="editClassroom" style="width:100%;margin-bottom:1rem">
+
+            <label>Неделя (необязательно):</label>
+            <input type="number" id="editAcademicWeek" min="1" max="20" placeholder="1-20" style="width:100%">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeEditPairModal()">Отмена</button>
+            <button class="btn" onclick="saveEditPair()">Сохранить</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>

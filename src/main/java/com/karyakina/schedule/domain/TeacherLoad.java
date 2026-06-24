@@ -18,17 +18,14 @@ public class TeacherLoad {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_id")
-    @JsonIgnore
     private Teacher teacher;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "group_id")
-    @JsonIgnore
     private StudyGroup group;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "discipline_id")
-    @JsonIgnore
     private Discipline discipline;
 
     @Column(nullable = false)

@@ -71,6 +71,9 @@
                 <label style="display:block;margin-bottom:0.5rem;font-weight:600">Кураторские часы (план)</label>
                 <input type="number" id="assignHours" value="36" min="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
             </div>
+            <div style="margin-bottom:1rem;padding:0.75rem;background:#fff3cd;border-radius:4px;font-size:0.85rem">
+                ⚠️ Одна группа может иметь только одного преподавателя-куратора.
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeAssignModal()">Отмена</button>
@@ -96,7 +99,7 @@
 </div>
 
 <script th:inline="javascript">
-const currentYear = /*[[${year}]]*/ 2025;
+const currentYear = 2026;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadCuratorships();
@@ -198,39 +201,46 @@ function assignCurator() {
             closeAssignModal();
             loadCuratorships();
         } else {
-            alert('Ошибка назначения');
+            r.text().then(txt => alert('Ошибка: ' + txt));
         }
     });
 }
 
 function viewCuratorship(id) {
-    fetch(`/api/curatorships/teacher/by-id/${id}`)
+    fetch(`/api/curatorships/by-id/${id}`)
         .then(r => r.json())
         .then(c => {
             const body = document.getElementById('editBody');
             
             const eventsHtml = c.events && c.events.length > 0
-                ? c.events.map(e => `<li>${e}</li>`).join('')
+                ? c.events.map((e, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">${e} <button class="btn btn-sm btn-danger" onclick="deleteEvent(${c.id}, ${idx})" style="background:var(--danger);color:#fff;margin-left:0.5rem">×</button></li>`).join('')
                 : '<li class="text-muted">Нет мероприятий</li>';
 
             const logsHtml = c.logs && c.logs.length > 0
-                ? c.logs.map(l => `<li>${l}</li>`).join('')
+                ? c.logs.map((l, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">${l} <button class="btn btn-sm btn-danger" onclick="deleteLog(${c.id}, ${idx})" style="background:var(--danger);color:#fff;margin-left:0.5rem">×</button></li>`).join('')
                 : '<li class="text-muted">Нет записей</li>';
+
+            // Расчет кураторских часов
+            const totalHours = c.hours || 36;
+            const eventsCount = c.events ? c.events.length : 0;
+            const hoursPerEvent = eventsCount > 0 ? (totalHours / eventsCount).toFixed(1) : 0;
 
             body.innerHTML = `
                 <div class="grid" style="margin-bottom:1rem">
                     <div class="stat"><div class="stat-label">Преподаватель</div><div class="stat-value" style="font-size:1rem">${c.teacher.fullName}</div></div>
                     <div class="stat"><div class="stat-label">Группа</div><div class="stat-value" style="font-size:1rem">${c.group.name}</div></div>
                     <div class="stat"><div class="stat-label">Курс</div><div class="stat-value" style="font-size:1rem">${c.group.course}</div></div>
-                    <div class="stat"><div class="stat-label">Часы</div><div class="stat-value" style="font-size:1rem">${c.hours || 36}</div></div>
+                    <div class="stat"><div class="stat-label">Часы (план)</div><div class="stat-value" style="font-size:1rem">${totalHours}</div></div>
+                    <div class="stat"><div class="stat-label">Мероприятий</div><div class="stat-value" style="font-size:1rem">${eventsCount}</div></div>
+                    <div class="stat"><div class="stat-label">Часов на мероприятие</div><div class="stat-value" style="font-size:1rem">${hoursPerEvent}</div></div>
                 </div>
 
                 <h4 style="margin:1rem 0 0.5rem">🎯 Мероприятия</h4>
-                <ul style="padding-left:1.2rem;margin-bottom:1rem">${eventsHtml}</ul>
+                <ul style="padding-left:1.2rem;margin-bottom:1rem;list-style:none">${eventsHtml}</ul>
                 <button class="btn btn-sm btn-outline" onclick="addEvent(${c.id})">➕ Добавить мероприятие</button>
 
                 <h4 style="margin:1rem 0 0.5rem">📖 Журнал</h4>
-                <ul style="padding-left:1.2rem;margin-bottom:1rem">${logsHtml}</ul>
+                <ul style="padding-left:1.2rem;margin-bottom:1rem;list-style:none">${logsHtml}</ul>
                 <button class="btn btn-sm btn-outline" onclick="addLog(${c.id})">➕ Добавить запись</button>
             `;
 
@@ -260,6 +270,25 @@ function addEvent(id) {
     });
 }
 
+function deleteEvent(curatorshipId, eventIndex) {
+    if (!confirm('Удалить это мероприятие?')) return;
+
+    fetch(`/api/curatorships/${curatorshipId}`)
+        .then(r => r.json())
+        .then(c => {
+            c.events.splice(eventIndex, 1);
+            return fetch(`/api/curatorships/${curatorshipId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({events: c.events})
+            });
+        })
+        .then(r => {
+            if (r.ok) viewCuratorship(curatorshipId);
+            else alert('Ошибка удаления');
+        });
+}
+
 function addLog(id) {
     const logEntry = prompt('Введите запись в журнал:');
     if (!logEntry) return;
@@ -272,6 +301,25 @@ function addLog(id) {
         if (r.ok) viewCuratorship(id);
         else alert('Ошибка добавления');
     });
+}
+
+function deleteLog(curatorshipId, logIndex) {
+    if (!confirm('Удалить эту запись из журнала?')) return;
+
+    fetch(`/api/curatorships/${curatorshipId}`)
+        .then(r => r.json())
+        .then(c => {
+            c.logs.splice(logIndex, 1);
+            return fetch(`/api/curatorships/${curatorshipId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({logs: c.logs})
+            });
+        })
+        .then(r => {
+            if (r.ok) viewCuratorship(curatorshipId);
+            else alert('Ошибка удаления');
+        });
 }
 
 function deleteCuratorship(id) {

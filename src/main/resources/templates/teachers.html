@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openProfile(id) {
-    fetch(`/api/teachers/${id}/profile?year=2024`)
+    fetch(`/api/teachers/${id}/profile?year=2026`)
         .then(r => r.json())
         .then(p => {
             const body = document.getElementById('profileBody');

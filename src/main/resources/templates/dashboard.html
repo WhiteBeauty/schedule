@@ -139,6 +139,7 @@
         </div>
 
         <a th:href="@{/schedule}" class="btn btn-sm">📅 Моё расписание</a>
+        <button th:if="${teacher != null}" onclick="openSickLeaveModal()" class="btn btn-sm btn-outline">🤒 Заболел</button>
     </div>
 
     <!-- Top bar for Admin -->
@@ -345,6 +346,34 @@
         </div>
     </div>
 
+    <!-- Modal: Sick Leave -->
+    <div class="modal-overlay" id="sickLeaveModal" th:if="${teacher != null}">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin: 0;">🤒 Больничный лист</h3>
+                <button class="close-btn" onclick="closeSickLeaveModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дата начала *</label>
+                    <input type="date" id="sickStart" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дата конца *</label>
+                    <input type="date" id="sickEnd" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:1rem">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Причина (необязательно)</label>
+                    <input type="text" id="sickReason" placeholder="Например: ОРВИ" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeSickLeaveModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="submitSickLeave()">Отправить</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Modal handling
         const teacherCard = document.getElementById('teacherCard');
@@ -404,6 +433,44 @@
             return map[column] || 0;
         }
 
+        // Sick Leave
+        function openSickLeaveModal() {
+            document.getElementById('sickLeaveModal').classList.add('active');
+        }
+
+        function closeSickLeaveModal() {
+            document.getElementById('sickLeaveModal').classList.remove('active');
+        }
+
+        function submitSickLeave() {
+            const startDate = document.getElementById('sickStart').value;
+            const endDate = document.getElementById('sickEnd').value;
+            const reason = document.getElementById('sickReason').value || '';
+
+            if (!startDate || !endDate) {
+                alert('Выберите даты начала и конца больничного');
+                return;
+            }
+
+            fetch('/api/sick-leaves', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    startDate,
+                    endDate,
+                    reason,
+                    academicYear: 2026
+                })
+            }).then(r => {
+                if (r.ok) {
+                    alert('Больничный лист зарегистрирован');
+                    closeSickLeaveModal();
+                } else {
+                    alert('Ошибка регистрации больничного');
+                }
+            });
+        }
+
         // Filtering
         document.getElementById('filterDiscipline')?.addEventListener('input', filterTable);
         document.getElementById('filterGroup')?.addEventListener('input', filterTable);
@@ -460,7 +527,7 @@
         });
 
         function viewAdminTeacher(id) {
-            const year = /*[[${year}]]*/ 2025;
+            const year = 2026;
             fetch(`/api/teachers/${id}/profile?year=${year}`)
                 .then(r => r.json())
                 .then(p => {
@@ -489,7 +556,7 @@
                                         <tr><td><strong>Телефон:</strong></td><td>${p.phone || '-'}</td></tr>
                                         <tr><td><strong>Ставка:</strong></td><td>${p.rate || '-'} ставки</td></tr>
                                     </table>
-                    <h4>Нагрузка на <span th:text="${year}">2025</span> год</h4>
+                    <h4>Нагрузка на <span th:text="${year}">2026</span> год</h4>
                                     <table style="font-size: 0.85rem;">
                                         <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
                                         <tbody>${loadsHtml}</tbody>

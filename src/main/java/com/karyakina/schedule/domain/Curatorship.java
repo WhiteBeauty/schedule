@@ -17,15 +17,15 @@ public class Curatorship {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "teacher_id")
-    @JsonIgnore
     private Teacher teacher;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "group_id")
-    @JsonIgnore
     private StudyGroup group;
 
     private Integer hours;
+
+    /** Уникальность: одна группа — один куратор. Проверяется на уровне API. */
 
     @ElementCollection
     @CollectionTable(name = "curatorship_events", joinColumns = @JoinColumn(name = "curatorship_id"))

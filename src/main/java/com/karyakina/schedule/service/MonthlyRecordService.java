@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +25,53 @@ public class MonthlyRecordService {
 
     public List<MonthlyRecord> findByLoad(Long loadId) {
         return repository.findByTeacherLoadId(loadId);
+    }
+
+    /**
+     * Агрегирует записи помесячно (сумма hours), чтобы в UI был один ряд на месяц.
+     */
+    public List<MonthlyRecord> findAggregatedByLoad(Long loadId) {
+        List<MonthlyRecord> all = repository.findByTeacherLoadId(loadId);
+        Map<String, MonthlyRecord> byMonth = new HashMap<>();
+        for (MonthlyRecord rec : all) {
+            String key = rec.getYear() + "-" + rec.getMonth();
+            MonthlyRecord agg = byMonth.get(key);
+            if (agg == null) {
+                agg = MonthlyRecord.builder()
+                        .id(rec.getId())
+                        .teacherLoad(rec.getTeacherLoad())
+                        .month(rec.getMonth())
+                        .year(rec.getYear())
+                        .hours(rec.getHours() != null ? rec.getHours() : 0)
+                        .adjustedHours(rec.getAdjustedHours())
+                        .note(rec.getNote())
+                        .changedBy(rec.getChangedBy())
+                        .changedAt(rec.getChangedAt())
+                        .build();
+                byMonth.put(key, agg);
+            } else {
+                agg.setHours((agg.getHours() != null ? agg.getHours() : 0)
+                        + (rec.getHours() != null ? rec.getHours() : 0));
+                if (rec.getAdjustedHours() != null) {
+                    agg.setAdjustedHours(rec.getAdjustedHours());
+                }
+                if (rec.getNote() != null && !rec.getNote().isBlank()) {
+                    agg.setNote(rec.getNote());
+                }
+                if (rec.getChangedBy() != null) {
+                    agg.setChangedBy(rec.getChangedBy());
+                }
+                if (agg.getId() == null || (agg.getHours() == 0 && rec.getId() != null)) {
+                    agg.setId(rec.getId());
+                }
+            }
+        }
+        List<MonthlyRecord> result = new ArrayList<>(byMonth.values());
+        result.sort((a, b) -> {
+            int y = Integer.compare(a.getYear(), b.getYear());
+            return y != 0 ? y : Integer.compare(a.getMonth(), b.getMonth());
+        });
+        return result;
     }
 
     @Transactional

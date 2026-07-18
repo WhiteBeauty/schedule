@@ -17,14 +17,9 @@ import java.util.stream.Collectors;
 /**
  * МОДУЛЬ ОБРАБОТКИ ФОРС-МАЖОРОВ И АВТОМАТИЧЕСКОЙ ЗАМЕНЫ.
  *
- * Запускается при регистрации {@link SickLeave} (см. вызов из ApiController/SickLeaveController).
- * Для каждого затронутого занятия подбирается кандидат на замену по приоритетам из ТЗ:
- *   1) уже ведёт эту дисциплину у других групп;
- *   2) та же кафедра и свободное окно в это время;
- *   3) есть резерв часов в плановой нагрузке (иначе — переработка).
- * Кандидату отправляется уведомление с просьбой подтвердить замену. При отказе —
- * предлагается следующий кандидат по приоритету; если кандидатов не осталось,
- * администрация уведомляется о нерешённом конфликте.
+ * При регистрации {@link SickLeave} для каждого затронутого занятия сразу подбирается
+ * лучший кандидат и замена применяется в расписании. Уведомления уходят:
+ * заболевшему, заменяющему и администрации.
  */
 @Service
 @RequiredArgsConstructor
@@ -41,13 +36,23 @@ public class SubstitutionService {
     private final NotificationService notificationService;
 
     /**
-     * Точка входа модуля: преподаватель/методист зарегистрировал больничный/форс-мажор.
-     * Находит все запланированные занятия преподавателя в указанном диапазоне дат и
-     * запускает подбор замены для каждого из них.
+     * Точка входа: больничный/форс-мажор зарегистрирован.
+     * Находит занятия в диапазоне дат, назначает замену и рассылает уведомления.
      */
     @Transactional
     public void handleNewSickLeave(SickLeave sickLeave) {
         Integer academicYear = sickLeave.getAcademicYear();
+        String reasonLabel = (sickLeave.getReason() == null || sickLeave.getReason().isBlank())
+                ? "больничный" : sickLeave.getReason();
+
+        // INFO — гарантированно проходит старый PostgreSQL CHECK; SICK_LEAVE тоже ок после SchemaConstraintFixer
+        notificationService.notifyAdmins(
+                Notification.Type.INFO,
+                "Отсутствие преподавателя: " + sickLeave.getTeacher().getFullName(),
+                "Период: " + sickLeave.getStartDate() + " — " + sickLeave.getEndDate()
+                        + ". Причина: " + reasonLabel + ". Запущен поиск замены по расписанию.",
+                null);
+
         List<LessonInstance> affected = new ArrayList<>();
 
         for (LocalDate date = sickLeave.getStartDate(); !date.isAfter(sickLeave.getEndDate()); date = date.plusDays(1)) {
@@ -63,15 +68,95 @@ public class SubstitutionService {
         log.info("Больничный преподавателя {} ({} - {}): затронуто занятий {}",
                 sickLeave.getTeacher().getFullName(), sickLeave.getStartDate(), sickLeave.getEndDate(), affected.size());
 
+        if (affected.isEmpty()) {
+            notificationService.notifyAdmins(
+                    Notification.Type.INFO,
+                    "Нет пар для замены: " + sickLeave.getTeacher().getFullName(),
+                    "На период " + sickLeave.getStartDate() + " — " + sickLeave.getEndDate()
+                            + " в расписании не найдено запланированных занятий этого преподавателя.",
+                    null);
+            return;
+        }
+
         for (LessonInstance instance : affected) {
-            proposeNextCandidate(instance, sickLeave, Set.of());
+            autoAssignReplacement(instance, sickLeave, Set.of());
         }
     }
 
     /**
-     * Подбирает следующего по приоритету кандидата (исключая уже предлагавшихся) и
-     * создаёт для него заявку на замену + уведомление. Если кандидатов не осталось —
-     * уведомляет администрацию о нерешённом конфликте.
+     * Сразу назначает лучшего кандидата (без ожидания подтверждения), обновляет занятие
+     * и уведомляет обоих преподавателей и администрацию.
+     */
+    @Transactional
+    public void autoAssignReplacement(LessonInstance instance, SickLeave sickLeave, Set<Long> excludeTeacherIds) {
+        List<Candidate> candidates = findCandidates(instance, excludeTeacherIds);
+
+        if (candidates.isEmpty()) {
+            notificationService.notifyAdmins(
+                    Notification.Type.SUBSTITUTION_UNRESOLVED,
+                    "Не найдена замена на " + instance.getLessonDate(),
+                    "Занятие: " + instance.getSchedule().getTeacherLoad().getDiscipline().getName()
+                            + ", группа " + instance.getSchedule().getTeacherLoad().getGroup().getName()
+                            + ", преподаватель " + instance.getOriginalTeacher().getFullName()
+                            + " отсутствует (" + sickLeave.getReason() + "), кандидаты на замену не найдены.",
+                    null);
+            return;
+        }
+
+        Candidate best = candidates.get(0);
+        SubstitutionRequest request = SubstitutionRequest.builder()
+                .lessonInstance(instance)
+                .sickLeave(sickLeave)
+                .originalTeacher(instance.getOriginalTeacher())
+                .candidateTeacher(best.teacher)
+                .priorityRank(best.priorityRank)
+                .priorityReason(best.reason)
+                .overload(best.overload)
+                .status(SubstitutionRequest.Status.ACCEPTED)
+                .respondedAt(java.time.LocalDateTime.now())
+                .build();
+        request = substitutionRequestRepository.save(request);
+
+        lessonInstanceService.replaceInstance(
+                instance.getId(),
+                best.teacher,
+                "Автозамена: " + (sickLeave.getReason() != null ? sickLeave.getReason() : "отсутствие")
+                        + " с " + sickLeave.getStartDate(),
+                "system:auto-substitution");
+
+        String disc = instance.getSchedule().getTeacherLoad().getDiscipline().getName();
+        String group = instance.getSchedule().getTeacherLoad().getGroup().getName();
+        String when = instance.getLessonDate() + " "
+                + instance.getSchedule().getStartTime() + "-" + instance.getSchedule().getEndTime();
+        String msg = "Замена на " + when + ": вместо " + instance.getOriginalTeacher().getFullName()
+                + " проведёт " + best.teacher.getFullName()
+                + ". Дисциплина: " + disc + ", группа " + group
+                + ". Причина выбора: " + best.reason
+                + (best.overload ? " (переработка)" : "") + ".";
+
+        notificationService.notifyTeacher(
+                instance.getOriginalTeacher(),
+                Notification.Type.SUBSTITUTION_ACCEPTED,
+                "Назначена замена на " + instance.getLessonDate(),
+                msg,
+                request.getId());
+
+        notificationService.notifyTeacher(
+                best.teacher,
+                Notification.Type.SUBSTITUTION_ACCEPTED,
+                "Вы назначены на замену " + instance.getLessonDate(),
+                msg,
+                request.getId());
+
+        notificationService.notifyAdmins(
+                Notification.Type.SUBSTITUTION_ACCEPTED,
+                "Замена выполнена: " + instance.getLessonDate(),
+                msg,
+                request.getId());
+    }
+
+    /**
+     * Подбирает следующего кандидата (ручной/повторный сценарий после отказа).
      */
     @Transactional
     public void proposeNextCandidate(LessonInstance instance, SickLeave sickLeave, Set<Long> excludeTeacherIds) {
@@ -116,7 +201,6 @@ public class SubstitutionService {
                 request.getId());
     }
 
-    /** Кандидат подтвердил замену — переносим часы и закрываем связанные заявки. */
     @Transactional
     public SubstitutionRequest acceptSubstitution(Long requestId, Teacher respondingTeacher) {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
@@ -126,7 +210,7 @@ public class SubstitutionService {
             throw new RuntimeException("Эта заявка адресована другому преподавателю");
         }
         if (request.getStatus() != SubstitutionRequest.Status.PENDING) {
-            return request; // уже обработана
+            return request;
         }
 
         lessonInstanceService.replaceInstance(
@@ -139,7 +223,6 @@ public class SubstitutionService {
         request.setRespondedAt(java.time.LocalDateTime.now());
         request = substitutionRequestRepository.save(request);
 
-        // Остальные ожидающие заявки по этому же занятию больше не актуальны
         for (SubstitutionRequest other : substitutionRequestRepository
                 .findByLessonInstanceIdOrderByPriorityRankAsc(request.getLessonInstance().getId())) {
             if (!other.getId().equals(request.getId()) && other.getStatus() == SubstitutionRequest.Status.PENDING) {
@@ -148,17 +231,25 @@ public class SubstitutionService {
             }
         }
 
+        String msg = respondingTeacher.getFullName() + " заменит " + request.getOriginalTeacher().getFullName()
+                + " " + request.getLessonInstance().getLessonDate();
+
         notificationService.notifyAdmins(
                 Notification.Type.SUBSTITUTION_ACCEPTED,
                 "Замена подтверждена: " + request.getLessonInstance().getLessonDate(),
-                respondingTeacher.getFullName() + " заменит " + request.getOriginalTeacher().getFullName()
-                        + " " + request.getLessonInstance().getLessonDate(),
+                msg,
+                request.getId());
+
+        notificationService.notifyTeacher(
+                request.getOriginalTeacher(),
+                Notification.Type.SUBSTITUTION_ACCEPTED,
+                "Замена подтверждена: " + request.getLessonInstance().getLessonDate(),
+                msg,
                 request.getId());
 
         return request;
     }
 
-    /** Кандидат отказался — предлагаем следующего по приоритету. */
     @Transactional
     public SubstitutionRequest declineSubstitution(Long requestId, Teacher respondingTeacher) {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
@@ -175,13 +266,22 @@ public class SubstitutionService {
         request.setRespondedAt(java.time.LocalDateTime.now());
         request = substitutionRequestRepository.save(request);
 
+        notificationService.notifyAdmins(
+                Notification.Type.SUBSTITUTION_DECLINED,
+                "Отказ от замены: " + request.getLessonInstance().getLessonDate(),
+                respondingTeacher.getFullName() + " отказался заменить "
+                        + request.getOriginalTeacher().getFullName() + ". Подбирается следующий кандидат.",
+                request.getId());
+
         Set<Long> alreadyProposed = substitutionRequestRepository
                 .findByLessonInstanceIdOrderByPriorityRankAsc(request.getLessonInstance().getId())
                 .stream().map(r -> r.getCandidateTeacher().getId()).collect(Collectors.toCollection(LinkedHashSet::new));
 
         LessonInstance instance = lessonInstanceRepository.findById(request.getLessonInstance().getId())
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено"));
-        proposeNextCandidate(instance, request.getSickLeave(), alreadyProposed);
+
+        // После отказа сразу назначаем следующего кандидата автоматически
+        autoAssignReplacement(instance, request.getSickLeave(), alreadyProposed);
 
         return request;
     }
@@ -193,8 +293,6 @@ public class SubstitutionService {
     public List<SubstitutionRequest> findAll() {
         return substitutionRequestRepository.findAllByOrderByCreatedAtDesc();
     }
-
-    // ==================== Подбор кандидатов ====================
 
     private static class Candidate {
         Teacher teacher;
@@ -212,7 +310,6 @@ public class SubstitutionService {
         Set<Long> excluded = new LinkedHashSet<>(excludeTeacherIds);
         excluded.add(originalTeacher.getId());
 
-        // Приоритет 1: преподаватель, который уже ведёт эту дисциплину у других групп
         List<TeacherLoad> sameDiscipline = loadRepository.findByDisciplineIdAndAcademicYear(
                 originalLoad.getDiscipline().getId(), originalLoad.getAcademicYear());
         LinkedHashSet<Long> candidateIds = new LinkedHashSet<>();
@@ -229,7 +326,6 @@ public class SubstitutionService {
         }
         if (!result.isEmpty()) return result;
 
-        // Приоритет 2: та же кафедра, свободное окно в это время
         if (originalTeacher.getDepartment() != null && !originalTeacher.getDepartment().isBlank()) {
             List<Teacher> sameDept = teacherRepository.findByDepartment(originalTeacher.getDepartment());
             for (Teacher t : sameDept) {
@@ -239,13 +335,12 @@ public class SubstitutionService {
                 c.teacher = t;
                 c.priorityRank = 2;
                 c.reason = "Та же кафедра (" + originalTeacher.getDepartment() + "), свободное окно в это время";
-                c.overload = true; // не факт, что есть резерв часов по этой дисциплине — уточнится при замене
+                c.overload = true;
                 result.add(c);
             }
         }
         if (!result.isEmpty()) return result;
 
-        // Приоритет 3: любой преподаватель с резервом часов по своей нагрузке (свободен в это время)
         for (Teacher t : teacherRepository.findAll()) {
             if (excluded.contains(t.getId()) || !candidateIds.add(t.getId())) continue;
             if (isBusyOrSick(t.getId(), date, instance)) continue;
@@ -259,13 +354,12 @@ public class SubstitutionService {
                     : "Свободен в это время (резерва часов нет — будет учтено как переработка)";
             c.overload = !hasReserve;
             result.add(c);
-            if (result.size() >= 5) break; // не нужен полный перебор всех преподавателей
+            if (result.size() >= 5) break;
         }
 
         return result;
     }
 
-    /** true, если преподаватель уже занят в это время (по расписанию/факту) или сам на больничном. */
     private boolean isBusyOrSick(Long teacherId, LocalDate date, LessonInstance instance) {
         if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) return true;
 

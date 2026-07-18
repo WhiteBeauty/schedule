@@ -28,8 +28,10 @@
         <li><a th:href="@{/monthly}" id="nav-monthly">📆 Помесячный учёт</a></li>
         <li><a th:href="@{/productivity}" id="nav-productivity">📈 Продуктивность</a></li>
         <li><a th:href="@{/teachers}" id="nav-teachers" th:style="${isAdmin} ? 'display:block' : 'display:none'">🎓 Преподаватели</a></li>
-        <li><a th:href="@{/logout}" style="margin-top: 2rem; color: var(--danger);" id="nav-logout">🚪 Выйти</a></li>
     </ul>
+    <div class="nav-logout">
+        <a th:href="@{/logout}" id="nav-logout">🚪 Выйти</a>
+    </div>
     <script th:inline="javascript">
         (function () {
             function refreshBadge() {

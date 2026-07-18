@@ -187,27 +187,42 @@ public class LessonInstanceService {
     private void addHours(TeacherLoad load, int hours, LocalDate date, String note, String changedBy) {
         load.setReadHours(load.getReadHours() + hours);
         loadRepository.save(load);
-        monthlyRecordRepository.save(MonthlyRecord.builder()
-                .teacherLoad(load)
-                .month(date.getMonthValue())
-                .year(load.getAcademicYear())
-                .hours(hours)
-                .note(note)
-                .changedBy(changedBy)
-                .build());
+        upsertMonthly(load, date.getMonthValue(), hours, note, changedBy);
     }
 
     private void subtractHours(TeacherLoad load, int hours, LocalDate date, String note, String changedBy) {
         load.setReadHours(Math.max(0, load.getReadHours() - hours));
         loadRepository.save(load);
-        monthlyRecordRepository.save(MonthlyRecord.builder()
-                .teacherLoad(load)
-                .month(date.getMonthValue())
-                .year(load.getAcademicYear())
-                .hours(-hours)
-                .note(note)
-                .changedBy(changedBy)
-                .build());
+        upsertMonthly(load, date.getMonthValue(), -hours, note, changedBy);
+    }
+
+    /** Обновляет (или создаёт) одну помесячную запись вместо фрагментарных дельт. */
+    private void upsertMonthly(TeacherLoad load, int month, int deltaHours, String note, String changedBy) {
+        List<MonthlyRecord> existing = monthlyRecordRepository.findByTeacherLoadId(load.getId());
+        MonthlyRecord base = existing.stream()
+                .filter(r -> r.getMonth().equals(month) && r.getYear().equals(load.getAcademicYear()))
+                .findFirst()
+                .orElse(null);
+
+        if (base == null) {
+            monthlyRecordRepository.save(MonthlyRecord.builder()
+                    .teacherLoad(load)
+                    .month(month)
+                    .year(load.getAcademicYear())
+                    .hours(deltaHours)
+                    .note(note)
+                    .changedBy(changedBy)
+                    .build());
+        } else {
+            base.setHours((base.getHours() != null ? base.getHours() : 0) + deltaHours);
+            if (note != null && !note.isBlank()) {
+                base.setNote(note);
+            }
+            if (changedBy != null) {
+                base.setChangedBy(changedBy);
+            }
+            monthlyRecordRepository.save(base);
+        }
     }
 
     /**

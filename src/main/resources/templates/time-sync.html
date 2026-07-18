@@ -11,12 +11,7 @@
             gap: 1.5rem;
             margin-bottom: 1.5rem;
         }
-        .sync-summary {
-            flex: 1;
-        }
-        .sync-filters {
-            flex: 0 0 280px;
-        }
+        .sync-summary { flex: 1; }
         .diff-positive { color: var(--success); font-weight: 600; }
         .diff-negative { color: var(--danger); font-weight: 600; }
         .diff-zero { color: var(--muted); }
@@ -30,11 +25,9 @@
         .status-ok { background: #dcfce7; color: #166534; }
         .status-warning { background: #fef9c3; color: #854d0e; }
         .status-danger { background: #fee2e2; color: #991b1b; }
-        .action-buttons {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
+        .action-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+        #syncTable { font-size: 0.85rem; }
+        #syncTable th, #syncTable td { white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -49,10 +42,11 @@
 <main class="main">
     <h1 class="page-title">⏱️ Сверка плановых и фактических часов</h1>
     <p class="text-muted" style="margin-bottom: 1.5rem;">
-        Инструмент для выявления расхождений между планом и фактом, внесения корректировок и согласования отклонений с администрацией.
+        При постановке пар в расписание часы вычитаются из плановых на неделю и месяц.
+        Цель распределения — <strong>разница = 0</strong> (план полностью закрыт расписанием).
+        Год: план vs вычитанные (проведённые) часы.
     </p>
 
-    <!-- Summary cards -->
     <div class="sync-layout">
         <div class="sync-summary">
             <div class="grid">
@@ -61,22 +55,21 @@
                     <div class="stat-value" id="totalDisciplines">0</div>
                 </div>
                 <div class="stat" style="border-left: 4px solid var(--primary)">
-                    <div class="stat-label">Плановых часов</div>
-                    <div class="stat-value" id="totalPlanned">0</div>
+                    <div class="stat-label">Неделя: баланс 0</div>
+                    <div class="stat-value" id="weekBalanced">0</div>
                 </div>
                 <div class="stat" style="border-left: 4px solid var(--warning)">
-                    <div class="stat-label">Вычитано часов</div>
-                    <div class="stat-value" id="totalRead">0</div>
+                    <div class="stat-label">Месяц: баланс 0</div>
+                    <div class="stat-value" id="monthBalanced">0</div>
                 </div>
                 <div class="stat" style="border-left: 4px solid var(--danger)">
-                    <div class="stat-label">Расхождений</div>
+                    <div class="stat-label">Расхождений (неделя)</div>
                     <div class="stat-value" id="totalDiscrepancies">0</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Main table -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Детальная сверка по дисциплинам</h2>
@@ -85,28 +78,34 @@
                 <button class="btn btn-sm" onclick="approveAll()">✅ Утвердить все</button>
             </div>
         </div>
-        <table id="syncTable">
-            <thead>
-            <tr>
-                <th>Дисциплина</th>
-                <th>Группа</th>
-                <th>План</th>
-                <th>Вычитано</th>
-                <th>Осталось</th>
-                <th>Расхождение</th>
-                <th>Статус</th>
-                <th>Действия</th>
-            </tr>
-            </thead>
-            <tbody id="syncBody"></tbody>
-        </table>
+        <div style="overflow-x: auto;">
+            <table id="syncTable">
+                <thead>
+                <tr>
+                    <th>Дисциплина</th>
+                    <th>Группа</th>
+                    <th>План/нед</th>
+                    <th>В расписании/нед</th>
+                    <th>Δ неделя</th>
+                    <th>План/мес</th>
+                    <th>В расписании/мес</th>
+                    <th>Δ месяц</th>
+                    <th>План/год</th>
+                    <th>Вычитано</th>
+                    <th>Δ год</th>
+                    <th>Статус</th>
+                    <th>Действия</th>
+                </tr>
+                </thead>
+                <tbody id="syncBody"></tbody>
+            </table>
+        </div>
     </div>
 
-    <!-- Modal for correction -->
     <div class="modal-overlay" id="correctionModal">
         <div class="modal">
             <div class="modal-header">
-                <h3 style="margin: 0">Корректировка часов</h3>
+                <h3 style="margin: 0">Корректировка вычитанных часов (год)</h3>
                 <button class="close-btn" onclick="closeCorrection()">×</button>
             </div>
             <div class="modal-body">
@@ -137,66 +136,78 @@
     </div>
 </main>
 
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.defaultYear = /*[[${defaultYear}]]*/ 2026;
+/*]]>*/
+</script>
 <script>
+const defaultYear = window.defaultYear || 2026;
 let currentLoadId = null;
-let allLoads = [];
 
 document.addEventListener('DOMContentLoaded', loadData);
 
+function diffClass(d) {
+    if (d === 0) return 'diff-zero';
+    return d > 0 ? 'diff-positive' : 'diff-negative';
+}
+
+function formatDiff(d) {
+    return d > 0 ? '+' + d : String(d);
+}
+
+function statusFor(weekDiff, monthDiff) {
+    if (weekDiff === 0 && monthDiff === 0) {
+        return { text: 'Сбалансировано', cls: 'status-ok' };
+    }
+    if (Math.abs(weekDiff) <= 1 && Math.abs(monthDiff) <= 2) {
+        return { text: 'Почти норма', cls: 'status-warning' };
+    }
+    return { text: 'Нужно распределить', cls: 'status-danger' };
+}
+
+function escapeJsAttr(s) {
+    return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 function loadData() {
-    const year = 2026;
-    fetch(`/api/loads?year=${year}`)
+    fetch('/api/loads/reconciliation?year=' + encodeURIComponent(defaultYear))
         .then(r => r.json())
         .then(data => {
-            allLoads = data;
             const tbody = document.getElementById('syncBody');
             tbody.innerHTML = '';
 
-            let totalPlanned = 0, totalRead = 0, discrepancies = 0;
+            let weekOk = 0, monthOk = 0, discrepancies = 0;
 
-            data.forEach(load => {
-                totalPlanned += load.plannedHours;
-                totalRead += load.readHours;
-                const diff = load.plannedHours - load.readHours;
-                if (diff !== 0) discrepancies++;
+            data.forEach(row => {
+                if (row.weekBalanced) weekOk++;
+                if (row.monthBalanced) monthOk++;
+                if (row.weekDiff !== 0) discrepancies++;
 
-                const diffClass = diff > 0 ? 'diff-positive' : (diff < 0 ? 'diff-negative' : 'diff-zero');
-                const diffText = diff > 0 ? `+${diff}` : diff.toString();
-
-                let status, statusClass;
-                if (diff === 0) {
-                    status = 'Выполнено';
-                    statusClass = 'status-ok';
-                } else if (Math.abs(diff) <= load.plannedHours * 0.1) {
-                    status = 'В пределах нормы';
-                    statusClass = 'status-warning';
-                } else {
-                    status = 'Требует внимания';
-                    statusClass = 'status-danger';
-                }
-
+                const st = statusFor(row.weekDiff, row.monthDiff);
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${load.discipline.name}</td>
-                    <td>${load.group.name}</td>
-                    <td>${load.plannedHours}</td>
-                    <td>${load.readHours}</td>
-                    <td>${diff}</td>
-                    <td class="${diffClass}">${diffText}</td>
-                    <td><span class="status-badge ${statusClass}">${status}</span></td>
-                    <td>
-                        <div class="action-buttons">
-                            <button class="btn btn-sm" onclick="openCorrection(${load.id}, '${load.discipline.name}', '${load.group.name}', ${load.plannedHours}, ${load.readHours})">✏️ Корректировать</button>
-                            <button class="btn btn-sm btn-outline" onclick="approveLoad(${load.id})">✅ Утвердить</button>
-                        </div>
-                    </td>
-                `;
+                tr.innerHTML =
+                    '<td>' + row.disciplineName + '</td>' +
+                    '<td>' + row.groupName + '</td>' +
+                    '<td>' + row.hoursPerWeek + '</td>' +
+                    '<td>' + row.scheduledHoursPerWeek + '</td>' +
+                    '<td class="' + diffClass(row.weekDiff) + '">' + formatDiff(row.weekDiff) + '</td>' +
+                    '<td>' + row.plannedHoursPerMonth + '</td>' +
+                    '<td>' + row.scheduledHoursPerMonth + '</td>' +
+                    '<td class="' + diffClass(row.monthDiff) + '">' + formatDiff(row.monthDiff) + '</td>' +
+                    '<td>' + row.plannedHours + '</td>' +
+                    '<td>' + row.readHours + '</td>' +
+                    '<td class="' + diffClass(row.yearDiff) + '">' + formatDiff(row.yearDiff) + '</td>' +
+                    '<td><span class="status-badge ' + st.cls + '">' + st.text + '</span></td>' +
+                    '<td><div class="action-buttons">' +
+                    '<button class="btn btn-sm" onclick="openCorrection(' + row.loadId + ', \'' + escapeJsAttr(row.disciplineName) + '\', \'' + escapeJsAttr(row.groupName) + '\', ' + row.plannedHours + ', ' + row.readHours + ')">✏️ Корректировать</button>' +
+                    '</div></td>';
                 tbody.appendChild(tr);
             });
 
             document.getElementById('totalDisciplines').textContent = data.length;
-            document.getElementById('totalPlanned').textContent = totalPlanned;
-            document.getElementById('totalRead').textContent = totalRead;
+            document.getElementById('weekBalanced').textContent = weekOk + ' / ' + data.length;
+            document.getElementById('monthBalanced').textContent = monthOk + ' / ' + data.length;
             document.getElementById('totalDiscrepancies').textContent = discrepancies;
         });
 }
@@ -220,9 +231,8 @@ function closeCorrection() {
 function saveCorrection() {
     if (!currentLoadId) return;
     const newRead = parseInt(document.getElementById('corrNewRead').value) || 0;
-    const note = document.getElementById('corrNote').value;
 
-    fetch(`/api/loads/${currentLoadId}/read-hours`, {
+    fetch('/api/loads/' + currentLoadId + '/read-hours', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({readHours: newRead})
@@ -230,11 +240,6 @@ function saveCorrection() {
         closeCorrection();
         loadData();
     });
-}
-
-function approveLoad(id) {
-    // В реальной системе это отправляет запрос на утверждение администратору
-    alert(`Заявка на утверждение часов отправлена администратору (ID: ${id})`);
 }
 
 function approveAll() {

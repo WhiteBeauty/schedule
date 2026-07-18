@@ -40,10 +40,13 @@ public class ApiController {
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
     private final SickLeaveRepository sickLeaveRepository;
+    private final SubstitutionRequestRepository substitutionRequestRepository;
+    private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
     private final SubstitutionService substitutionService;
+    private final LoadBalanceService loadBalanceService;
 
     @PostMapping("/time-sync")
     public ResponseEntity<TimeSyncDto> timeSync(@RequestBody Map<String, Long> body) {
@@ -67,6 +70,25 @@ public class ApiController {
             }
             return ResponseEntity.ok(teacherLoadService.findByTeacherAndYear(teacher.getId(), year));
         }
+    }
+
+    /** Сверка: план недели/месяца vs часы, уже поставленные в расписание (цель — разница 0). */
+    @GetMapping("/loads/reconciliation")
+    public ResponseEntity<List<Map<String, Object>>> loadsReconciliation(
+            @RequestParam(defaultValue = "2026") Integer year,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Long teacherId = null;
+        if (user.getRole() != User.Role.ADMIN) {
+            Teacher teacher = user.getTeacher();
+            if (teacher == null) {
+                return ResponseEntity.ok(java.util.Collections.emptyList());
+            }
+            teacherId = teacher.getId();
+        }
+        return ResponseEntity.ok(loadBalanceService.buildReconciliation(year, teacherId));
     }
 
     @GetMapping("/loads/{id}")
@@ -235,7 +257,7 @@ public class ApiController {
 
             List<Map<String, Object>> result = new ArrayList<>();
             for (TeacherLoad load : loads) {
-                List<MonthlyRecord> records = monthlyRecordService.findByLoad(load.getId());
+                List<MonthlyRecord> records = monthlyRecordService.findAggregatedByLoad(load.getId());
                 for (MonthlyRecord rec : records) {
                     Map<String, Object> item = new java.util.HashMap<>();
                     item.put("id", rec.getId());
@@ -1189,6 +1211,7 @@ public class ApiController {
     }
 
     @DeleteMapping("/sick-leaves/{id}")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<Void> deleteSickLeave(
             @PathVariable Long id,
             Authentication authentication) {
@@ -1198,6 +1221,14 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
+        // Сначала связанные заявки на замену и уведомления (FK)
+        List<SubstitutionRequest> related = substitutionRequestRepository.findBySickLeaveId(id);
+        for (SubstitutionRequest req : related) {
+            if (req.getId() != null) {
+                notificationRepository.deleteBySubstitutionRequestId(req.getId());
+            }
+        }
+        substitutionRequestRepository.deleteBySickLeaveId(id);
         sickLeaveRepository.deleteById(id);
         return ResponseEntity.ok().build();
     }

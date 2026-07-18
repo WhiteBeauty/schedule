@@ -20,4 +20,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     @Query("SELECT COUNT(n) FROM Notification n WHERE n.forAdmins = true AND n.isRead = false")
     long countUnreadForAdmins();
+
+    void deleteBySubstitutionRequestId(Long substitutionRequestId);
 }

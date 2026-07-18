@@ -205,31 +205,55 @@ function loadGroupDetails(curatorship) {
     currentCuratorshipId = curatorship.id;
     document.getElementById('groupCard').style.display = 'block';
     document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
-    
-    // Загрузка часов
+
     const hoursBody = document.getElementById('hoursBody');
     hoursBody.innerHTML = '';
 
-    // Генерируем месяцы учебного года
     const months = [
         'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
         'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь'
     ];
+    const monthNumbers = [9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
+
+    // План: из поля hours кураторства (год), иначе 0 — без заглушек
+    const yearlyPlan = curatorship.hours != null ? Number(curatorship.hours) : 0;
+    const monthlyPlan = months.length > 0 ? Math.round((yearlyPlan / months.length) * 10) / 10 : 0;
+
+    // Факт: считаем мероприятия по месяцу из текста (если есть дата), иначе не распределяем
+    const events = Array.isArray(curatorship.events) ? curatorship.events : [];
+    const factByMonth = {};
+    monthNumbers.forEach(m => { factByMonth[m] = 0; });
+
+    events.forEach(ev => {
+        const text = String(ev);
+        // Ищем дату вида YYYY-MM-DD или DD.MM.YYYY в тексте мероприятия
+        let month = null;
+        const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+        const ru = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+        if (iso) month = parseInt(iso[2], 10);
+        else if (ru) month = parseInt(ru[2], 10);
+        if (month && factByMonth[month] !== undefined) {
+            factByMonth[month] += 1; // 1 час за мероприятие, если нет явных часов
+        }
+    });
 
     let totalPlanned = 0, totalFact = 0;
-    months.forEach(month => {
-        const plan = 3; // 3 часа в месяц (примерно 36 часов в год)
-        const fact = Math.floor(Math.random() * 4); // временно случайные данные
+    months.forEach((monthName, idx) => {
+        const m = monthNumbers[idx];
+        const plan = monthlyPlan;
+        const fact = factByMonth[m] || 0;
         totalPlanned += plan;
         totalFact += fact;
 
-        const status = fact >= plan ? '<span class="badge badge-success">Выполнено</span>' :
+        const status = fact >= plan && plan > 0 ? '<span class="badge badge-success">Выполнено</span>' :
                        fact > 0 ? '<span class="badge badge-warning">Частично</span>' :
+                       plan === 0 ? '<span class="badge badge-warning">План не задан</span>' :
                        '<span class="badge badge-danger">Не выполнено</span>';
 
+        const yearLabel = m >= 9 ? currentYear : (parseInt(currentYear, 10) + 1);
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${month} ${currentYear}</td>
+            <td>${monthName} ${yearLabel}</td>
             <td>${plan}</td>
             <td>${fact}</td>
             <td>${status}</td>
@@ -237,21 +261,20 @@ function loadGroupDetails(curatorship) {
         hoursBody.appendChild(tr);
     });
 
-    // Итоговая строка
     const completion = totalPlanned > 0 ? (totalFact * 100 / totalPlanned) : 0;
-    const statusClass = completion >= 90 ? 'status-high' : completion >= 70 ? 'status-medium' : 'status-low';
-    const statusText = completion >= 90 ? 'Высокая' : completion >= 70 ? 'Средняя' : 'Низкая';
+    const statusText = yearlyPlan <= 0 && events.length === 0 ? 'Нет данных' :
+                       completion >= 90 ? 'Высокая' : completion >= 70 ? 'Средняя' : 'Низкая';
 
     document.getElementById('completionStatus').textContent = statusText;
     document.getElementById('completionStatus').className = 'status-' + (completion >= 90 ? 'high' : completion >= 70 ? 'medium' : 'low');
     document.getElementById('completionBar').style.width = Math.min(completion, 100) + '%';
     document.getElementById('completionBar').className = 'progress-bar ' + (completion >= 90 ? 'success' : completion >= 70 ? 'warning' : 'danger');
-    document.getElementById('completionText').textContent = `${totalFact} / ${totalPlanned} часов (${Math.round(completion)}%)`;
+    document.getElementById('completionText').textContent =
+        `${totalFact} / ${totalPlanned} часов` +
+        (events.length ? ` · мероприятий: ${events.length}` : '') +
+        ` (${Math.round(completion)}%)`;
 
-    // Мероприятия
     renderEvents(curatorship);
-
-    // Журнал
     renderLogs(curatorship);
 }
 

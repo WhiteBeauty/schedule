@@ -31,7 +31,7 @@ public class Notification {
     private Boolean forAdmins = false;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 64)
     private Type type;
 
     @Column(nullable = false)
@@ -57,6 +57,7 @@ public class Notification {
         SUBSTITUTION_UNRESOLVED,// администрации: замену найти не удалось
         IMPORT_REPORT,          // администрации: отчёт об импорте
         SCHEDULE_CONFLICT,      // администрации: конфликт при автосоставлении расписания
+        SICK_LEAVE,             // администрации / преподавателю: зарегистрирован больничный/форс-мажор
         INFO
     }
 }

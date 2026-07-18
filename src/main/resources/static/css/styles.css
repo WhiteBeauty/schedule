@@ -36,6 +36,7 @@ body {
     left: 0;
     height: 100vh;
     z-index: 100;
+    overflow: hidden;
 }
 
 /* Top bar spacer to prevent content overlap */
@@ -57,6 +58,30 @@ body {
     padding: 0;
     margin: 0;
     flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.nav-logout {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.nav-logout a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    color: var(--danger) !important;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+}
+
+.nav-logout a:hover {
+    background: #fef2f2;
+    border-left-color: var(--danger);
 }
 
 .nav-list li a {

@@ -28,7 +28,10 @@
             <label th:if="${isAdmin}">Преподаватель: <select id="filterTeacher"><option value="">Все</option></select></label>
             <label>Группа: <select id="filterGroup"><option value="">Все</option></select></label>
             <label>Дисциплина: <select id="filterDiscipline"><option value="">Все</option></select></label>
-            <label>Год: <select id="yearSelect"><option value="2026" selected>2026</option><option value="2027">2027</option></select></label>
+            <label>Год: <select id="yearSelect">
+                <option th:value="${defaultYear}" th:text="${defaultYear}" selected>2026</option>
+                <option th:value="${defaultYear + 1}" th:text="${defaultYear + 1}">2027</option>
+            </select></label>
             <button class="btn" onclick="applyFilters()">Применить</button>
         </div>
     </div>
@@ -77,15 +80,20 @@
     </div>
 </div>
 
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.isAdmin = /*[[${isAdmin}]]*/ false;
+/*]]>*/
+</script>
 <script>
-let allLoads = [];
+const isAdmin = window.isAdmin === true;
 let allRecords = [];
 let currentRecordId = null;
 
 async function init() {
-    const isAdmin = /*[[${isAdmin}]]*/ false;
+    const gSel = document.getElementById('filterGroup');
+    const dSel = document.getElementById('filterDiscipline');
 
-    // Загружаем фильтры только для админа
     if (isAdmin) {
         const [teachers, groups, disciplines] = await Promise.all([
             fetch('/api/teachers').then(r => r.json()),
@@ -95,9 +103,7 @@ async function init() {
 
         const tSel = document.getElementById('filterTeacher');
         teachers.forEach(t => tSel.add(new Option(t.fullName, t.id)));
-        const gSel = document.getElementById('filterGroup');
         groups.forEach(g => gSel.add(new Option(g.name, g.id)));
-        const dSel = document.getElementById('filterDiscipline');
         disciplines.forEach(d => dSel.add(new Option(d.name, d.id)));
     }
 
@@ -107,27 +113,60 @@ async function init() {
 async function loadData() {
     const year = document.getElementById('yearSelect').value;
 
-    // Используем новый endpoint для monthly records
-    allRecords = await fetch(`/api/monthly-records?year=${year}`)
+    allRecords = await fetch('/api/monthly-records?year=' + encodeURIComponent(year))
         .then(r => r.json())
         .catch(() => []);
+
+    if (!isAdmin) {
+        fillTeacherFiltersFromData();
+    }
 
     applyFilters();
 }
 
+function fillTeacherFiltersFromData() {
+    const gSel = document.getElementById('filterGroup');
+    const dSel = document.getElementById('filterDiscipline');
+    if (!gSel || !dSel) return;
+
+    const groups = new Map();
+    const disciplines = new Map();
+    allRecords.forEach(r => {
+        if (r.groupId != null) groups.set(r.groupId, r.groupName);
+        if (r.disciplineId != null) disciplines.set(r.disciplineId, r.disciplineName);
+    });
+
+    const keepG = gSel.value;
+    const keepD = dSel.value;
+    gSel.innerHTML = '<option value="">Все</option>';
+    dSel.innerHTML = '<option value="">Все</option>';
+    groups.forEach((name, id) => gSel.add(new Option(name, id)));
+    disciplines.forEach((name, id) => dSel.add(new Option(name, id)));
+    gSel.value = keepG;
+    dSel.value = keepD;
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function escapeJsAttr(s) {
+    return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 function applyFilters() {
-    const isAdmin = /*[[${isAdmin}]]*/ false;
-    const tFilter = document.getElementById('filterTeacher').value;
-    const gFilter = document.getElementById('filterGroup').value;
-    const dFilter = document.getElementById('filterDiscipline').value;
+    const tFilterEl = document.getElementById('filterTeacher');
+    const tFilter = tFilterEl ? tFilterEl.value : '';
+    const gFilter = document.getElementById('filterGroup') ? document.getElementById('filterGroup').value : '';
+    const dFilter = document.getElementById('filterDiscipline') ? document.getElementById('filterDiscipline').value : '';
 
     const filtered = allRecords.filter(r => {
         let match = true;
-        if (!isAdmin) {
-            // Для преподавателя показываем только его записи (фильтрация на сервере)
-            return true;
-        }
-        if (tFilter && r.teacherId != tFilter) match = false;
+        if (isAdmin && tFilter && r.teacherId != tFilter) match = false;
         if (gFilter && r.groupId != gFilter) match = false;
         if (dFilter && r.disciplineId != dFilter) match = false;
         return match;
@@ -145,24 +184,29 @@ function applyFilters() {
     filtered.forEach(r => {
         const tr = document.createElement('tr');
         const hasId = r.id != null && r.id !== 0;
-        tr.innerHTML = `
-            <td>${r.teacherName}</td>
-            <td>${r.disciplineName}</td>
-            <td>${r.groupName}</td>
-            <td>${monthNames[r.month] || r.month}</td>
-            <td>${r.hours}</td>
-            <td class="${r.adjustedHours != null ? 'text-success' : ''}">${r.adjustedHours != null ? r.adjustedHours : '-'}</td>
-            <td>${r.note || '-'}</td>
-            <td>${r.changedBy || '-'}</td>
-            <td>${hasId ? `<button class="btn btn-sm" onclick="openAdjust(${r.id}, '${r.teacherName.replace(/'/g, "\\'")}', '${r.disciplineName.replace(/'/g, "\\'")}', ${r.hours}, '${(r.note || '').replace(/'/g, "\\'")}')">✏️</button>` : '-'}</td>
-        `;
+        const hours = r.hours != null ? r.hours : 0;
+        const adj = r.adjustedHours != null ? r.adjustedHours : '-';
+        const adjClass = r.adjustedHours != null ? 'text-success' : '';
+        const btn = hasId
+            ? '<button class="btn btn-sm" onclick="openAdjust(' + r.id + ', \'' + escapeJsAttr(r.teacherName) + '\', \'' + escapeJsAttr(r.disciplineName) + '\', ' + hours + ', \'' + escapeJsAttr(r.note) + '\')">✏️</button>'
+            : '-';
+        tr.innerHTML =
+            '<td>' + escapeHtml(r.teacherName || '-') + '</td>' +
+            '<td>' + escapeHtml(r.disciplineName || '-') + '</td>' +
+            '<td>' + escapeHtml(r.groupName || '-') + '</td>' +
+            '<td>' + escapeHtml(monthNames[r.month] || r.month) + '</td>' +
+            '<td>' + hours + '</td>' +
+            '<td class="' + adjClass + '">' + escapeHtml(adj) + '</td>' +
+            '<td>' + escapeHtml(r.note || '-') + '</td>' +
+            '<td>' + escapeHtml(r.changedBy || '-') + '</td>' +
+            '<td>' + btn + '</td>';
         tbody.appendChild(tr);
     });
 }
 
 function openAdjust(id, teacher, discipline, hours, note) {
     currentRecordId = id;
-    document.getElementById('adjInfo').textContent = `${teacher} — ${discipline}`;
+    document.getElementById('adjInfo').textContent = teacher + ' — ' + discipline;
     document.getElementById('adjHours').value = hours;
     document.getElementById('adjNote').value = note || '';
     document.getElementById('adjustModal').classList.add('active');
@@ -178,10 +222,10 @@ function saveAdjust() {
     const hours = parseInt(document.getElementById('adjHours').value) || 0;
     const note = document.getElementById('adjNote').value;
 
-    fetch(`/api/monthly/${currentRecordId}/adjust`, {
+    fetch('/api/monthly/' + currentRecordId + '/adjust', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({adjustedHours: hours, note: note, changedBy: 'admin'})
+        body: JSON.stringify({adjustedHours: hours, note: note, changedBy: isAdmin ? 'admin' : 'teacher'})
     }).then(() => {
         closeAdjust();
         loadData();
@@ -190,7 +234,7 @@ function saveAdjust() {
 
 function exportCsv() {
     const year = document.getElementById('yearSelect').value;
-    window.open(`/api/monthly/export/csv?year=${year}`, '_blank');
+    window.open('/api/monthly/export/csv?year=' + encodeURIComponent(year), '_blank');
 }
 
 document.addEventListener('DOMContentLoaded', init);

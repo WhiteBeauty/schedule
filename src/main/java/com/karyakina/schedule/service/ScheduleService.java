@@ -63,6 +63,16 @@ public class ScheduleService {
                                    LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
+
+        // Если плановых часов в неделю ещё нет — выводим из годового плана
+        if (load.getHoursPerWeek() == null || load.getHoursPerWeek() <= 0) {
+            int planned = load.getPlannedHours() != null ? load.getPlannedHours() : 0;
+            int weekly = planned > 0
+                    ? Math.max(1, (int) Math.round(planned / (double) LoadBalanceService.WEEKS_PER_YEAR))
+                    : 0;
+            load.setHoursPerWeek(weekly);
+            loadRepository.save(load);
+        }
         
         Schedule schedule = Schedule.builder()
                 .teacherLoad(load)

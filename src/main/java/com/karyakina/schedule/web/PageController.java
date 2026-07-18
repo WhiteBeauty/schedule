@@ -151,6 +151,7 @@ public class PageController {
 
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
         model.addAttribute("year", year);
+        model.addAttribute("defaultYear", year);
         model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         return "monthly";

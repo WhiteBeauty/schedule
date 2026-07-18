@@ -139,7 +139,8 @@
         </div>
 
         <a th:href="@{/schedule}" class="btn btn-sm">📅 Моё расписание</a>
-        <button th:if="${teacher != null}" onclick="openSickLeaveModal()" class="btn btn-sm btn-outline">🤒 Заболел</button>
+        <button th:if="${teacher != null}" onclick="openSickLeaveModal('sick')" class="btn btn-sm btn-outline">🤒 Заболел</button>
+        <button th:if="${teacher != null}" onclick="openSickLeaveModal('force')" class="btn btn-sm btn-outline" style="border-color:#ea580c;color:#ea580c;">⚡ Форс-мажор</button>
     </div>
 
     <!-- Top bar for Admin -->
@@ -147,6 +148,7 @@
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
         <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">🎓 Просмотр всех учителей</a>
+        <a th:href="@{/logout}" class="btn btn-sm btn-outline" style="margin-left:auto;color:var(--danger);border-color:var(--danger);">🚪 Выйти</a>
     </div>
 
     <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
@@ -350,7 +352,7 @@
     <div class="modal-overlay" id="sickLeaveModal" th:if="${teacher != null}">
         <div class="modal">
             <div class="modal-header">
-                <h3 style="margin: 0;">🤒 Больничный лист</h3>
+                <h3 style="margin: 0;" id="sickModalTitle">🤒 Больничный лист</h3>
                 <button class="close-btn" onclick="closeSickLeaveModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -374,12 +376,18 @@
         </div>
     </div>
 
+    <script th:inline="javascript">
+        /*<![CDATA[*/
+        window.defaultAcademicYear = /*[[${defaultYear}]]*/ 2026;
+        /*]]>*/
+    </script>
     <script>
         // Modal handling
         const teacherCard = document.getElementById('teacherCard');
         const teacherModal = document.getElementById('teacherModal');
         const closeModal = document.getElementById('closeModal');
         const closeModalFooter = document.getElementById('closeModalFooter');
+        const defaultAcademicYear = window.defaultAcademicYear || 2026;
 
         teacherCard?.addEventListener('click', () => {
             teacherModal.classList.add('active');
@@ -433,8 +441,26 @@
             return map[column] || 0;
         }
 
-        // Sick Leave
-        function openSickLeaveModal() {
+        // Sick Leave / Force majeure
+        let sickLeaveMode = 'sick';
+
+        function openSickLeaveModal(mode) {
+            sickLeaveMode = mode || 'sick';
+            const title = document.getElementById('sickModalTitle');
+            const reason = document.getElementById('sickReason');
+            const today = new Date().toISOString().slice(0, 10);
+            document.getElementById('sickStart').value = today;
+            document.getElementById('sickEnd').value = today;
+
+            if (sickLeaveMode === 'force') {
+                title.textContent = '⚡ Форс-мажор';
+                reason.placeholder = 'Например: авария, срочный вызов';
+                if (!reason.value) reason.value = 'Форс-мажор';
+            } else {
+                title.textContent = '🤒 Больничный лист';
+                reason.placeholder = 'Например: ОРВИ';
+                if (reason.value === 'Форс-мажор') reason.value = '';
+            }
             document.getElementById('sickLeaveModal').classList.add('active');
         }
 
@@ -445,10 +471,13 @@
         function submitSickLeave() {
             const startDate = document.getElementById('sickStart').value;
             const endDate = document.getElementById('sickEnd').value;
-            const reason = document.getElementById('sickReason').value || '';
+            let reason = document.getElementById('sickReason').value || '';
+            if (sickLeaveMode === 'force' && !reason) {
+                reason = 'Форс-мажор';
+            }
 
             if (!startDate || !endDate) {
-                alert('Выберите даты начала и конца больничного');
+                alert('Выберите даты начала и конца');
                 return;
             }
 
@@ -459,14 +488,16 @@
                     startDate,
                     endDate,
                     reason,
-                    academicYear: 2026
+                    academicYear: defaultAcademicYear
                 })
             }).then(r => {
                 if (r.ok) {
-                    alert('Больничный лист зарегистрирован');
+                    alert(sickLeaveMode === 'force'
+                        ? 'Форс-мажор зарегистрирован. Идёт поиск замены.'
+                        : 'Больничный лист зарегистрирован. Идёт поиск замены.');
                     closeSickLeaveModal();
                 } else {
-                    alert('Ошибка регистрации больничного');
+                    alert('Ошибка регистрации');
                 }
             });
         }

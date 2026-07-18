@@ -15,7 +15,19 @@
         <div style="display:flex;gap:0.5rem">
             <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
             <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
+            <button class="btn btn-outline" onclick="generateSchedule(false)">🧮 Автосоставление (черновик)</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
+        </div>
+    </div>
+
+    <!-- Результат автосоставления расписания -->
+    <div class="card" id="generationResultCard" style="display:none; margin-bottom:1.5rem;">
+        <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
+        <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
+        <div id="generationConflicts" style="margin-bottom:0.75rem;"></div>
+        <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-sm" id="applyGenerationBtn" onclick="generateSchedule(true)">✅ Применить и сохранить</button>
+            <button class="btn btn-sm btn-outline" onclick="document.getElementById('generationResultCard').style.display='none'">Скрыть</button>
         </div>
     </div>
 
@@ -284,6 +296,61 @@ function loadSelectOptions() {
                 filter.appendChild(opt2);
             });
         });
+}
+
+async function generateSchedule(persist) {
+    const year = document.getElementById('yearSelect').value;
+    const btnLabel = persist ? 'Применяем...' : 'Считаем...';
+    const applyBtn = document.getElementById('applyGenerationBtn');
+    if (applyBtn) applyBtn.disabled = true;
+
+    try {
+        const res = await fetch(`/api/schedule-generation/${persist ? 'apply' : 'preview'}?academicYear=${year}`, {
+            method: 'POST'
+        });
+        if (!res.ok) {
+            alert('Не удалось выполнить автосоставление расписания');
+            return;
+        }
+        const result = await res.json();
+        renderGenerationResult(result, persist);
+        if (persist) loadSchedule();
+    } catch (e) {
+        alert('Ошибка автосоставления: ' + e.message);
+    } finally {
+        if (applyBtn) applyBtn.disabled = false;
+    }
+}
+
+function renderGenerationResult(result, wasApplied) {
+    document.getElementById('generationResultCard').style.display = 'block';
+    const summary = document.getElementById('generationSummary');
+    summary.innerHTML = (wasApplied
+        ? '✅ Применено и сохранено: '
+        : '📝 Черновик (не сохранён): ') +
+        `рассмотрено нагрузок — <b>${result.totalLoadsConsidered}</b>, ` +
+        `расставлено пар — <b>${result.placedLessons}</b>, ` +
+        `нагрузок с нерешёнными конфликтами — <b>${result.unresolvedLoads}</b>`;
+
+    const conflictsWrap = document.getElementById('generationConflicts');
+    conflictsWrap.innerHTML = '';
+    if (result.conflicts && result.conflicts.length) {
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight:600;margin-bottom:0.35rem;color:var(--danger)';
+        title.textContent = 'Требуют ручного вмешательства (' + result.conflicts.length + '):';
+        conflictsWrap.appendChild(title);
+        const ul = document.createElement('ul');
+        ul.style.cssText = 'margin:0;padding-left:1.25rem;font-size:0.85rem;color:var(--muted)';
+        result.conflicts.forEach(c => {
+            const li = document.createElement('li');
+            li.textContent = c;
+            ul.appendChild(li);
+        });
+        conflictsWrap.appendChild(ul);
+    }
+
+    const applyBtn = document.getElementById('applyGenerationBtn');
+    if (applyBtn) applyBtn.style.display = wasApplied ? 'none' : 'inline-block';
 }
 
 function loadSchedule() {

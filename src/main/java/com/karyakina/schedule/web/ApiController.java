@@ -43,6 +43,7 @@ public class ApiController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
+    private final SubstitutionService substitutionService;
 
     @PostMapping("/time-sync")
     public ResponseEntity<TimeSyncDto> timeSync(@RequestBody Map<String, Long> body) {
@@ -1169,7 +1170,18 @@ public class ApiController {
                     .academicYear(academicYear)
                     .build();
 
-            return ResponseEntity.ok(sickLeaveRepository.save(sickLeave));
+            SickLeave saved = sickLeaveRepository.save(sickLeave);
+
+            // МОДУЛЬ ФОРС-МАЖОРОВ: сразу ищем замену на все затронутые пары
+            try {
+                substitutionService.handleNewSickLeave(saved);
+            } catch (Exception ex) {
+                // Не блокируем регистрацию больничного, если подбор замены не удался —
+                // администратор сможет разобраться вручную по уведомлению об ошибке
+                ex.printStackTrace();
+            }
+
+            return ResponseEntity.ok(saved);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();

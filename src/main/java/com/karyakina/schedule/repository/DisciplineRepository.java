@@ -9,4 +9,5 @@ import java.util.Optional;
 @Repository
 public interface DisciplineRepository extends JpaRepository<Discipline, Long> {
     Optional<Discipline> findByname(String name);
+    Optional<Discipline> findByNameIgnoreCase(String name);
 }

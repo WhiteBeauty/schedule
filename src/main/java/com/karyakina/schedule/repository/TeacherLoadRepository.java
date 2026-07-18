@@ -29,4 +29,7 @@ public interface TeacherLoadRepository extends JpaRepository<TeacherLoad, Long> 
            "LEFT JOIN FETCH tl.monthlyRecords " +
            "WHERE tl.teacher.id = :teacherId AND tl.academicYear = :year")
     List<TeacherLoad> findByTeacherIdAndYearWithDetails(Long teacherId, Integer year);
+
+    @EntityGraph(attributePaths = {"teacher", "group", "discipline"})
+    List<TeacherLoad> findByDisciplineIdAndAcademicYear(Long disciplineId, Integer academicYear);
 }

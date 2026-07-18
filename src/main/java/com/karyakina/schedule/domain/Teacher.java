@@ -31,6 +31,10 @@ public class Teacher {
 
     private LocalDate birthDate;
 
+    // Максимум пар в день для данного преподавателя (жёсткое ограничение алгоритма
+    // автосоставления расписания). Если не задано — используется норматив по умолчанию.
+    private Integer maxPairsPerDay;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Уведомления</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .notif-card {
+            background: #fff; border: 1px solid var(--border); border-radius: 0.75rem;
+            padding: 1rem 1.25rem; margin-bottom: 0.85rem;
+        }
+        .notif-card.unread { border-left: 4px solid var(--primary); }
+        .notif-title { font-weight: 600; margin-bottom: 0.25rem; }
+        .notif-message { font-size: 0.9rem; color: var(--muted); white-space: pre-wrap; }
+        .notif-time { font-size: 0.75rem; color: var(--muted); margin-top: 0.4rem; }
+        .notif-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+    </style>
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div class="page-header">
+        <h1 class="page-title" style="margin:0;">🔔 Уведомления</h1>
+        <p class="page-subtitle">Заявки на замену и системные сообщения модуля форс-мажоров и импорта.</p>
+    </div>
+
+    <div id="list"><p class="text-muted">Загрузка...</p></div>
+</main>
+
+<script th:inline="javascript">
+    const list = document.getElementById('list');
+
+    async function load() {
+        const res = await fetch('/api/notifications');
+        const items = await res.json();
+        render(items);
+    }
+
+    function render(items) {
+        list.innerHTML = '';
+        if (!items.length) {
+            list.innerHTML = '<p class="text-muted">Уведомлений пока нет.</p>';
+            return;
+        }
+        items.forEach(n => {
+            const card = document.createElement('div');
+            card.className = 'notif-card' + (n.isRead ? '' : ' unread');
+
+            let actions = '';
+            if (n.type === 'SUBSTITUTION_REQUEST' && !n.isRead) {
+                actions = '<div class="notif-actions">' +
+                    '<button class="btn btn-sm" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">✅ Подтвердить замену</button>' +
+                    '<button class="btn btn-sm btn-outline" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">❌ Отклонить</button>' +
+                    '</div>';
+            }
+
+            card.innerHTML =
+                '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+                '<div class="notif-message">' + escapeHtml(n.message || '') + '</div>' +
+                '<div class="notif-time">' + formatDate(n.createdAt) + '</div>' +
+                actions;
+
+            if (!n.isRead) {
+                card.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'BUTTON') return;
+                    markRead(n.id, card);
+                }, { once: true });
+            }
+
+            list.appendChild(card);
+        });
+    }
+
+    async function markRead(id, card) {
+        try {
+            await fetch('/api/notifications/' + id + '/read', { method: 'POST' });
+            card.classList.remove('unread');
+        } catch (e) { /* ignore */ }
+    }
+
+    async function respond(requestId, action, btn) {
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/substitutions/' + requestId + '/' + action, { method: 'POST' });
+            if (!res.ok) {
+                alert('Не удалось выполнить действие');
+                btn.disabled = false;
+                return;
+            }
+            await load();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+            btn.disabled = false;
+        }
+    }
+
+    function formatDate(s) {
+        if (!s) return '';
+        try {
+            const d = new Date(s);
+            return d.toLocaleString('ru-RU');
+        } catch (e) { return s; }
+    }
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    }
+
+    load();
+</script>
+</body>
+</html>

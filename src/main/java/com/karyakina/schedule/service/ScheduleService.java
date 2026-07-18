@@ -3,7 +3,7 @@ package com.karyakina.schedule.service;
 import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.SickLeave;
 import com.karyakina.schedule.domain.TeacherLoad;
-import com.karyakina.schedule.domain.MonthlyRecord;
+import com.karyakina.schedule.domain.LessonInstance;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.SickLeaveRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,6 +30,7 @@ public class ScheduleService {
     private final SickLeaveRepository sickLeaveRepository;
     private final TeacherLoadRepository loadRepository;
     private final MonthlyRecordRepository recordRepository;
+    private final LessonInstanceService lessonInstanceService;
 
     public List<Schedule> findByYear(Integer year) {
         return scheduleRepository.findByAcademicYear(year);
@@ -102,40 +102,31 @@ public class ScheduleService {
         return !sickLeaves.isEmpty();
     }
 
+    /**
+     * Автоматический пересчёт фактической нагрузки за сегодняшний день.
+     * С версии с модулем тарификации (LessonInstance) логика вынесена в
+     * {@link LessonInstanceService}: для каждой пары, стоящей в расписании на сегодня,
+     * создаётся конкретное занятие (если его ещё нет) и подтверждается, если
+     * преподаватель не отсутствует. Если преподаватель на больничном и до конца дня
+     * замена не была назначена (см. модуль форс-мажоров), пара считается несостоявшейся.
+     */
     @Transactional
     public void autoDeductHours(Integer academicYear) {
         LocalDate today = LocalDate.now();
-        List<Schedule> schedules = scheduleRepository.findByAcademicYear(academicYear);
-        
-        for (Schedule schedule : schedules) {
-            TeacherLoad load = schedule.getTeacherLoad();
-            Long teacherId = load.getTeacher().getId();
-            
-            // Проверяем, не болеет ли преподаватель
-            if (isTeacherSickOnDate(teacherId, today)) {
-                continue; // Не вычитаем часы если преподаватель болеет
+        List<LessonInstance> todayInstances = lessonInstanceService.generateInstancesForDate(today, academicYear);
+
+        for (LessonInstance instance : todayInstances) {
+            if (instance.getStatus() != LessonInstance.Status.PLANNED) {
+                continue; // уже подтверждено/отменено/заменено ранее в течение дня
             }
-            
-            // Проверяем, была ли пара сегодня
-            if (schedule.getDayOfWeek() == today.getDayOfWeek()) {
-                // Вычисляем длительность пары в часах
-                long durationMinutes = ChronoUnit.MINUTES.between(schedule.getStartTime(), schedule.getEndTime());
-                double hours = durationMinutes / 60.0;
-                
-                // Обновляем readHours
-                load.setReadHours(load.getReadHours() + (int) Math.round(hours));
-                loadRepository.save(load);
-                
-                // Создаём запись в monthly_records
-                int month = today.getMonthValue();
-                MonthlyRecord record = MonthlyRecord.builder()
-                        .teacherLoad(load)
-                        .month(month)
-                        .year(academicYear)
-                        .hours((int) Math.round(hours))
-                        .build();
-                recordRepository.save(record);
+            Long teacherId = instance.getOriginalTeacher().getId();
+            if (lessonInstanceService.isTeacherSickOnDate(teacherId, today)) {
+                lessonInstanceService.cancelInstance(instance.getId(),
+                        "Преподаватель на больничном, замена не была назначена до конца дня",
+                        "system:auto-deduct");
+                continue;
             }
+            lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
         }
     }
 

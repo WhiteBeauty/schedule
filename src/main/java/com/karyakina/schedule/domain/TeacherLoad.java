@@ -46,6 +46,24 @@ public class TeacherLoad {
     @Column(nullable = false)
     private Integer academicYear; // например, 2024
 
+    // Часов в неделю — используется модулем импорта и автосоставления расписания.
+    // Если не задано явно при импорте, вычисляется из plannedHours / кол-во недель.
+    private Integer hoursPerWeek;
+
+    // Тип занятия из импорта: лекция/практика/лабораторная и т.п. (свободный текст)
+    private String lessonType;
+
+    // Предпочтительные дни недели через запятую, например "MONDAY,WEDNESDAY" (из импорта)
+    private String preferredDays;
+
+    // Предпочтительное время пар через запятую, например "1,3" (номера пар)
+    private String preferredTimeSlots;
+
+    // Признак того, что запись создана автоматически модулем замены как "переработка"
+    // сверх плановой нагрузки (замещение заболевшего коллеги без своего резерва часов)
+    @Builder.Default
+    private Boolean overload = false;
+
     @OneToMany(mappedBy = "teacherLoad", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     @BatchSize(size = 20)

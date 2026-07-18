@@ -10,11 +10,18 @@
     <ul class="nav-list">
         <li><a th:href="@{/dashboard}" id="nav-dashboard">📊 Личный кабинет</a></li>
         <li><a th:href="@{/schedule}" id="nav-schedule">📅 Моё расписание</a></li>
+        <li>
+            <a th:href="@{/notifications}" id="nav-notifications">
+                🔔 Уведомления
+                <span id="nav-notifications-badge" class="badge badge-danger" style="display:none; margin-left:0.35rem;">0</span>
+            </a>
+        </li>
         <li th:if="${isAdmin}" style="border-top: 1px solid var(--border); margin-top: 0.5rem; padding-top: 0.5rem;">
             <small style="padding: 0 1.25rem; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Администратор</small>
         </li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/schedule}" id="nav-admin-schedule">📋 Управление расписанием</a></li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/pairs}" id="nav-admin-pairs">📅 Расписание пар</a></li>
+        <li th:if="${isAdmin}"><a th:href="@{/admin/import}" id="nav-admin-import">📥 Импорт нагрузки (Excel/CSV)</a></li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/teachers}" id="nav-admin-teachers">👥 Управление преподавателями</a></li>
         <li><a th:href="@{/time-sync}" id="nav-time-sync">⏱️ Сверка часов</a></li>
         <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>
@@ -23,6 +30,28 @@
         <li><a th:href="@{/teachers}" id="nav-teachers" th:style="${isAdmin} ? 'display:block' : 'display:none'">🎓 Преподаватели</a></li>
         <li><a th:href="@{/logout}" style="margin-top: 2rem; color: var(--danger);" id="nav-logout">🚪 Выйти</a></li>
     </ul>
+    <script th:inline="javascript">
+        (function () {
+            function refreshBadge() {
+                fetch('/api/notifications/unread-count')
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!data) return;
+                        var badge = document.getElementById('nav-notifications-badge');
+                        if (!badge) return;
+                        if (data.unread > 0) {
+                            badge.style.display = 'inline-block';
+                            badge.textContent = data.unread;
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    })
+                    .catch(function () {});
+            }
+            refreshBadge();
+            setInterval(refreshBadge, 60000);
+        })();
+    </script>
 </aside>
 </body>
 </html>

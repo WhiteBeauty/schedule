@@ -9,4 +9,5 @@ import java.util.Optional;
 @Repository
 public interface StudyGroupRepository extends JpaRepository<StudyGroup, Long> {
     Optional<StudyGroup> findByname(String name);
+    Optional<StudyGroup> findByNameIgnoreCase(String name);
 }

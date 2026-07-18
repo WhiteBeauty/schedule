@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Импорт нагрузки - Администратор</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 0.75rem;
+            padding: 2.5rem;
+            text-align: center;
+            background: #fafbfc;
+            transition: .15s;
+            cursor: pointer;
+        }
+        .dropzone.dragover { border-color: var(--primary); background: #eff6ff; }
+        .error-table th, .error-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+        .error-table tr:nth-child(even) { background: #fafbfc; }
+        .col-chip {
+            display: inline-block; padding: 0.2rem 0.6rem; margin: 0.15rem;
+            border-radius: 1rem; background: #eff6ff; color: var(--primary);
+            font-size: 0.75rem; font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div class="page-header">
+        <h1 class="page-title" style="margin:0;">📥 Импорт нагрузки преподавателей</h1>
+        <p class="page-subtitle">
+            Загрузите файл Excel (.xlsx/.xls) или CSV с нагрузкой на учебный год. Система сама
+            распознаёт колонки — жёсткий формат не требуется. Достаточно, чтобы в файле были ФИО
+            преподавателя, дисциплина, группа и плановые часы (за год или в неделю).
+        </p>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1fr; gap: 1.5rem;">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Файл нагрузки</span>
+            </div>
+
+            <div style="margin-bottom:1rem;">
+                <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например 2026 для 2026/2027):</label><br>
+                <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
+            </div>
+
+            <div class="dropzone" id="dropzone">
+                <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
+                <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)</div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+            </div>
+
+            <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+                <button class="btn" id="uploadBtn" disabled>⬆️ Загрузить и импортировать</button>
+                <button class="btn btn-outline" id="clearBtn">Очистить</button>
+            </div>
+
+            <p class="text-muted" style="font-size:0.8rem; margin-top:0.75rem;">
+                Ожидаемые (необязательные, распознаются по синонимам) колонки: ФИО преподавателя,
+                Дисциплина, Группа, Всего часов за год (или отдельно по семестрам), Часов в неделю,
+                Тип занятия, Кафедра, Предпочтительные дни/время.
+            </p>
+        </div>
+
+        <div class="card" id="reportCard" style="display:none;">
+            <div class="card-header"><span class="card-title">Отчёт об импорте</span></div>
+
+            <div id="reportSummary" style="font-size:1rem; font-weight:600; margin-bottom:1rem;"></div>
+
+            <div class="grid" style="grid-template-columns: repeat(5, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
+                <div class="stat"><div class="stat-label">Строк в файле</div><div class="stat-value" id="statTotal">-</div></div>
+                <div class="stat"><div class="stat-label">Импортировано</div><div class="stat-value text-success" id="statProcessed">-</div></div>
+                <div class="stat"><div class="stat-label">Ошибок</div><div class="stat-value text-danger" id="statErrors">-</div></div>
+                <div class="stat"><div class="stat-label">Новых нагрузок</div><div class="stat-value" id="statCreated">-</div></div>
+                <div class="stat"><div class="stat-label">Обновлено</div><div class="stat-value" id="statUpdated">-</div></div>
+            </div>
+
+            <div id="detectedColumnsWrap" style="margin-bottom:1rem;">
+                <div class="text-muted" style="font-size:0.8rem; margin-bottom:0.35rem;">Распознанные колонки:</div>
+                <div id="detectedColumns"></div>
+            </div>
+
+            <div id="errorsWrap" style="display:none;">
+                <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600;">Строки с ошибками:</div>
+                <table class="error-table" style="width:100%; border-collapse:collapse;">
+                    <thead><tr><th>Строка</th><th>Ошибка</th><th>Содержимое</th></tr></thead>
+                    <tbody id="errorsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const dropzoneLabel = document.getElementById('dropzoneLabel');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    let selectedFile = null;
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) setFile(fileInput.files[0]);
+    });
+
+    function setFile(file) {
+        selectedFile = file;
+        dropzoneLabel.textContent = '✅ ' + file.name + ' (' + Math.round(file.size / 1024) + ' КБ)';
+        uploadBtn.disabled = false;
+    }
+
+    clearBtn.addEventListener('click', () => {
+        selectedFile = null;
+        fileInput.value = '';
+        dropzoneLabel.textContent = 'Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)';
+        uploadBtn.disabled = true;
+        document.getElementById('reportCard').style.display = 'none';
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = '⏳ Импортируем...';
+
+        const year = document.getElementById('academicYearInput').value;
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const res = await fetch('/api/import/loads?academicYear=' + encodeURIComponent(year), {
+                method: 'POST',
+                body: formData
+            });
+            if (!res.ok) {
+                alert('Ошибка импорта: сервер вернул ' + res.status);
+                return;
+            }
+            const report = await res.json();
+            renderReport(report);
+        } catch (e) {
+            alert('Ошибка импорта: ' + e.message);
+        } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = '⬆️ Загрузить и импортировать';
+        }
+    });
+
+    function renderReport(report) {
+        document.getElementById('reportCard').style.display = 'block';
+        document.getElementById('reportSummary').textContent = report.summary || '';
+        document.getElementById('statTotal').textContent = report.totalRows ?? 0;
+        document.getElementById('statProcessed').textContent = report.processedRows ?? 0;
+        document.getElementById('statErrors').textContent = report.errorRows ?? 0;
+        document.getElementById('statCreated').textContent = (report.createdTeachers ?? 0) + (report.createdDisciplines ?? 0) + (report.createdGroups ?? 0) + (report.createdLoads ?? 0);
+        document.getElementById('statUpdated').textContent = report.updatedLoads ?? 0;
+
+        const columnsWrap = document.getElementById('detectedColumns');
+        columnsWrap.innerHTML = '';
+        (report.detectedColumns || []).forEach(c => {
+            const chip = document.createElement('span');
+            chip.className = 'col-chip';
+            chip.textContent = c;
+            columnsWrap.appendChild(chip);
+        });
+
+        const errorsWrap = document.getElementById('errorsWrap');
+        const errorsBody = document.getElementById('errorsBody');
+        errorsBody.innerHTML = '';
+        if (report.errors && report.errors.length) {
+            errorsWrap.style.display = 'block';
+            report.errors.forEach(err => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + err.rowNumber + '</td><td>' + escapeHtml(err.message) + '</td><td class="text-muted">' + escapeHtml(err.rawData || '') + '</td>';
+                errorsBody.appendChild(tr);
+            });
+        } else {
+            errorsWrap.style.display = 'none';
+        }
+    }
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    }
+</script>
+</body>
+</html>

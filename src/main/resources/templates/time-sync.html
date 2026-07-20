@@ -75,7 +75,6 @@
             <h2 class="card-title">Детальная сверка по дисциплинам</h2>
             <div style="display: flex; gap: 0.5rem;">
                 <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
-                <button class="btn btn-sm" onclick="approveAll()">✅ Утвердить все</button>
             </div>
         </div>
         <div style="overflow-x: auto;">
@@ -240,12 +239,6 @@ function saveCorrection() {
         closeCorrection();
         loadData();
     });
-}
-
-function approveAll() {
-    if (confirm('Утвердить все дисциплины?')) {
-        alert('Все дисциплины отправлены на утверждение администратору');
-    }
 }
 </script>
 </body>

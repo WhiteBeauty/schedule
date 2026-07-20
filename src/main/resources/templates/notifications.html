@@ -9,12 +9,21 @@
         .notif-card {
             background: #fff; border: 1px solid var(--border); border-radius: 0.75rem;
             padding: 1rem 1.25rem; margin-bottom: 0.85rem;
+            transition: opacity 0.25s ease, transform 0.25s ease;
         }
         .notif-card.unread { border-left: 4px solid var(--primary); }
+        .notif-card.removing { opacity: 0; transform: translateX(12px); }
         .notif-title { font-weight: 600; margin-bottom: 0.25rem; }
         .notif-message { font-size: 0.9rem; color: var(--muted); white-space: pre-wrap; }
         .notif-time { font-size: 0.75rem; color: var(--muted); margin-top: 0.4rem; }
         .notif-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+        .notif-mark-btn { margin-top: 0.75rem; }
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+        .tab-btn {
+            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
+            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+        }
+        .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
     </style>
 </head>
 <body>
@@ -26,58 +35,93 @@
         <p class="page-subtitle">Заявки на замену и системные сообщения модуля форс-мажоров и импорта.</p>
     </div>
 
+    <div class="tabs">
+        <button class="tab-btn active" id="tabUnread" onclick="switchTab('unread')">Непрочитанные</button>
+        <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Все</button>
+    </div>
+
     <div id="list"><p class="text-muted">Загрузка...</p></div>
 </main>
 
 <script th:inline="javascript">
     const list = document.getElementById('list');
+    let allItems = [];
+    let currentTab = 'unread';
 
     async function load() {
         const res = await fetch('/api/notifications');
-        const items = await res.json();
-        render(items);
+        allItems = await res.json();
+        render();
     }
 
-    function render(items) {
+    function switchTab(tab) {
+        currentTab = tab;
+        document.getElementById('tabUnread').classList.toggle('active', tab === 'unread');
+        document.getElementById('tabAll').classList.toggle('active', tab === 'all');
+        render();
+    }
+
+    function render() {
+        const items = currentTab === 'unread' ? allItems.filter(n => !n.isRead) : allItems;
         list.innerHTML = '';
         if (!items.length) {
-            list.innerHTML = '<p class="text-muted">Уведомлений пока нет.</p>';
+            list.innerHTML = currentTab === 'unread'
+                ? '<p class="text-muted">Непрочитанных уведомлений нет.</p>'
+                : '<p class="text-muted">Уведомлений пока нет.</p>';
             return;
         }
-        items.forEach(n => {
-            const card = document.createElement('div');
-            card.className = 'notif-card' + (n.isRead ? '' : ' unread');
-
-            let actions = '';
-            if (n.type === 'SUBSTITUTION_REQUEST' && !n.isRead) {
-                actions = '<div class="notif-actions">' +
-                    '<button class="btn btn-sm" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">✅ Подтвердить замену</button>' +
-                    '<button class="btn btn-sm btn-outline" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">❌ Отклонить</button>' +
-                    '</div>';
-            }
-
-            card.innerHTML =
-                '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
-                '<div class="notif-message">' + escapeHtml(n.message || '') + '</div>' +
-                '<div class="notif-time">' + formatDate(n.createdAt) + '</div>' +
-                actions;
-
-            if (!n.isRead) {
-                card.addEventListener('click', (e) => {
-                    if (e.target.tagName === 'BUTTON') return;
-                    markRead(n.id, card);
-                }, { once: true });
-            }
-
-            list.appendChild(card);
-        });
+        items.forEach(n => list.appendChild(buildCard(n)));
     }
 
-    async function markRead(id, card) {
+    function buildCard(n) {
+        const card = document.createElement('div');
+        card.className = 'notif-card' + (n.isRead ? '' : ' unread');
+        card.dataset.id = n.id;
+
+        let actions = '';
+        if (n.type === 'SUBSTITUTION_REQUEST' && !n.isRead) {
+            actions = '<div class="notif-actions">' +
+                '<button class="btn btn-sm" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">✅ Подтвердить замену</button>' +
+                '<button class="btn btn-sm btn-outline" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">❌ Отклонить</button>' +
+                '</div>';
+        }
+
+        const markBtn = !n.isRead
+            ? '<div class="notif-mark-btn"><button class="btn btn-sm btn-outline" onclick="markRead(' + n.id + ', this)">✓ Отметить прочитанным</button></div>'
+            : '';
+
+        card.innerHTML =
+            '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+            '<div class="notif-message">' + escapeHtml(n.message || '') + '</div>' +
+            '<div class="notif-time">' + formatDate(n.createdAt) + '</div>' +
+            actions + markBtn;
+
+        return card;
+    }
+
+    async function markRead(id, btn) {
+        if (btn) btn.disabled = true;
         try {
-            await fetch('/api/notifications/' + id + '/read', { method: 'POST' });
-            card.classList.remove('unread');
-        } catch (e) { /* ignore */ }
+            const res = await fetch('/api/notifications/' + id + '/read', { method: 'POST' });
+            if (!res.ok) {
+                if (btn) btn.disabled = false;
+                return;
+            }
+            const item = allItems.find(n => n.id === id);
+            if (item) item.isRead = true;
+
+            const card = list.querySelector('[data-id="' + id + '"]');
+            if (card && currentTab === 'unread') {
+                card.classList.add('removing');
+                setTimeout(() => card.remove(), 250);
+            } else if (card) {
+                card.classList.remove('unread');
+                const actions = card.querySelector('.notif-mark-btn');
+                if (actions) actions.remove();
+            }
+        } catch (e) {
+            if (btn) btn.disabled = false;
+        }
     }
 
     async function respond(requestId, action, btn) {

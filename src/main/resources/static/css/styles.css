@@ -36,7 +36,6 @@ body {
     left: 0;
     height: 100vh;
     z-index: 100;
-    overflow: hidden;
 }
 
 /* Top bar spacer to prevent content overlap */
@@ -51,6 +50,7 @@ body {
     border-bottom: 1px solid var(--border);
     margin-bottom: 0.5rem;
     color: var(--primary);
+    flex-shrink: 0;
 }
 
 .nav-list {

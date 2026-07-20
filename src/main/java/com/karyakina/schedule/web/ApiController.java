@@ -46,6 +46,7 @@ public class ApiController {
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
     private final SubstitutionService substitutionService;
+    private final NotificationService notificationService;
     private final LoadBalanceService loadBalanceService;
 
     @PostMapping("/time-sync")
@@ -1198,9 +1199,22 @@ public class ApiController {
             try {
                 substitutionService.handleNewSickLeave(saved);
             } catch (Exception ex) {
-                // Не блокируем регистрацию больничного, если подбор замены не удался —
-                // администратор сможет разобраться вручную по уведомлению об ошибке
+                // Не блокируем регистрацию больничного, если подбор замены не удался,
+                // но НЕ скрываем это от администрации — раньше исключение просто уходило
+                // в лог сервера и снаружи выглядело так, будто вообще ничего не произошло.
                 ex.printStackTrace();
+                try {
+                    notificationService.notifyAdmins(
+                            Notification.Type.SUBSTITUTION_UNRESOLVED,
+                            "Ошибка поиска замены: " + saved.getTeacher().getFullName(),
+                            "При обработке отсутствия (" + saved.getStartDate() + " — " + saved.getEndDate()
+                                    + ") произошла техническая ошибка, поиск замены не был завершён: "
+                                    + ex.getClass().getSimpleName() + (ex.getMessage() != null ? ": " + ex.getMessage() : "")
+                                    + ". Требуется ручная проверка расписания и замены.",
+                            null);
+                } catch (Exception notifyEx) {
+                    notifyEx.printStackTrace();
+                }
             }
 
             return ResponseEntity.ok(saved);

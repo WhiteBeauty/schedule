@@ -18,6 +18,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @Slf4j
+@org.springframework.core.annotation.Order(2)
 public class DataInitializer implements CommandLineRunner {
 
     private final MonthlyRecordService monthlyRecordService;
@@ -26,13 +27,19 @@ public class DataInitializer implements CommandLineRunner {
     private final DisciplineRepository disciplineRepository;
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
-    private final MonthlyRecordRepository monthlyRecordRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
     public void run(String... args) {
         log.info("Initializing application data...");
+
+        // Подстраховка: гарантируем, что у ВСЕХ существующих нагрузок (независимо от того,
+        // когда и как они были созданы — сид, импорт, ручное добавление) есть 12 строк
+        // помесячного учёта. Идемпотентно: пропускает нагрузки, у которых записи уже есть.
+        // Это чинит "помесячный учёт не показывается" для БД, где нагрузки уже существовали
+        // до появления этого вызова.
+        monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
         // Проверяем, есть ли уже данные
         if (teacherRepository.count() > 0) {
@@ -158,7 +165,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(108)
                 .firstSemesterHours(54)
                 .secondSemesterHours(54)
-                .readHours(42)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -173,7 +180,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(72)
                 .firstSemesterHours(36)
                 .secondSemesterHours(36)
-                .readHours(18)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Зачёт")
@@ -188,7 +195,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(86)
                 .firstSemesterHours(43)
                 .secondSemesterHours(43)
-                .readHours(30)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -203,7 +210,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(86)
                 .firstSemesterHours(43)
                 .secondSemesterHours(43)
-                .readHours(50)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -218,7 +225,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(144)
                 .firstSemesterHours(72)
                 .secondSemesterHours(72)
-                .readHours(60)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -233,7 +240,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(72)
                 .firstSemesterHours(36)
                 .secondSemesterHours(36)
-                .readHours(20)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -248,7 +255,7 @@ public class DataInitializer implements CommandLineRunner {
                 .plannedHours(86)
                 .firstSemesterHours(43)
                 .secondSemesterHours(43)
-                .readHours(10)
+                .readHours(0)
                 .academicYear(academicYear)
                 .controlPointType1("Зачёт")
                 .controlPointType2("Экзамен")
@@ -418,41 +425,13 @@ public class DataInitializer implements CommandLineRunner {
 
         scheduleRepository.saveAll(schedules);
 
-        // Создаём помесячные записи (MonthlyRecord) для каждой нагрузки
-        for (TeacherLoad load : loads) {
-            List<MonthlyRecord> existing = monthlyRecordRepository.findByTeacherLoadId(load.getId());
-            if (existing.isEmpty()) {
-                String[] monthNames = {"", "январь", "февраль", "март", "апрель", "май", "июнь",
-                        "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"};
-
-                // Сентябрь-декабрь (1-4) - первая семестровая часть
-                int[][] monthlyHours = {
-                        {3, 4, 2, 4, 0, 0, 0, 0, 4, 3, 2, 1}, // Матанализ
-                        {2, 2, 1, 2, 0, 0, 0, 0, 2, 1, 1, 0}, // Линейная алгебра
-                        {3, 2, 3, 2, 0, 0, 0, 0, 2, 3, 1, 0}, // Физика ИТ-101
-                        {2, 3, 2, 3, 0, 0, 0, 0, 3, 2, 2, 0}, // Физика П-201
-                        {6, 5, 6, 5, 0, 0, 0, 0, 5, 6, 4, 2}, // Java
-                        {3, 2, 3, 2, 0, 0, 0, 0, 2, 2, 1, 0}, // Базы данных
-                        {3, 2, 2, 3, 0, 0, 0, 0, 2, 2, 1, 0}, // ОС
-                };
-                int loadIndex = loads.indexOf(load);
-                int[] hours = monthlyHours[Math.min(loadIndex, monthlyHours.length - 1)];
-
-                for (int month = 1; month <= 12; month++) {
-                    MonthlyRecord record = MonthlyRecord.builder()
-                            .teacherLoad(load)
-                            .month(month)
-                            .year(academicYear)
-                            .hours(hours[month - 1])
-                            .build();
-                    monthlyRecordRepository.save(record);
-                }
-                log.info("Created monthly records for {}: {} ({})",
-                        load.getTeacher().getFullName(),
-                        load.getDiscipline().getName(),
-                        load.getGroup().getName());
-            }
-        }
+        // Помесячный учёт (MonthlyRecord) для этих нагрузок создаётся вызовом
+        // monthlyRecordService.initializeMonthlyRecordsForAllLoads() ниже — все 12 месяцев
+        // с нулевыми часами. Реальные цифры появятся по мере подтверждения занятий
+        // (см. LessonInstanceService / ScheduleService.autoDeductHours), а не как фикстура.
+        // Вызываем ещё раз: при самом первом запуске на пустой БД вызов в начале run()
+        // ничего не сделал, т.к. этих нагрузок ещё не существовало.
+        monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
         log.info("Application data initialization completed");
         log.info("Admin login: admin@example.com / admin123");

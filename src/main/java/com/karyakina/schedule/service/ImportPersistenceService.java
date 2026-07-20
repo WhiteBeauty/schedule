@@ -28,6 +28,7 @@ public class ImportPersistenceService {
     private final DisciplineRepository disciplineRepository;
     private final StudyGroupRepository groupRepository;
     private final TeacherLoadRepository loadRepository;
+    private final MonthlyRecordService monthlyRecordService;
 
     public static class ImportResult {
         public int processedLoads;
@@ -99,8 +100,9 @@ public class ImportPersistenceService {
                         .controlPointType1(row.controlPointType)
                         .overload(false)
                         .build();
-                loadRepository.save(load);
+                TeacherLoad savedLoad = loadRepository.save(load);
                 result.createdLoads++;
+                monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
             }
             result.processedLoads++;
         }

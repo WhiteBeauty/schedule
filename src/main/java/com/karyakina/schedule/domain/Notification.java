@@ -43,6 +43,9 @@ public class Notification {
     /** Ссылка на связанную заявку на замену, если применимо. */
     private Long substitutionRequestId;
 
+    /** Ссылка на конкретную запись (например, на пару в расписании), которую затронуло изменение. */
+    private String linkUrl;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean isRead = false;
@@ -58,6 +61,8 @@ public class Notification {
         IMPORT_REPORT,          // администрации: отчёт об импорте
         SCHEDULE_CONFLICT,      // администрации: конфликт при автосоставлении расписания
         SICK_LEAVE,             // администрации / преподавателю: зарегистрирован больничный/форс-мажор
+        SCHEDULE_CHANGED,       // преподавателю: администратор создал/перенёс/удалил его пару
+        LOAD_CHANGED,           // преподавателю: администратор скорректировал его нагрузку
         INFO
     }
 }

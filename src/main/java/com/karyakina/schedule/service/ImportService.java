@@ -1,7 +1,12 @@
 package com.karyakina.schedule.service;
 
+import com.karyakina.schedule.domain.Teacher;
+import com.karyakina.schedule.dto.ImportPreviewDto;
 import com.karyakina.schedule.dto.ImportReportDto;
+import com.karyakina.schedule.dto.ImportRowDecisionDto;
 import com.karyakina.schedule.dto.ImportRowErrorDto;
+import com.karyakina.schedule.dto.ImportRowMatchDto;
+import com.karyakina.schedule.repository.TeacherRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -34,6 +39,7 @@ import java.util.*;
 public class ImportService {
 
     private final ImportPersistenceService persistenceService;
+    private final TeacherRepository teacherRepository;
 
     // ---- синонимы заголовков колонок (нормализованные: нижний регистр, без "ё") ----
     private static final Map<Field, List<String>> COLUMN_SYNONYMS = new EnumMap<>(Field.class);
@@ -89,130 +95,278 @@ public class ImportService {
      * Точка входа: разбор файла, валидация, импорт валидных строк в одной транзакции.
      */
     public ImportReportDto importFile(MultipartFile file, Integer academicYear) {
-        List<List<String>> rows;
-        try {
-            rows = readAllRows(file);
-        } catch (Exception e) {
-            log.error("Не удалось прочитать файл импорта: {}", e.getMessage(), e);
-            return ImportReportDto.builder()
-                    .success(false)
-                    .applied(false)
-                    .totalRows(0)
-                    .processedRows(0)
-                    .errorRows(0)
-                    .errors(List.of(ImportRowErrorDto.builder()
-                            .rowNumber(0)
-                            .message("Не удалось прочитать файл: " + e.getMessage())
-                            .build()))
-                    .summary("Импорт не выполнен: файл повреждён или имеет неподдерживаемый формат")
-                    .build();
+        ParseResult parsed = parseAndValidate(file);
+        if (parsed.fatalError != null) {
+            return parsed.fatalError;
         }
 
-        if (rows.isEmpty()) {
-            return ImportReportDto.builder()
-                    .success(false).applied(false)
-                    .totalRows(0).processedRows(0).errorRows(0)
-                    .errors(List.of())
-                    .summary("Файл пуст")
-                    .build();
-        }
+        ImportPersistenceService.ImportResult result = persistenceService.applyRows(parsed.validRows, academicYear);
 
-        // 1. Найти строку заголовков
-        int headerRowIndex = detectHeaderRow(rows);
-        if (headerRowIndex < 0) {
-            return ImportReportDto.builder()
-                    .success(false).applied(false)
-                    .totalRows(rows.size()).processedRows(0).errorRows(0)
-                    .errors(List.of())
-                    .summary("Не удалось распознать заголовки колонок. Убедитесь, что в файле " +
-                            "есть колонки ФИО преподавателя и Дисциплина")
-                    .build();
-        }
-        Map<Field, Integer> columnMap = detectColumns(rows.get(headerRowIndex));
-
-        // 2. Разобрать и провалидировать строки данных
-        List<ParsedRow> validRows = new ArrayList<>();
-        List<ImportRowErrorDto> errors = new ArrayList<>();
-        Set<String> seenKeys = new HashSet<>();
-        int totalDataRows = 0;
-
-        for (int i = headerRowIndex + 1; i < rows.size(); i++) {
-            List<String> row = rows.get(i);
-            if (isRowBlank(row)) continue;
-            totalDataRows++;
-            int excelRowNumber = i + 1; // 1-based, как в Excel
-
-            try {
-                ParsedRow parsed = parseRow(row, columnMap, excelRowNumber);
-
-                if (isBlank(parsed.teacherName)) {
-                    errors.add(rowError(excelRowNumber, "Не указано ФИО преподавателя", row));
-                    continue;
-                }
-                if (isBlank(parsed.disciplineName)) {
-                    errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
-                    continue;
-                }
-                if (isBlank(parsed.groupName)) {
-                    errors.add(rowError(excelRowNumber, "Не указана группа", row));
-                    continue;
-                }
-                if (parsed.totalHours != null && parsed.totalHours < 0) {
-                    errors.add(rowError(excelRowNumber, "Отрицательное значение часов за год", row));
-                    continue;
-                }
-                if (parsed.hoursPerWeek != null && parsed.hoursPerWeek < 0) {
-                    errors.add(rowError(excelRowNumber, "Отрицательное значение часов в неделю", row));
-                    continue;
-                }
-                if (parsed.totalHours == null && parsed.hours1 == null && parsed.hours2 == null) {
-                    errors.add(rowError(excelRowNumber, "Не указаны плановые часы (год или по семестрам)", row));
-                    continue;
-                }
-
-                String dedupKey = normalize(parsed.teacherName) + "|" + normalize(parsed.disciplineName)
-                        + "|" + normalize(parsed.groupName);
-                if (!seenKeys.add(dedupKey)) {
-                    errors.add(rowError(excelRowNumber,
-                            "Дубликат строки (тот же преподаватель/дисциплина/группа уже встречался в файле)", row));
-                    continue;
-                }
-
-                validRows.add(parsed);
-            } catch (Exception e) {
-                errors.add(rowError(excelRowNumber, "Ошибка обработки строки: " + e.getMessage(), row));
-            }
-        }
-
-        // 3. Применить валидные строки в одной транзакции (отдельный бин, чтобы
-        // @Transactional гарантированно применялся через прокси Spring)
-        ImportPersistenceService.ImportResult result = persistenceService.applyRows(validRows, academicYear);
-
-        List<String> detectedColumns = new ArrayList<>();
-        columnMap.keySet().forEach(f -> detectedColumns.add(f.name()));
+        List<String> detectedColumns = new ArrayList<>(parsed.detectedColumns);
 
         String summary = String.format(
                 "Успешно обработано %d записей из %d, %d ошибок%s",
-                result.processedLoads, totalDataRows, errors.size(),
-                errors.isEmpty() ? "" : " в строках " + errors.stream()
+                result.processedLoads, parsed.totalDataRows, parsed.errors.size(),
+                parsed.errors.isEmpty() ? "" : " в строках " + parsed.errors.stream()
                         .map(e -> String.valueOf(e.getRowNumber()))
                         .reduce((a, b) -> a + ", " + b).orElse(""));
 
         return ImportReportDto.builder()
                 .success(true)
                 .applied(result.processedLoads > 0)
-                .totalRows(totalDataRows)
+                .totalRows(parsed.totalDataRows)
                 .processedRows(result.processedLoads)
-                .errorRows(errors.size())
+                .errorRows(parsed.errors.size())
                 .createdTeachers(result.createdTeachers)
                 .createdDisciplines(result.createdDisciplines)
                 .createdGroups(result.createdGroups)
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
-                .errors(errors)
+                .errors(parsed.errors)
                 .detectedColumns(detectedColumns)
                 .summary(summary)
                 .build();
+    }
+
+    /**
+     * МОДУЛЬ ИМПОРТА: предпросмотр с распознаванием преподавателей (нечёткое сравнение).
+     * Ничего не сохраняет — только парсит, валидирует и подбирает кандидатов на совпадение
+     * по ФИО, чтобы администратор разрешил "жёлтые" (неоднозначные) строки перед импортом.
+     */
+    public ImportPreviewDto previewImport(MultipartFile file, Integer academicYear) {
+        ParseResult parsed = parseAndValidate(file);
+        if (parsed.fatalError != null) {
+            return ImportPreviewDto.builder()
+                    .success(false)
+                    .totalRows(0).exactCount(0).fuzzyCount(0).newCount(0)
+                    .errorCount(parsed.fatalError.getErrorRows())
+                    .rows(List.of())
+                    .errors(parsed.fatalError.getErrors())
+                    .summary(parsed.fatalError.getSummary())
+                    .build();
+        }
+
+        List<Teacher> allTeachers = teacherRepository.findAll();
+        List<ImportRowMatchDto> matchRows = new ArrayList<>();
+        int exact = 0, fuzzy = 0, fresh = 0;
+
+        for (int i = 0; i < parsed.validRows.size(); i++) {
+            ParsedRow row = parsed.validRows.get(i);
+            MatchCandidate candidate = findBestTeacherMatch(row.teacherName, allTeachers);
+
+            String status;
+            if (candidate == null) {
+                status = "NEW";
+                fresh++;
+            } else if (candidate.similarity >= 0.999) {
+                status = "EXACT";
+                exact++;
+            } else if (candidate.similarity >= 0.70) {
+                status = "FUZZY";
+                fuzzy++;
+            } else {
+                status = "NEW";
+                fresh++;
+                candidate = null;
+            }
+
+            matchRows.add(ImportRowMatchDto.builder()
+                    .rowIndex(i)
+                    .excelRowNumber(row.rowNumber)
+                    .teacherNameFromFile(row.teacherName)
+                    .disciplineName(row.disciplineName)
+                    .groupName(row.groupName)
+                    .totalHours(row.totalHours)
+                    .matchStatus(status)
+                    .candidateTeacherId(candidate != null ? candidate.teacher.getId() : null)
+                    .candidateTeacherName(candidate != null ? candidate.teacher.getFullName() : null)
+                    .candidateDepartment(candidate != null ? candidate.teacher.getDepartment() : null)
+                    .similarity(candidate != null ? candidate.similarity : 0.0)
+                    .build());
+        }
+
+        String summary = String.format(
+                "Разобрано %d строк: %d точных совпадений, %d возможных дублей требуют проверки, %d новых преподавателей. %d ошибок.",
+                parsed.validRows.size(), exact, fuzzy, fresh, parsed.errors.size());
+
+        return ImportPreviewDto.builder()
+                .success(true)
+                .totalRows(parsed.validRows.size())
+                .exactCount(exact)
+                .fuzzyCount(fuzzy)
+                .newCount(fresh)
+                .errorCount(parsed.errors.size())
+                .rows(matchRows)
+                .errors(parsed.errors)
+                .detectedColumns(parsed.detectedColumns)
+                .summary(summary)
+                .build();
+    }
+
+    /**
+     * МОДУЛЬ ИМПОРТА: финализация после разрешения всех "жёлтых" строк на экране
+     * предпросмотра. decisions — решения администратора по rowIndex (LINK к
+     * существующему преподавателю или CREATE нового, при желании с обогащением данных).
+     * Строки без явного решения обрабатываются по умолчанию: EXACT/FUZZY со схожестью
+     * ~1.0 привязываются автоматически, остальные создаются как новые.
+     */
+    public ImportReportDto confirmImport(MultipartFile file, Integer academicYear,
+                                          Map<Integer, ImportRowDecisionDto> decisions) {
+        ParseResult parsed = parseAndValidate(file);
+        if (parsed.fatalError != null) {
+            return parsed.fatalError;
+        }
+
+        List<Teacher> allTeachers = teacherRepository.findAll();
+        ImportPersistenceService.ImportResult result = persistenceService.applyRowsWithDecisions(
+                parsed.validRows, academicYear, decisions, allTeachers);
+
+        String summary = String.format(
+                "Импорт завершён: %d записей обработано (%d новых преподавателей, %d привязано к существующим), %d ошибок в исходных данных.",
+                result.processedLoads, result.createdTeachers,
+                parsed.validRows.size() - result.createdTeachers, parsed.errors.size());
+
+        return ImportReportDto.builder()
+                .success(true)
+                .applied(result.processedLoads > 0)
+                .totalRows(parsed.totalDataRows)
+                .processedRows(result.processedLoads)
+                .errorRows(parsed.errors.size())
+                .createdTeachers(result.createdTeachers)
+                .createdDisciplines(result.createdDisciplines)
+                .createdGroups(result.createdGroups)
+                .createdLoads(result.createdLoads)
+                .updatedLoads(result.updatedLoads)
+                .errors(parsed.errors)
+                .detectedColumns(parsed.detectedColumns)
+                .summary(summary)
+                .build();
+    }
+
+    // ==================== Общий разбор + валидация (используется всеми тремя режимами) ====================
+
+    private static class ParseResult {
+        List<ParsedRow> validRows = new ArrayList<>();
+        List<ImportRowErrorDto> errors = new ArrayList<>();
+        List<String> detectedColumns = new ArrayList<>();
+        int totalDataRows = 0;
+        ImportReportDto fatalError; // заполняется, если разбор в принципе не удался
+    }
+
+    private ParseResult parseAndValidate(MultipartFile file) {
+        ParseResult result = new ParseResult();
+        List<List<String>> rows;
+        try {
+            rows = readAllRows(file);
+        } catch (Exception e) {
+            log.error("Не удалось прочитать файл импорта: {}", e.getMessage(), e);
+            result.fatalError = ImportReportDto.builder()
+                    .success(false).applied(false)
+                    .totalRows(0).processedRows(0).errorRows(0)
+                    .errors(List.of(ImportRowErrorDto.builder()
+                            .rowNumber(0)
+                            .message("Не удалось прочитать файл: " + e.getMessage())
+                            .build()))
+                    .summary("Импорт не выполнен: файл повреждён или имеет неподдерживаемый формат")
+                    .build();
+            return result;
+        }
+
+        if (rows.isEmpty()) {
+            result.fatalError = ImportReportDto.builder()
+                    .success(false).applied(false)
+                    .totalRows(0).processedRows(0).errorRows(0)
+                    .errors(List.of())
+                    .summary("Файл пуст")
+                    .build();
+            return result;
+        }
+
+        int headerRowIndex = detectHeaderRow(rows);
+        if (headerRowIndex < 0) {
+            result.fatalError = ImportReportDto.builder()
+                    .success(false).applied(false)
+                    .totalRows(rows.size()).processedRows(0).errorRows(0)
+                    .errors(List.of())
+                    .summary("Не удалось распознать заголовки колонок. Убедитесь, что в файле " +
+                            "есть колонки ФИО преподавателя и Дисциплина")
+                    .build();
+            return result;
+        }
+        Map<Field, Integer> columnMap = detectColumns(rows.get(headerRowIndex));
+        columnMap.keySet().forEach(f -> result.detectedColumns.add(f.name()));
+
+        Set<String> seenKeys = new HashSet<>();
+
+        for (int i = headerRowIndex + 1; i < rows.size(); i++) {
+            List<String> row = rows.get(i);
+            if (isRowBlank(row)) continue;
+            result.totalDataRows++;
+            int excelRowNumber = i + 1;
+
+            try {
+                ParsedRow parsed = parseRow(row, columnMap, excelRowNumber);
+
+                if (isBlank(parsed.teacherName)) {
+                    result.errors.add(rowError(excelRowNumber, "Не указано ФИО преподавателя", row));
+                    continue;
+                }
+                if (isBlank(parsed.disciplineName)) {
+                    result.errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
+                    continue;
+                }
+                if (isBlank(parsed.groupName)) {
+                    result.errors.add(rowError(excelRowNumber, "Не указана группа", row));
+                    continue;
+                }
+                if (parsed.totalHours != null && parsed.totalHours < 0) {
+                    result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов за год", row));
+                    continue;
+                }
+                if (parsed.hoursPerWeek != null && parsed.hoursPerWeek < 0) {
+                    result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов в неделю", row));
+                    continue;
+                }
+                if (parsed.totalHours == null && parsed.hours1 == null && parsed.hours2 == null) {
+                    result.errors.add(rowError(excelRowNumber, "Не указаны плановые часы (год или по семестрам)", row));
+                    continue;
+                }
+
+                String dedupKey = normalize(parsed.teacherName) + "|" + normalize(parsed.disciplineName)
+                        + "|" + normalize(parsed.groupName);
+                if (!seenKeys.add(dedupKey)) {
+                    result.errors.add(rowError(excelRowNumber,
+                            "Дубликат строки (тот же преподаватель/дисциплина/группа уже встречался в файле)", row));
+                    continue;
+                }
+
+                result.validRows.add(parsed);
+            } catch (Exception e) {
+                result.errors.add(rowError(excelRowNumber, "Ошибка обработки строки: " + e.getMessage(), row));
+            }
+        }
+
+        return result;
+    }
+
+    // ==================== Нечёткое распознавание преподавателей ====================
+
+    private static class MatchCandidate {
+        Teacher teacher;
+        double similarity;
+    }
+
+    private MatchCandidate findBestTeacherMatch(String nameFromFile, List<Teacher> allTeachers) {
+        MatchCandidate best = null;
+        for (Teacher t : allTeachers) {
+            double sim = com.karyakina.schedule.util.StringSimilarity.similarity(nameFromFile, t.getFullName());
+            if (best == null || sim > best.similarity) {
+                best = new MatchCandidate();
+                best.teacher = t;
+                best.similarity = sim;
+            }
+        }
+        return best;
     }
 
     // ==================== Разбор файла ====================

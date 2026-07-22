@@ -18,11 +18,21 @@
         .dropzone.dragover { border-color: var(--primary); background: #eff6ff; }
         .error-table th, .error-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
         .error-table tr:nth-child(even) { background: #fafbfc; }
-        .col-chip {
-            display: inline-block; padding: 0.2rem 0.6rem; margin: 0.15rem;
-            border-radius: 1rem; background: #eff6ff; color: var(--primary);
-            font-size: 0.75rem; font-weight: 600;
+        .match-table th, .match-table td { padding: 0.55rem 0.7rem; font-size: 0.85rem; text-align: left; }
+        .match-table tr.row-exact { background: #f0fdf4; }
+        .match-table tr.row-fuzzy { background: #fffbeb; }
+        .match-table tr.row-new { background: #eff6ff; }
+        .status-pill {
+            display: inline-block; padding: 0.2rem 0.55rem; border-radius: 1rem;
+            font-size: 0.72rem; font-weight: 700;
         }
+        .status-exact { background: #dcfce7; color: #166534; }
+        .status-fuzzy { background: #fef9c3; color: #854d0e; }
+        .status-new { background: #dbeafe; color: #1e40af; }
+        .status-resolved { background: #e5e7eb; color: #374151; }
+        .step-bar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .step { padding: 0.4rem 0.9rem; border-radius: 1rem; font-size: 0.8rem; background: #f3f4f6; color: var(--muted); }
+        .step.active { background: var(--primary); color: #fff; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -32,77 +42,120 @@
     <div class="page-header">
         <h1 class="page-title" style="margin:0;">📥 Импорт нагрузки преподавателей</h1>
         <p class="page-subtitle">
-            Загрузите файл Excel (.xlsx/.xls) или CSV с нагрузкой на учебный год. Система сама
-            распознаёт колонки — жёсткий формат не требуется. Достаточно, чтобы в файле были ФИО
-            преподавателя, дисциплина, группа и плановые часы (за год или в неделю).
+            Загрузите файл Excel (.xlsx/.xls) или CSV. Система сама распознаёт колонки и
+            сверяет ФИО преподавателей с уже существующими в базе (в т.ч. по сокращениям
+            вроде «Иванов И.И.»), чтобы не создавать дублей.
         </p>
     </div>
 
-    <div class="grid" style="grid-template-columns: 1fr; gap: 1.5rem;">
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Файл нагрузки</span>
-            </div>
+    <div class="step-bar">
+        <div class="step active" id="stepUploadLabel">1. Файл</div>
+        <div class="step" id="stepReviewLabel">2. Сверка преподавателей</div>
+        <div class="step" id="stepDoneLabel">3. Готово</div>
+    </div>
 
-            <div style="margin-bottom:1rem;">
-                <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например 2026 для 2026/2027):</label><br>
-                <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
-            </div>
+    <div class="card" id="stepUpload">
+        <div class="card-header"><span class="card-title">Файл нагрузки</span></div>
 
-            <div class="dropzone" id="dropzone">
-                <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
-                <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)</div>
-                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
-            </div>
-
-            <div style="margin-top:1rem; display:flex; gap:0.75rem;">
-                <button class="btn" id="uploadBtn" disabled>⬆️ Загрузить и импортировать</button>
-                <button class="btn btn-outline" id="clearBtn">Очистить</button>
-            </div>
-
-            <p class="text-muted" style="font-size:0.8rem; margin-top:0.75rem;">
-                Ожидаемые (необязательные, распознаются по синонимам) колонки: ФИО преподавателя,
-                Дисциплина, Группа, Всего часов за год (или отдельно по семестрам), Часов в неделю,
-                Тип занятия, Кафедра, Предпочтительные дни/время.
-            </p>
+        <div style="margin-bottom:1rem;">
+            <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например 2026 для 2026/2027):</label><br>
+            <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
         </div>
 
-        <div class="card" id="reportCard" style="display:none;">
-            <div class="card-header"><span class="card-title">Отчёт об импорте</span></div>
+        <div class="dropzone" id="dropzone">
+            <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
+            <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)</div>
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+        </div>
 
-            <div id="reportSummary" style="font-size:1rem; font-weight:600; margin-bottom:1rem;"></div>
-
-            <div class="grid" style="grid-template-columns: repeat(5, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
-                <div class="stat"><div class="stat-label">Строк в файле</div><div class="stat-value" id="statTotal">-</div></div>
-                <div class="stat"><div class="stat-label">Импортировано</div><div class="stat-value text-success" id="statProcessed">-</div></div>
-                <div class="stat"><div class="stat-label">Ошибок</div><div class="stat-value text-danger" id="statErrors">-</div></div>
-                <div class="stat"><div class="stat-label">Новых нагрузок</div><div class="stat-value" id="statCreated">-</div></div>
-                <div class="stat"><div class="stat-label">Обновлено</div><div class="stat-value" id="statUpdated">-</div></div>
-            </div>
-
-            <div id="detectedColumnsWrap" style="margin-bottom:1rem;">
-                <div class="text-muted" style="font-size:0.8rem; margin-bottom:0.35rem;">Распознанные колонки:</div>
-                <div id="detectedColumns"></div>
-            </div>
-
-            <div id="errorsWrap" style="display:none;">
-                <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600;">Строки с ошибками:</div>
-                <table class="error-table" style="width:100%; border-collapse:collapse;">
-                    <thead><tr><th>Строка</th><th>Ошибка</th><th>Содержимое</th></tr></thead>
-                    <tbody id="errorsBody"></tbody>
-                </table>
-            </div>
+        <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+            <button class="btn" id="previewBtn" disabled>🔍 Проверить и сопоставить преподавателей</button>
+            <button class="btn btn-outline" id="clearBtn">Очистить</button>
         </div>
     </div>
+
+    <div class="card" id="stepReview" style="display:none;">
+        <div class="card-header"><span class="card-title">Сверка преподавателей</span></div>
+
+        <div id="previewSummary" style="margin-bottom:1rem; font-weight:600;"></div>
+
+        <div class="grid" style="grid-template-columns: repeat(4, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
+            <div class="stat"><div class="stat-label">🟢 Совпадение</div><div class="stat-value text-success" id="statExact">0</div></div>
+            <div class="stat"><div class="stat-label">🟡 Возможный дубль</div><div class="stat-value" id="statFuzzy" style="color:#854d0e;">0</div></div>
+            <div class="stat"><div class="stat-label">🔵 Новый</div><div class="stat-value" id="statNew" style="color:#1e40af;">0</div></div>
+            <div class="stat"><div class="stat-label">Ошибок в файле</div><div class="stat-value text-danger" id="statPreviewErrors">0</div></div>
+        </div>
+
+        <table class="match-table" style="width:100%; border-collapse:collapse;">
+            <thead>
+            <tr><th>ФИО из файла</th><th>Дисциплина / группа</th><th>Статус</th><th>Найденный кандидат</th><th>Действие</th></tr>
+            </thead>
+            <tbody id="matchBody"></tbody>
+        </table>
+
+        <div style="margin-top:1.5rem; display:flex; gap:0.75rem; align-items:center;">
+            <button class="btn" id="confirmBtn">✅ Подтвердить импорт</button>
+            <button class="btn btn-outline" onclick="backToUpload()">← Назад к файлу</button>
+            <span class="text-muted" id="unresolvedHint" style="font-size:0.85rem;"></span>
+        </div>
+    </div>
+
+    <div class="card" id="stepDone" style="display:none;">
+        <div class="card-header"><span class="card-title">Отчёт об импорте</span></div>
+        <div id="reportSummary" style="font-size:1rem; font-weight:600; margin-bottom:1rem;"></div>
+
+        <div class="grid" style="grid-template-columns: repeat(5, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
+            <div class="stat"><div class="stat-label">Строк в файле</div><div class="stat-value" id="statTotal">-</div></div>
+            <div class="stat"><div class="stat-label">Импортировано</div><div class="stat-value text-success" id="statProcessed">-</div></div>
+            <div class="stat"><div class="stat-label">Ошибок</div><div class="stat-value text-danger" id="statErrors">-</div></div>
+            <div class="stat"><div class="stat-label">Новых преподавателей</div><div class="stat-value" id="statCreatedTeachers">-</div></div>
+            <div class="stat"><div class="stat-label">Обновлено нагрузок</div><div class="stat-value" id="statUpdated">-</div></div>
+        </div>
+
+        <div id="errorsWrap" style="display:none;">
+            <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600;">Строки с ошибками:</div>
+            <table class="error-table" style="width:100%; border-collapse:collapse;">
+                <thead><tr><th>Строка</th><th>Ошибка</th><th>Содержимое</th></tr></thead>
+                <tbody id="errorsBody"></tbody>
+            </table>
+        </div>
+
+        <button class="btn btn-outline" style="margin-top:1.5rem;" onclick="backToUpload()">📥 Импортировать ещё файл</button>
+    </div>
 </main>
+
+<div class="modal-overlay" id="enrichModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">Новый преподаватель</h3>
+            <button class="close-btn" onclick="closeEnrichModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p><strong id="enrichName"></strong></p>
+            <label style="display:block;margin-top:0.75rem;">Кафедра:</label>
+            <input type="text" id="enrichDepartment" style="width:100%;">
+            <label style="display:block;margin-top:0.75rem;">Должность:</label>
+            <input type="text" id="enrichPosition" style="width:100%;">
+            <label style="display:block;margin-top:0.75rem;">Телефон:</label>
+            <input type="text" id="enrichPhone" style="width:100%;">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeEnrichModal()">Отмена</button>
+            <button class="btn" onclick="saveEnrich()">Сохранить и создать</button>
+        </div>
+    </div>
+</div>
 
 <script th:inline="javascript">
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const dropzoneLabel = document.getElementById('dropzoneLabel');
-    const uploadBtn = document.getElementById('uploadBtn');
+    const previewBtn = document.getElementById('previewBtn');
     const clearBtn = document.getElementById('clearBtn');
     let selectedFile = null;
+    let previewData = null;
+    const decisions = {};
+    let enrichRowIndex = null;
 
     dropzone.addEventListener('click', () => fileInput.click());
     dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
@@ -112,69 +165,199 @@
         dropzone.classList.remove('dragover');
         if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
     });
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length) setFile(fileInput.files[0]);
-    });
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
 
     function setFile(file) {
         selectedFile = file;
         dropzoneLabel.textContent = '✅ ' + file.name + ' (' + Math.round(file.size / 1024) + ' КБ)';
-        uploadBtn.disabled = false;
+        previewBtn.disabled = false;
     }
 
-    clearBtn.addEventListener('click', () => {
+    clearBtn.addEventListener('click', backToUpload);
+
+    function backToUpload() {
         selectedFile = null;
+        previewData = null;
+        Object.keys(decisions).forEach(k => delete decisions[k]);
         fileInput.value = '';
         dropzoneLabel.textContent = 'Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)';
-        uploadBtn.disabled = true;
-        document.getElementById('reportCard').style.display = 'none';
-    });
+        previewBtn.disabled = true;
+        showStep('upload');
+    }
 
-    uploadBtn.addEventListener('click', async () => {
+    function showStep(step) {
+        document.getElementById('stepUpload').style.display = step === 'upload' ? '' : 'none';
+        document.getElementById('stepReview').style.display = step === 'review' ? '' : 'none';
+        document.getElementById('stepDone').style.display = step === 'done' ? '' : 'none';
+        document.getElementById('stepUploadLabel').classList.toggle('active', step === 'upload');
+        document.getElementById('stepReviewLabel').classList.toggle('active', step === 'review');
+        document.getElementById('stepDoneLabel').classList.toggle('active', step === 'done');
+    }
+
+    previewBtn.addEventListener('click', async () => {
         if (!selectedFile) return;
-        uploadBtn.disabled = true;
-        uploadBtn.textContent = '⏳ Импортируем...';
+        previewBtn.disabled = true;
+        previewBtn.textContent = '⏳ Анализируем...';
 
         const year = document.getElementById('academicYearInput').value;
         const formData = new FormData();
         formData.append('file', selectedFile);
 
         try {
-            const res = await fetch('/api/import/loads?academicYear=' + encodeURIComponent(year), {
-                method: 'POST',
-                body: formData
+            const res = await fetch('/api/import/preview?academicYear=' + encodeURIComponent(year), {
+                method: 'POST', body: formData
             });
-            if (!res.ok) {
-                alert('Ошибка импорта: сервер вернул ' + res.status);
-                return;
+            if (!res.ok) { alert('Ошибка анализа файла: сервер вернул ' + res.status); return; }
+            previewData = await res.json();
+            renderPreview();
+            showStep('review');
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        } finally {
+            previewBtn.disabled = false;
+            previewBtn.textContent = '🔍 Проверить и сопоставить преподавателей';
+        }
+    });
+
+    function renderPreview() {
+        document.getElementById('previewSummary').textContent = previewData.summary || '';
+        document.getElementById('statExact').textContent = previewData.exactCount || 0;
+        document.getElementById('statFuzzy').textContent = previewData.fuzzyCount || 0;
+        document.getElementById('statNew').textContent = previewData.newCount || 0;
+        document.getElementById('statPreviewErrors').textContent = previewData.errorCount || 0;
+
+        const body = document.getElementById('matchBody');
+        body.innerHTML = '';
+
+        (previewData.rows || []).forEach(row => {
+            const tr = document.createElement('tr');
+            tr.id = 'row-' + row.rowIndex;
+            tr.className = 'row-' + row.matchStatus.toLowerCase();
+
+            const pills = {
+                EXACT: '<span class="status-pill status-exact">🟢 Совпадение</span>',
+                FUZZY: '<span class="status-pill status-fuzzy">🟡 Возможно, дубль</span>',
+                NEW: '<span class="status-pill status-new">🔵 Новый</span>'
+            };
+            const statusPill = pills[row.matchStatus] || row.matchStatus;
+
+            const candidateText = row.candidateTeacherName
+                ? row.candidateTeacherName + (row.candidateDepartment ? ' (' + row.candidateDepartment + ')' : '')
+                    + ' · ' + Math.round(row.similarity * 100) + '%'
+                : '—';
+
+            let actionsHtml = '';
+            if (row.matchStatus === 'EXACT') {
+                actionsHtml = '<span class="text-muted">Будет привязано автоматически</span>';
+                decisions[row.rowIndex] = { rowIndex: row.rowIndex, action: 'LINK', teacherId: row.candidateTeacherId };
+            } else if (row.matchStatus === 'FUZZY') {
+                actionsHtml =
+                    '<button class="btn btn-sm" onclick="resolveLink(' + row.rowIndex + ', ' + row.candidateTeacherId + ')">Это он</button> ' +
+                    '<button class="btn btn-sm btn-outline" onclick="openEnrichModal(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Это новый</button>';
+            } else {
+                actionsHtml = '<button class="btn btn-sm btn-outline" onclick="openEnrichModal(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Создать</button>';
             }
+
+            tr.innerHTML =
+                '<td>' + escapeHtml(row.teacherNameFromFile) + '</td>' +
+                '<td>' + escapeHtml(row.disciplineName) + ' / ' + escapeHtml(row.groupName) + '</td>' +
+                '<td>' + statusPill + '</td>' +
+                '<td>' + candidateText + '</td>' +
+                '<td id="action-' + row.rowIndex + '">' + actionsHtml + '</td>';
+            body.appendChild(tr);
+        });
+
+        updateUnresolvedHint();
+    }
+
+    function resolveLink(rowIndex, teacherId) {
+        decisions[rowIndex] = { rowIndex, action: 'LINK', teacherId };
+        const actionCell = document.getElementById('action-' + rowIndex);
+        actionCell.innerHTML = '<span class="status-pill status-resolved">Привязано ✓</span>';
+        document.getElementById('row-' + rowIndex).className = 'row-exact';
+        updateUnresolvedHint();
+    }
+
+    function openEnrichModal(rowIndex, name) {
+        enrichRowIndex = rowIndex;
+        document.getElementById('enrichName').textContent = name;
+        document.getElementById('enrichDepartment').value = '';
+        document.getElementById('enrichPosition').value = '';
+        document.getElementById('enrichPhone').value = '';
+        document.getElementById('enrichModal').classList.add('active');
+    }
+
+    function closeEnrichModal() {
+        document.getElementById('enrichModal').classList.remove('active');
+        enrichRowIndex = null;
+    }
+
+    function saveEnrich() {
+        if (enrichRowIndex === null) return;
+        decisions[enrichRowIndex] = {
+            rowIndex: enrichRowIndex,
+            action: 'CREATE',
+            department: document.getElementById('enrichDepartment').value || null,
+            position: document.getElementById('enrichPosition').value || null,
+            phone: document.getElementById('enrichPhone').value || null
+        };
+        const actionCell = document.getElementById('action-' + enrichRowIndex);
+        actionCell.innerHTML = '<span class="status-pill status-resolved">Будет создан ✓</span>';
+        document.getElementById('row-' + enrichRowIndex).className = 'row-new';
+        closeEnrichModal();
+        updateUnresolvedHint();
+    }
+
+    function updateUnresolvedHint() {
+        const fuzzyRows = (previewData.rows || []).filter(r => r.matchStatus === 'FUZZY');
+        const unresolved = fuzzyRows.filter(r => !decisions[r.rowIndex]);
+        const hint = document.getElementById('unresolvedHint');
+        const confirmBtn = document.getElementById('confirmBtn');
+        if (unresolved.length > 0) {
+            hint.textContent = 'Осталось разрешить: ' + unresolved.length + ' - импорт подтверждается только после разрешения всех жёлтых строк.';
+            hint.style.color = '#854d0e';
+            confirmBtn.disabled = true;
+        } else {
+            hint.textContent = 'Все строки разрешены, можно подтверждать импорт.';
+            hint.style.color = '';
+            confirmBtn.disabled = false;
+        }
+    }
+
+    document.getElementById('confirmBtn').addEventListener('click', async () => {
+        if (!selectedFile) return;
+        const btn = document.getElementById('confirmBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Импортируем...';
+
+        const year = document.getElementById('academicYearInput').value;
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('decisions', JSON.stringify(Object.values(decisions)));
+
+        try {
+            const res = await fetch('/api/import/confirm?academicYear=' + encodeURIComponent(year), {
+                method: 'POST', body: formData
+            });
+            if (!res.ok) { alert('Ошибка импорта: сервер вернул ' + res.status); return; }
             const report = await res.json();
             renderReport(report);
+            showStep('done');
         } catch (e) {
             alert('Ошибка импорта: ' + e.message);
         } finally {
-            uploadBtn.disabled = false;
-            uploadBtn.textContent = '⬆️ Загрузить и импортировать';
+            btn.disabled = false;
+            btn.textContent = '✅ Подтвердить импорт';
         }
     });
 
     function renderReport(report) {
-        document.getElementById('reportCard').style.display = 'block';
         document.getElementById('reportSummary').textContent = report.summary || '';
-        document.getElementById('statTotal').textContent = report.totalRows ?? 0;
-        document.getElementById('statProcessed').textContent = report.processedRows ?? 0;
-        document.getElementById('statErrors').textContent = report.errorRows ?? 0;
-        document.getElementById('statCreated').textContent = (report.createdTeachers ?? 0) + (report.createdDisciplines ?? 0) + (report.createdGroups ?? 0) + (report.createdLoads ?? 0);
-        document.getElementById('statUpdated').textContent = report.updatedLoads ?? 0;
-
-        const columnsWrap = document.getElementById('detectedColumns');
-        columnsWrap.innerHTML = '';
-        (report.detectedColumns || []).forEach(c => {
-            const chip = document.createElement('span');
-            chip.className = 'col-chip';
-            chip.textContent = c;
-            columnsWrap.appendChild(chip);
-        });
+        document.getElementById('statTotal').textContent = report.totalRows || 0;
+        document.getElementById('statProcessed').textContent = report.processedRows || 0;
+        document.getElementById('statErrors').textContent = report.errorRows || 0;
+        document.getElementById('statCreatedTeachers').textContent = report.createdTeachers || 0;
+        document.getElementById('statUpdated').textContent = report.updatedLoads || 0;
 
         const errorsWrap = document.getElementById('errorsWrap');
         const errorsBody = document.getElementById('errorsBody');
@@ -193,8 +376,12 @@
 
     function escapeHtml(s) {
         const div = document.createElement('div');
-        div.textContent = s;
+        div.textContent = s == null ? '' : s;
         return div.innerHTML;
+    }
+
+    function escapeAttr(s) {
+        return (s || '').replace(/'/g, "\\'");
     }
 </script>
 </body>

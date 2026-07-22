@@ -109,6 +109,118 @@ public class ImportPersistenceService {
         return result;
     }
 
+    @Transactional
+    public ImportResult applyRowsWithDecisions(List<ImportService.ParsedRow> rows, Integer academicYear,
+                                                java.util.Map<Integer, com.karyakina.schedule.dto.ImportRowDecisionDto> decisions,
+                                                List<Teacher> allTeachers) {
+        ImportResult result = new ImportResult();
+        java.util.Map<Long, Teacher> teacherById = new java.util.HashMap<>();
+        allTeachers.forEach(t -> teacherById.put(t.getId(), t));
+
+        for (int i = 0; i < rows.size(); i++) {
+            ImportService.ParsedRow row = rows.get(i);
+            com.karyakina.schedule.dto.ImportRowDecisionDto decision = decisions != null ? decisions.get(i) : null;
+
+            Teacher teacher = resolveTeacherForRow(row, decision, teacherById, result);
+
+            Discipline discipline = disciplineRepository.findByNameIgnoreCase(row.disciplineName.trim())
+                    .orElseGet(() -> {
+                        result.createdDisciplines++;
+                        Discipline d = Discipline.builder().name(row.disciplineName.trim()).build();
+                        return disciplineRepository.save(d);
+                    });
+
+            StudyGroup group = groupRepository.findByNameIgnoreCase(row.groupName.trim())
+                    .orElseGet(() -> {
+                        result.createdGroups++;
+                        StudyGroup g = StudyGroup.builder().name(row.groupName.trim()).build();
+                        return groupRepository.save(g);
+                    });
+
+            int totalHours = row.totalHours != null ? row.totalHours
+                    : (nz(row.hours1) + nz(row.hours2));
+            int hours1 = row.hours1 != null ? row.hours1 : totalHours / 2;
+            int hours2 = row.hours2 != null ? row.hours2 : (totalHours - hours1);
+
+            TeacherLoad existing = findExistingLoad(teacher.getId(), group.getId(), discipline.getId(), academicYear);
+            if (existing != null) {
+                // Часы суммируются с текущей нагрузкой (тот же преподаватель мог уже вести
+                // эту пару — импорт "дозаписывает" часы, а не затирает их).
+                existing.setPlannedHours(nz(existing.getPlannedHours()) + totalHours);
+                existing.setFirstSemesterHours(nz(existing.getFirstSemesterHours()) + hours1);
+                existing.setSecondSemesterHours(nz(existing.getSecondSemesterHours()) + hours2);
+                if (row.hoursPerWeek != null) existing.setHoursPerWeek(row.hoursPerWeek);
+                if (row.lessonType != null) existing.setLessonType(row.lessonType);
+                if (row.preferredDaysTime != null) existing.setPreferredDays(row.preferredDaysTime);
+                if (row.controlPointType != null) existing.setControlPointType1(row.controlPointType);
+                loadRepository.save(existing);
+                result.updatedLoads++;
+            } else {
+                TeacherLoad load = TeacherLoad.builder()
+                        .teacher(teacher)
+                        .group(group)
+                        .discipline(discipline)
+                        .plannedHours(totalHours)
+                        .firstSemesterHours(hours1)
+                        .secondSemesterHours(hours2)
+                        .readHours(0)
+                        .academicYear(academicYear)
+                        .hoursPerWeek(row.hoursPerWeek)
+                        .lessonType(row.lessonType)
+                        .preferredDays(row.preferredDaysTime)
+                        .controlPointType1(row.controlPointType)
+                        .overload(false)
+                        .build();
+                TeacherLoad savedLoad = loadRepository.save(load);
+                result.createdLoads++;
+                monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
+            }
+            result.processedLoads++;
+        }
+        return result;
+    }
+
+    /**
+     * Определяет, к какому Teacher относить строку: явное решение администратора
+     * (LINK/CREATE) имеет приоритет; если решения нет — старое поведение (точный поиск
+     * по ФИО или создание нового).
+     */
+    private Teacher resolveTeacherForRow(ImportService.ParsedRow row,
+                                          com.karyakina.schedule.dto.ImportRowDecisionDto decision,
+                                          java.util.Map<Long, Teacher> teacherById,
+                                          ImportResult result) {
+        if (decision != null && "LINK".equals(decision.getAction()) && decision.getTeacherId() != null) {
+            Teacher existing = teacherById.get(decision.getTeacherId());
+            if (existing != null) return existing;
+            return teacherRepository.findById(decision.getTeacherId())
+                    .orElseThrow(() -> new RuntimeException("Преподаватель не найден: " + decision.getTeacherId()));
+        }
+
+        if (decision != null && "CREATE".equals(decision.getAction())) {
+            result.createdTeachers++;
+            Teacher t = Teacher.builder()
+                    .fullName(row.teacherName.trim())
+                    .department(decision.getDepartment() != null ? decision.getDepartment() : row.department)
+                    .position(decision.getPosition())
+                    .phone(decision.getPhone())
+                    .build();
+            Teacher saved = teacherRepository.save(t);
+            teacherById.put(saved.getId(), saved);
+            return saved;
+        }
+
+        // Нет явного решения — прежнее поведение: точный поиск по ФИО, иначе создать нового
+        return teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
+                .orElseGet(() -> {
+                    result.createdTeachers++;
+                    Teacher t = Teacher.builder()
+                            .fullName(row.teacherName.trim())
+                            .department(row.department)
+                            .build();
+                    return teacherRepository.save(t);
+                });
+    }
+
     private TeacherLoad findExistingLoad(Long teacherId, Long groupId, Long disciplineId, Integer year) {
         return loadRepository.findByAcademicYear(year).stream()
                 .filter(l -> l.getTeacher().getId().equals(teacherId)

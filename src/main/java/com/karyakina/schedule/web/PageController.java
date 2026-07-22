@@ -207,6 +207,20 @@ public class PageController {
         return "admin-teachers";
     }
 
+    @GetMapping("/admin/users")
+    public String adminUsers(Model model, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return "redirect:/dashboard";
+        }
+
+        model.addAttribute("isAdmin", true);
+        model.addAttribute("currentUserId", user.getId());
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        return "admin-users";
+    }
+
     @GetMapping("/admin/pairs")
     public String adminPairs(Model model, Authentication authentication,
                              @RequestParam(name = "year", required = false) Integer yearParam) {

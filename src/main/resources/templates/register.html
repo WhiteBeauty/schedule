@@ -153,13 +153,10 @@
             </div>
         </div>
 
-        <div class="form-group">
-            <label for="role">Роль *</label>
-            <select id="role" th:field="*{role}" required>
-                <option value="TEACHER">Преподаватель</option>
-                <option value="ADMIN">Администратор</option>
-            </select>
-        </div>
+        <p class="text-muted" style="font-size: 0.85rem; margin: 0.5rem 0 1rem;">
+            Регистрация создаёт аккаунт преподавателя. Права администратора выдаются
+            только действующим администратором из раздела «Пользователи».
+        </p>
 
         <button type="submit" class="btn">Зарегистрироваться</button>
     </form>

@@ -23,6 +23,7 @@
         <li th:if="${isAdmin}"><a th:href="@{/admin/pairs}" id="nav-admin-pairs">📅 Расписание пар</a></li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/import}" id="nav-admin-import">📥 Импорт нагрузки (Excel/CSV)</a></li>
         <li th:if="${isAdmin}"><a th:href="@{/admin/teachers}" id="nav-admin-teachers">👥 Управление преподавателями</a></li>
+        <li th:if="${isAdmin}"><a th:href="@{/admin/users}" id="nav-admin-users">🔐 Пользователи</a></li>
         <li><a th:href="@{/time-sync}" id="nav-time-sync">⏱️ Сверка часов</a></li>
         <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>
         <li><a th:href="@{/monthly}" id="nav-monthly">📆 Помесячный учёт</a></li>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пользователи - Администратор</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .role-badge {
+            display: inline-block; padding: 0.25rem 0.6rem; border-radius: 0.25rem;
+            font-size: 0.75rem; font-weight: 600;
+        }
+        .role-admin { background: #fee2e2; color: #991b1b; }
+        .role-teacher { background: #dbeafe; color: #1e40af; }
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+        .tab-btn {
+            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
+            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+        }
+        .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .audit-row { font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div class="page-header">
+        <h1 class="page-title" style="margin:0;">👥 Пользователи</h1>
+        <p class="page-subtitle">
+            Права администратора можно выдать только вручную, отсюда. Самостоятельная
+            регистрация с ролью администратора невозможна.
+        </p>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tabUsers" onclick="switchTab('users')">Пользователи</button>
+        <button class="tab-btn" id="tabAudit" onclick="switchTab('audit')">Журнал изменений</button>
+    </div>
+
+    <div class="card" id="panelUsers">
+        <table>
+            <thead>
+            <tr><th>Пользователь</th><th>Email</th><th>Роль</th><th>Действия</th></tr>
+            </thead>
+            <tbody id="usersBody"><tr><td colspan="4" class="text-muted">Загрузка...</td></tr></tbody>
+        </table>
+    </div>
+
+    <div class="card" id="panelAudit" style="display:none;">
+        <table>
+            <thead>
+            <tr><th>Когда</th><th>Действие</th><th>Кто выполнил</th><th>Над кем</th></tr>
+            </thead>
+            <tbody id="auditBody"><tr><td colspan="4" class="text-muted">Загрузка...</td></tr></tbody>
+        </table>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const currentUserId = /*[[${currentUserId}]]*/ null;
+
+    function switchTab(tab) {
+        document.getElementById('panelUsers').style.display = tab === 'users' ? '' : 'none';
+        document.getElementById('panelAudit').style.display = tab === 'audit' ? '' : 'none';
+        document.getElementById('tabUsers').classList.toggle('active', tab === 'users');
+        document.getElementById('tabAudit').classList.toggle('active', tab === 'audit');
+        if (tab === 'audit') loadAudit();
+    }
+
+    async function loadUsers() {
+        const res = await fetch('/api/admin/users');
+        const users = await res.json();
+        const body = document.getElementById('usersBody');
+        body.innerHTML = '';
+
+        users.forEach(u => {
+            const isAdminRole = u.role === 'ADMIN';
+            const roleBadge = isAdminRole
+                ? '<span class="role-badge role-admin">Администратор</span>'
+                : '<span class="role-badge role-teacher">Преподаватель</span>';
+
+            let actionBtn;
+            if (isAdminRole) {
+                actionBtn = String(u.id) === String(currentUserId)
+                    ? '<span class="text-muted">Это вы</span>'
+                    : '<button class="btn btn-sm btn-outline" onclick="demote(' + u.id + ', this)">Снять права администратора</button>';
+            } else {
+                actionBtn = '<button class="btn btn-sm" onclick="promote(' + u.id + ', this)">Назначить администратором</button>';
+            }
+
+            const tr = document.createElement('tr');
+            const name = (u.firstName || '') + ' ' + (u.lastName || '');
+            tr.innerHTML =
+                '<td>' + (name.trim() || u.username) + '</td>' +
+                '<td>' + u.email + '</td>' +
+                '<td>' + roleBadge + '</td>' +
+                '<td>' + actionBtn + '</td>';
+            body.appendChild(tr);
+        });
+    }
+
+    async function promote(id, btn) {
+        if (!confirm('Назначить этого пользователя администратором? У него появится полный доступ к системе.')) return;
+        btn.disabled = true;
+        const res = await fetch('/api/admin/users/' + id + '/promote', { method: 'POST' });
+        if (res.ok) {
+            loadUsers();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Не удалось выполнить действие');
+            btn.disabled = false;
+        }
+    }
+
+    async function demote(id, btn) {
+        if (!confirm('Снять права администратора с этого пользователя?')) return;
+        btn.disabled = true;
+        const res = await fetch('/api/admin/users/' + id + '/demote', { method: 'POST' });
+        if (res.ok) {
+            loadUsers();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Не удалось выполнить действие');
+            btn.disabled = false;
+        }
+    }
+
+    async function loadAudit() {
+        const res = await fetch('/api/admin/users/audit-log');
+        const logs = await res.json();
+        const body = document.getElementById('auditBody');
+        body.innerHTML = '';
+
+        if (!logs.length) {
+            body.innerHTML = '<tr><td colspan="4" class="text-muted">Записей пока нет</td></tr>';
+            return;
+        }
+
+        const actionLabels = { PROMOTE_TO_ADMIN: 'Назначен администратором', DEMOTE_FROM_ADMIN: 'Права сняты' };
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+            tr.className = 'audit-row';
+            tr.innerHTML =
+                '<td>' + formatDate(log.createdAt) + '</td>' +
+                '<td>' + (actionLabels[log.action] || log.action) + '</td>' +
+                '<td>' + log.actorUsername + '</td>' +
+                '<td>' + log.targetUsername + '</td>';
+            body.appendChild(tr);
+        });
+    }
+
+    function formatDate(s) {
+        if (!s) return '';
+        try { return new Date(s).toLocaleString('ru-RU'); } catch (e) { return s; }
+    }
+
+    loadUsers();
+</script>
+</body>
+</html>

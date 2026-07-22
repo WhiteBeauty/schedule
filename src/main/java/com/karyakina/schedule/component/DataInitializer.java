@@ -30,6 +30,9 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
+    @org.springframework.beans.factory.annotation.Value("${app.initial-admin-password:admin123}")
+    private String initialAdminPassword;
+
     @Override
     public void run(String... args) {
         log.info("Initializing application data...");
@@ -47,16 +50,28 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
 
-        // Создаём админа
+        // Создаём единственного супер-администратора. Пароль берётся из
+        // app.initial-admin-password (переменная окружения INITIAL_ADMIN_PASSWORD) —
+        // см. application.properties. Дальнейшие администраторы назначаются только
+        // через /admin/users действующим администратором (см. UserAdminService),
+        // самостоятельная регистрация с ролью ADMIN невозможна.
         User admin = User.builder()
                 .username("admin")
                 .email("admin@example.com")
-                .password(passwordEncoder.encode("admin123"))
+                .password(passwordEncoder.encode(initialAdminPassword))
                 .role(User.Role.ADMIN)
                 .firstName("Админ")
                 .lastName("Системы")
                 .build();
         userRepository.save(admin);
+
+        if ("admin123".equals(initialAdminPassword)) {
+            log.warn("=====================================================================");
+            log.warn("ВНИМАНИЕ: используется пароль администратора по умолчанию (admin123).");
+            log.warn("Смените его немедленно после первого входа или задайте переменную");
+            log.warn("окружения INITIAL_ADMIN_PASSWORD перед следующим запуском на пустой БД.");
+            log.warn("=====================================================================");
+        }
 
         // Создаём преподавателей
         Teacher teacher1 = Teacher.builder()
@@ -434,7 +449,7 @@ public class DataInitializer implements CommandLineRunner {
         monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
         log.info("Application data initialization completed");
-        log.info("Admin login: admin@example.com / admin123");
+        log.info("Admin login: admin@example.com / (см. INITIAL_ADMIN_PASSWORD)");
         log.info("Teacher 1 login: ivanov@example.com / teacher123");
         log.info("Teacher 2 login: petrova@example.com / teacher123");
         log.info("Teacher 3 login: sidorov@example.com / teacher123");

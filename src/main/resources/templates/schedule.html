@@ -6,53 +6,48 @@
     <title>Моё расписание</title>
     <link rel="stylesheet" href="/css/styles.css">
     <style>
-        .schedule-layout {
-            display: flex;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        .schedule-sidebar {
-            width: 250px;
-            flex-shrink: 0;
-        }
-        .schedule-content {
-            flex: 1;
-        }
-        .day-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
+        .schedule-layout { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; }
+        .schedule-sidebar { width: 220px; flex-shrink: 0; }
+        .schedule-content { flex: 1; min-width: 0; }
+        .day-list { list-style: none; padding: 0; margin: 0; }
         .day-list li {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
-            transition: .15s;
+            padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+            cursor: pointer; transition: .15s;
         }
-        .day-list li:hover {
-            background: #f3f4f6;
-        }
+        .day-list li:hover { background: #f3f4f6; }
         .day-list li.active {
-            background: #e0e7ff;
-            border-left: 4px solid var(--primary);
-            color: var(--primary-dark);
-            font-weight: 600;
+            background: #e0e7ff; border-left: 4px solid var(--primary);
+            color: var(--primary-dark); font-weight: 600;
         }
         .pair-card {
-            padding: 1rem;
-            background: #f9fafb;
-            border-radius: 0.5rem;
-            margin-bottom: 0.75rem;
-            border: 1px solid var(--border);
+            padding: 1rem; background: #f9fafb; border-radius: 0.5rem;
+            margin-bottom: 0.75rem; border: 1px solid var(--border);
+            transition: box-shadow .3s, border-color .3s;
         }
-        .pair-time {
-            font-weight: 700;
-            color: var(--primary);
+        .pair-card.highlighted { border-color: var(--primary); box-shadow: 0 0 0 3px #e0e7ff; }
+        .pair-time { font-weight: 700; color: var(--primary); }
+        .pair-details { margin-top: 0.5rem; font-size: 0.9rem; }
+
+        .mode-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+        .mode-tab {
+            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
+            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
         }
-        .pair-details {
-            margin-top: 0.5rem;
-            font-size: 0.9rem;
+        .mode-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+        .week-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .week-grid th, .week-grid td {
+            border: 1px solid var(--border); padding: 0.4rem; vertical-align: top; font-size: 0.8rem;
         }
+        .week-grid th { background: #f9fafb; text-align: center; }
+        .week-grid .time-col { width: 90px; background: #f9fafb; font-weight: 600; text-align: center; }
+        .grid-cell { min-height: 60px; }
+        .grid-pair {
+            background: #eff6ff; border-left: 3px solid var(--primary); border-radius: 0.25rem;
+            padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; font-size: 0.75rem;
+        }
+        .grid-pair.empty-room { background: transparent; border: none; color: var(--muted); font-style: italic; }
+        .grid-pair-title { font-weight: 600; }
     </style>
 </head>
 <body>
@@ -61,8 +56,15 @@
 <main class="main">
     <h1 class="page-title">📅 Моё расписание</h1>
 
-    <div class="schedule-layout">
-        <div class="card" style="padding: 1rem; margin: 0;">
+    <div class="mode-tabs" th:if="${isAdmin}">
+        <button class="mode-tab active" id="tabList" onclick="switchMode('list')">📋 Список по дням</button>
+        <button class="mode-tab" id="tabTeacher" onclick="switchMode('teacher')">👤 По преподавателю</button>
+        <button class="mode-tab" id="tabGroup" onclick="switchMode('group')">🏛 По группе</button>
+        <button class="mode-tab" id="tabRoom" onclick="switchMode('room')">🗂 Сводный: аудитория × время</button>
+    </div>
+
+    <div id="modeList" class="schedule-layout">
+        <div class="card schedule-sidebar" style="padding: 1rem; margin: 0;">
             <h4 style="margin: 0 0 1rem;">Дни недели</h4>
             <ul class="day-list" id="dayList">
                 <li class="active" data-day="MONDAY">Понедельник</li>
@@ -80,7 +82,7 @@
                     <h2 class="card-title" id="dayTitle">Понедельник</h2>
                     <div class="filters">
                         <label>Год:
-                            <select id="yearSelect" th:value="${year}">
+                            <select id="yearSelect">
                                 <option value="2026" selected>2026</option>
                                 <option value="2027">2027</option>
                             </select>
@@ -94,6 +96,50 @@
             </div>
         </div>
     </div>
+
+    <div id="modeTeacher" class="card" style="display:none;">
+        <div class="card-header">
+            <h2 class="card-title">Занятость преподавателя за неделю</h2>
+            <div class="filters">
+                <label>Преподаватель:
+                    <select id="teacherSelect" onchange="renderTeacherGrid()"></select>
+                </label>
+            </div>
+        </div>
+        <div style="overflow-x:auto;"><table class="week-grid" id="teacherGridTable"></table></div>
+    </div>
+
+    <div id="modeGroup" class="card" style="display:none;">
+        <div class="card-header">
+            <h2 class="card-title">Расписание звонков группы</h2>
+            <div class="filters">
+                <label>Группа:
+                    <select id="groupSelect" onchange="renderGroupGrid()"></select>
+                </label>
+            </div>
+        </div>
+        <div style="overflow-x:auto;"><table class="week-grid" id="groupGridTable"></table></div>
+    </div>
+
+    <div id="modeRoom" class="card" style="display:none;">
+        <div class="card-header">
+            <h2 class="card-title">Занятость аудиторий</h2>
+            <div class="filters">
+                <label>День:
+                    <select id="roomDaySelect" onchange="renderRoomGrid()">
+                        <option value="MONDAY">Понедельник</option>
+                        <option value="TUESDAY">Вторник</option>
+                        <option value="WEDNESDAY">Среда</option>
+                        <option value="THURSDAY">Четверг</option>
+                        <option value="FRIDAY">Пятница</option>
+                        <option value="SATURDAY">Суббота</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+        <p class="text-muted" style="padding: 0 1.25rem;">Пустые ячейки — свободное время в этой аудитории.</p>
+        <div style="overflow-x:auto;"><table class="week-grid" id="roomGridTable"></table></div>
+    </div>
 </main>
 
 <script th:inline="javascript">
@@ -102,37 +148,30 @@ const defaultYear = 2026;
 let currentDay = 'MONDAY';
 let pairsData = [];
 let isAdmin = /*[[${isAdmin}]]*/ false;
+let currentMode = 'list';
+const highlightPairId = new URLSearchParams(window.location.search).get('pairId');
 
 const dayNames = {
-    'MONDAY': 'Понедельник',
-    'TUESDAY': 'Вторник',
-    'WEDNESDAY': 'Среда',
-    'THURSDAY': 'Четверг',
-    'FRIDAY': 'Пятница',
-    'SATURDAY': 'Суббота'
+    MONDAY: 'Понедельник', TUESDAY: 'Вторник', WEDNESDAY: 'Среда',
+    THURSDAY: 'Четверг', FRIDAY: 'Пятница', SATURDAY: 'Суббота'
 };
+const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 
-// Устанавливаем текущий день недели при загрузке
 function getCurrentDayOfWeek() {
     const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
-    const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
-    // Преобразуем: Sunday=0 -> index 6, Monday=1 -> index 0, etc.
+    const today = new Date().getDay();
     const index = today === 0 ? 6 : today - 1;
     return days[index] || 'MONDAY';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Устанавливаем активный день недели - сегодняшний
     currentDay = getCurrentDayOfWeek();
     document.querySelectorAll('.day-list li').forEach(li => {
         li.classList.remove('active');
-        if (li.dataset.day === currentDay) {
-            li.classList.add('active');
-        }
+        if (li.dataset.day === currentDay) li.classList.add('active');
     });
     document.getElementById('dayTitle').textContent = dayNames[currentDay];
 
-    // Обработчики дней недели
     document.querySelectorAll('.day-list li').forEach(li => {
         li.addEventListener('click', () => {
             document.querySelectorAll('.day-list li').forEach(l => l.classList.remove('active'));
@@ -145,23 +184,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('yearSelect').addEventListener('change', loadPairs);
 
+    if (isAdmin) initAdminModes();
     loadPairs();
 });
 
+function switchMode(mode) {
+    currentMode = mode;
+    ['List', 'Teacher', 'Group', 'Room'].forEach(m => {
+        document.getElementById('mode' + m).style.display = (m.toLowerCase() === mode) ? '' : 'none';
+        document.getElementById('tab' + m).classList.toggle('active', m.toLowerCase() === mode);
+    });
+    if (mode === 'teacher') renderTeacherGrid();
+    else if (mode === 'group') renderGroupGrid();
+    else if (mode === 'room') renderRoomGrid();
+}
+
+function initAdminModes() {
+    fetch('/api/teachers').then(r => r.json()).then(list => {
+        const sel = document.getElementById('teacherSelect');
+        (list || []).forEach(t => sel.add(new Option(t.fullName, t.id)));
+    }).catch(() => {});
+
+    fetch('/api/groups').then(r => r.json()).then(list => {
+        const sel = document.getElementById('groupSelect');
+        (list || []).forEach(g => sel.add(new Option(g.name, g.id)));
+    }).catch(() => {});
+}
+
 function loadPairs() {
     const year = document.getElementById('yearSelect').value;
-
-    fetch(`/api/pairs?year=${year}`)
+    fetch('/api/pairs?year=' + year)
         .then(res => {
-            if (!res.ok) {
-                throw new Error('Ошибка сервера: ' + res.status);
-            }
+            if (!res.ok) throw new Error('Ошибка сервера: ' + res.status);
             return res.json();
         })
         .then(data => {
-            // Убедимся, что data - это массив
             pairsData = Array.isArray(data) ? data : [];
             renderPairs();
+            if (currentMode === 'teacher') renderTeacherGrid();
+            else if (currentMode === 'group') renderGroupGrid();
+            else if (currentMode === 'room') renderRoomGrid();
+            if (highlightPairId) jumpToPair(highlightPairId);
         })
         .catch(e => {
             console.error('Error loading pairs:', e);
@@ -169,63 +232,179 @@ function loadPairs() {
         });
 }
 
+function jumpToPair(pairId) {
+    const pair = pairsData.find(p => String(p.id) === String(pairId));
+    if (!pair) return;
+    currentDay = pair.dayOfWeek;
+    document.querySelectorAll('.day-list li').forEach(l => l.classList.toggle('active', l.dataset.day === currentDay));
+    document.getElementById('dayTitle').textContent = dayNames[currentDay];
+    switchMode('list');
+    renderPairs();
+    setTimeout(() => {
+        const card = document.querySelector('[data-pair-id="' + pairId + '"]');
+        if (card) {
+            card.classList.add('highlighted');
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 50);
+}
+
 function renderPairs() {
     const container = document.getElementById('pairsContainer');
     container.innerHTML = '';
 
     const filtered = pairsData.filter(p => p.dayOfWeek === currentDay);
-
     if (filtered.length === 0) {
         container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Нет пар в этот день</p>';
         return;
     }
-
-    // Сортировка по времени
     filtered.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
     filtered.forEach(p => {
         const startTime = p.startTime.substring(0, 5);
         const endTime = p.endTime.substring(0, 5);
-        const week = p.academicWeek ? `${p.academicWeek} нед.` : 'каждую нед.';
+        const week = p.academicWeek ? (p.academicWeek + ' нед.') : 'каждую нед.';
 
         const div = document.createElement('div');
         div.className = 'pair-card';
+        div.dataset.pairId = p.id;
 
         let actionsHtml = '';
         if (isAdmin) {
-            actionsHtml = `
-                <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-                    <button class="btn btn-sm" onclick="openEditPairModal(${p.id}, '${p.dayOfWeek}', '${p.startTime}', '${p.endTime}', '${p.classroom}', ${p.academicWeek || 'null'})">✏️ Изменить</button>
-                    <button class="btn btn-sm btn-danger" onclick="deletePair(${p.id})">🗑️ Удалить</button>
-                </div>
-            `;
+            actionsHtml = '<div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">' +
+                '<button class="btn btn-sm" onclick="openEditPairModal(' + p.id + ', \'' + p.dayOfWeek + '\', \'' + p.startTime + '\', \'' + p.endTime + '\', \'' + p.classroom + '\', ' + (p.academicWeek || 'null') + ')">✏️ Изменить</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deletePair(' + p.id + ')">🗑️ Удалить</button>' +
+                '</div>';
         }
 
-        div.innerHTML = `
-            <div class="pair-time">🕐 ${startTime} - ${endTime}</div>
-            <div class="pair-details">
-                <strong>${p.teacherLoad.discipline.name}</strong><br>
-                <span class="text-muted">Группа: ${p.teacherLoad.group.name}</span><br>
-                <span class="text-muted">Аудитория: ${p.classroom}</span> |
-                <span class="text-muted">${week}</span>
-                ${actionsHtml}
-            </div>
-        `;
+        const teacherLine = isAdmin ? ('<span class="text-muted">Преподаватель: ' + p.teacherLoad.teacher.fullName + '</span><br>') : '';
+
+        div.innerHTML =
+            '<div class="pair-time">🕐 ' + startTime + ' - ' + endTime + '</div>' +
+            '<div class="pair-details">' +
+                '<strong>' + p.teacherLoad.discipline.name + '</strong><br>' +
+                teacherLine +
+                '<span class="text-muted">Группа: ' + p.teacherLoad.group.name + '</span><br>' +
+                '<span class="text-muted">Аудитория: ' + p.classroom + '</span> | ' +
+                '<span class="text-muted">' + week + '</span>' +
+                actionsHtml +
+            '</div>';
         container.appendChild(div);
     });
 }
 
+function collectTimeSlots(pairs) {
+    const slots = new Set();
+    pairs.forEach(p => slots.add(p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)));
+    return Array.from(slots).sort();
+}
+
+function buildWeekGrid(tableId, pairs, cellLabelFn) {
+    const table = document.getElementById(tableId);
+    const slots = collectTimeSlots(pairs);
+
+    if (slots.length === 0) {
+        table.innerHTML = '<tr><td style="padding:2rem;text-align:center;" class="text-muted">Нет пар</td></tr>';
+        return;
+    }
+
+    let html = '<thead><tr><th class="time-col">Время</th>';
+    dayOrder.forEach(d => html += '<th>' + dayNames[d] + '</th>');
+    html += '</tr></thead><tbody>';
+
+    slots.forEach(slot => {
+        html += '<tr><td class="time-col">' + slot + '</td>';
+        dayOrder.forEach(day => {
+            const cellPairs = pairs.filter(p =>
+                p.dayOfWeek === day && (p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)) === slot);
+            html += '<td class="grid-cell">';
+            if (cellPairs.length === 0) {
+                html += '<span class="text-muted" style="font-size:0.7rem;">—</span>';
+            } else {
+                cellPairs.forEach(p => { html += cellLabelFn(p); });
+            }
+            html += '</td>';
+        });
+        html += '</tr>';
+    });
+    html += '</tbody>';
+    table.innerHTML = html;
+}
+
+function renderTeacherGrid() {
+    const teacherIdSel = document.getElementById('teacherSelect').value;
+    if (!teacherIdSel) {
+        document.getElementById('teacherGridTable').innerHTML = '<tr><td class="text-muted" style="padding:1.5rem;text-align:center;">Выберите преподавателя</td></tr>';
+        return;
+    }
+    const pairs = pairsData.filter(p => String(p.teacherLoad.teacher.id) === String(teacherIdSel));
+    buildWeekGrid('teacherGridTable', pairs, p =>
+        '<div class="grid-pair">' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
+            '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
+        '</div>');
+}
+
+function renderGroupGrid() {
+    const groupIdSel = document.getElementById('groupSelect').value;
+    if (!groupIdSel) {
+        document.getElementById('groupGridTable').innerHTML = '<tr><td class="text-muted" style="padding:1.5rem;text-align:center;">Выберите группу</td></tr>';
+        return;
+    }
+    const pairs = pairsData.filter(p => String(p.teacherLoad.group.id) === String(groupIdSel));
+    buildWeekGrid('groupGridTable', pairs, p =>
+        '<div class="grid-pair">' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
+            '<div>' + p.teacherLoad.teacher.fullName + ' · ауд. ' + p.classroom + '</div>' +
+        '</div>');
+}
+
+function renderRoomGrid() {
+    const day = document.getElementById('roomDaySelect').value;
+    const dayPairs = pairsData.filter(p => p.dayOfWeek === day);
+    const table = document.getElementById('roomGridTable');
+
+    if (dayPairs.length === 0) {
+        table.innerHTML = '<tr><td style="padding:2rem;text-align:center;" class="text-muted">На этот день пар не найдено</td></tr>';
+        return;
+    }
+
+    const rooms = Array.from(new Set(dayPairs.map(p => p.classroom))).sort();
+    const slots = collectTimeSlots(dayPairs);
+
+    let html = '<thead><tr><th class="time-col">Аудитория</th>';
+    slots.forEach(s => html += '<th>' + s + '</th>');
+    html += '</tr></thead><tbody>';
+
+    rooms.forEach(room => {
+        html += '<tr><td class="time-col">' + room + '</td>';
+        slots.forEach(slot => {
+            const cellPairs = dayPairs.filter(p =>
+                p.classroom === room && (p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)) === slot);
+            html += '<td class="grid-cell">';
+            if (cellPairs.length === 0) {
+                html += '<div class="grid-pair empty-room">свободна</div>';
+            } else {
+                cellPairs.forEach(p => {
+                    html += '<div class="grid-pair">' +
+                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
+                        '<div>' + p.teacherLoad.group.name + ' · ' + p.teacherLoad.teacher.fullName + '</div>' +
+                        '</div>';
+                });
+            }
+            html += '</td>';
+        });
+        html += '</tr>';
+    });
+    html += '</tbody>';
+    table.innerHTML = html;
+}
+
 function deletePair(id) {
     if (!confirm('Вы уверены, что хотите удалить эту пару?')) return;
-
-    fetch(`/api/pairs/${id}`, {
-        method: 'DELETE'
-    }).then(r => {
-        if (r.ok) {
-            loadPairs();
-        } else {
-            alert('Ошибка при удалении пары');
-        }
+    fetch('/api/pairs/' + id, { method: 'DELETE' }).then(r => {
+        if (r.ok) loadPairs();
+        else alert('Ошибка при удалении пары');
     });
 }
 
@@ -251,14 +430,11 @@ function saveEditPair() {
     const classroom = document.getElementById('editClassroom').value;
     const academicWeek = document.getElementById('editAcademicWeek').value;
 
-    fetch(`/api/pairs/${id}`, {
+    fetch('/api/pairs/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            dayOfWeek,
-            startTime,
-            endTime,
-            classroom,
+            dayOfWeek: dayOfWeek, startTime: startTime, endTime: endTime, classroom: classroom,
             academicWeek: academicWeek ? parseInt(academicWeek) : null
         })
     }).then(r => {
@@ -272,7 +448,6 @@ function saveEditPair() {
 }
 </script>
 
-<!-- Modal: Edit Pair -->
 <div class="modal-overlay" id="editPairModal">
     <div class="modal">
         <div class="modal-header">

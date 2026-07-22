@@ -41,13 +41,24 @@ public class ApiController {
     private final MonthlyRecordRepository monthlyRecordRepository;
     private final SickLeaveRepository sickLeaveRepository;
     private final SubstitutionRequestRepository substitutionRequestRepository;
+    private final ScheduleRepository scheduleRepository;
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
     private final SubstitutionService substitutionService;
     private final NotificationService notificationService;
+    private final ScheduleChangeNotifier scheduleChangeNotifier;
     private final LoadBalanceService loadBalanceService;
+
+    private String adminDisplayName(User user) {
+        String first = user.getFirstName();
+        String last = user.getLastName();
+        if (first != null && !first.isBlank()) {
+            return last != null && !last.isBlank() ? first + " " + last : first;
+        }
+        return user.getUsername();
+    }
 
     @PostMapping("/time-sync")
     public ResponseEntity<TimeSyncDto> timeSync(@RequestBody Map<String, Long> body) {
@@ -103,9 +114,27 @@ public class ApiController {
 
     @PostMapping("/loads/{id}/read-hours")
     public ResponseEntity<TeacherLoad> updateReadHours(@PathVariable Long id,
-                                                        @RequestBody Map<String, Integer> body) {
+                                                        @RequestBody Map<String, Integer> body,
+                                                        Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
         Integer hours = body.get("readHours");
-        return ResponseEntity.ok(teacherLoadService.updateReadHours(id, hours));
+        TeacherLoad before = loadRepository.findById(id).orElse(null);
+        int oldHours = before != null && before.getReadHours() != null ? before.getReadHours() : 0;
+
+        TeacherLoad updated = teacherLoadService.updateReadHours(id, hours);
+
+        try {
+            scheduleChangeNotifier.loadChanged(updated, oldHours, hours != null ? hours : 0, adminDisplayName(user));
+        } catch (Exception notifyEx) {
+            notifyEx.printStackTrace();
+        }
+
+        return ResponseEntity.ok(updated);
     }
 
     @GetMapping("/teachers")
@@ -568,7 +597,19 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
+        List<TeacherLoad> toDelete = loadRepository.findAllById(ids);
         loadRepository.deleteAllById(ids);
+        for (TeacherLoad load : toDelete) {
+            try {
+                notificationService.notifyTeacher(load.getTeacher(), Notification.Type.LOAD_CHANGED,
+                        "Удалена нагрузка: " + load.getDiscipline().getName(),
+                        "Администратор " + adminDisplayName(user) + " удалил вашу нагрузку по дисциплине «"
+                                + load.getDiscipline().getName() + "» у группы " + load.getGroup().getName() + ".",
+                        null, "/time-sync", false);
+            } catch (Exception notifyEx) {
+                notifyEx.printStackTrace();
+            }
+        }
         return ResponseEntity.ok().build();
     }
 
@@ -1078,7 +1119,7 @@ public class ApiController {
                 Integer.valueOf(body.get("academicWeek").toString()) : null;
             Integer academicYear = Integer.valueOf(academicYearObj.toString());
 
-            return ResponseEntity.ok(scheduleService.createSchedule(
+            Schedule created = scheduleService.createSchedule(
                 teacherLoadId,
                 DayOfWeek.valueOf(dayOfWeek.toUpperCase()),
                 LocalTime.parse(startTime),
@@ -1086,7 +1127,13 @@ public class ApiController {
                 classroom,
                 academicWeek,
                 academicYear
-            ));
+            );
+            try {
+                scheduleChangeNotifier.pairCreated(created, adminDisplayName(user));
+            } catch (Exception notifyEx) {
+                notifyEx.printStackTrace();
+            }
+            return ResponseEntity.ok(created);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();
@@ -1103,7 +1150,15 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
+        Schedule toDelete = scheduleRepository.findById(id).orElse(null);
         scheduleService.deleteSchedule(id);
+        if (toDelete != null) {
+            try {
+                scheduleChangeNotifier.pairDeleted(toDelete, adminDisplayName(user));
+            } catch (Exception notifyEx) {
+                notifyEx.printStackTrace();
+            }
+        }
         return ResponseEntity.ok().build();
     }
 
@@ -1126,14 +1181,36 @@ public class ApiController {
             Integer academicWeek = body.containsKey("academicWeek") && body.get("academicWeek") != null ?
                 Integer.valueOf(body.get("academicWeek").toString()) : null;
 
-            return ResponseEntity.ok(scheduleService.updateSchedule(
+            Schedule before = scheduleRepository.findById(id).orElse(null);
+            Schedule beforeSnapshot = before == null ? null : Schedule.builder()
+                    .id(before.getId())
+                    .teacherLoad(before.getTeacherLoad())
+                    .dayOfWeek(before.getDayOfWeek())
+                    .startTime(before.getStartTime())
+                    .endTime(before.getEndTime())
+                    .classroom(before.getClassroom())
+                    .academicWeek(before.getAcademicWeek())
+                    .academicYear(before.getAcademicYear())
+                    .build();
+
+            Schedule updated = scheduleService.updateSchedule(
                 id,
                 DayOfWeek.valueOf(dayOfWeek.toUpperCase()),
                 LocalTime.parse(startTime),
                 LocalTime.parse(endTime),
                 classroom,
                 academicWeek
-            ));
+            );
+
+            if (beforeSnapshot != null) {
+                try {
+                    scheduleChangeNotifier.pairUpdated(beforeSnapshot, updated, adminDisplayName(user));
+                } catch (Exception notifyEx) {
+                    notifyEx.printStackTrace();
+                }
+            }
+
+            return ResponseEntity.ok(updated);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();

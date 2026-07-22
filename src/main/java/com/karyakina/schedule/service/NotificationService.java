@@ -5,16 +5,19 @@ import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 /**
- * Уведомления модуля форс-мажоров и импорта. Хранятся внутри системы (таблица notifications)
- * и отображаются в разделе "Уведомления" каждому пользователю. Точка расширения sendEmail(...)
- * оставлена как заглушка — при необходимости подключить реальный SMTP/мессенджер, письмо
- * достаточно отправить в этом единственном месте, вся остальная логика уже готова.
+ * Центр внутренних уведомлений + email-канал для критичных изменений. Каждое уведомление
+ * всегда попадает в таблицу notifications (виден "колокольчик" в шапке у всех
+ * затронутых пользователей); email дополнительно отправляется только когда
+ * критичность явно запрошена вызывающим кодом (например: отмена пары менее чем за
+ * 24 часа до начала — см. ScheduleChangeNotifier).
  */
 @Service
 @RequiredArgsConstructor
@@ -23,6 +26,7 @@ import java.util.List;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final JavaMailSender mailSender;
 
     public List<Notification> findForTeacher(Long teacherId) {
         return notificationRepository.findByRecipientTeacherIdOrderByCreatedAtDesc(teacherId);
@@ -40,9 +44,17 @@ public class NotificationService {
         return notificationRepository.countUnreadForAdmins();
     }
 
+    /** Обратная совместимость со старыми вызовами (без ссылки и без email). */
     @Transactional
     public Notification notifyTeacher(Teacher teacher, Notification.Type type, String title,
                                        String message, Long substitutionRequestId) {
+        return notifyTeacher(teacher, type, title, message, substitutionRequestId, null, false);
+    }
+
+    @Transactional
+    public Notification notifyTeacher(Teacher teacher, Notification.Type type, String title,
+                                       String message, Long substitutionRequestId,
+                                       String linkUrl, boolean critical) {
         Notification n = Notification.builder()
                 .recipientTeacher(teacher)
                 .forAdmins(false)
@@ -50,15 +62,24 @@ public class NotificationService {
                 .title(title)
                 .message(message)
                 .substitutionRequestId(substitutionRequestId)
+                .linkUrl(linkUrl)
                 .build();
         n = notificationRepository.save(n);
-        sendEmail(teacher, title, message);
+        if (critical) {
+            sendEmail(teacher, title, message);
+        }
         return n;
     }
 
     @Transactional
     public Notification notifyAdmins(Notification.Type type, String title, String message,
                                       Long substitutionRequestId) {
+        return notifyAdmins(type, title, message, substitutionRequestId, null);
+    }
+
+    @Transactional
+    public Notification notifyAdmins(Notification.Type type, String title, String message,
+                                      Long substitutionRequestId, String linkUrl) {
         Notification n = Notification.builder()
                 .recipientTeacher(null)
                 .forAdmins(true)
@@ -66,6 +87,7 @@ public class NotificationService {
                 .title(title)
                 .message(message)
                 .substitutionRequestId(substitutionRequestId)
+                .linkUrl(linkUrl)
                 .build();
         return notificationRepository.save(n);
     }
@@ -79,13 +101,23 @@ public class NotificationService {
     }
 
     /**
-     * Заглушка отправки email/мессенджера. В текущей конфигурации уведомление доставляется
-     * только внутри системы (см. notifyTeacher/notifyAdmins) и пишется в лог; чтобы включить
-     * реальную отправку, подключите spring-boot-starter-mail и замените тело метода на
-     * mailSender.send(...), используя teacher.getEmail().
+     * Реальная отправка email через JavaMailSender (spring-boot-starter-mail). Бин
+     * существует всегда, если стартер подключён, но реально работает только если
+     * заданы spring.mail.host/username/password — при отсутствии конфигурации или
+     * недоступности SMTP просто логируем и не блокируем остальную логику.
      */
     private void sendEmail(Teacher teacher, String title, String message) {
         if (teacher.getEmail() == null || teacher.getEmail().isBlank()) return;
-        log.info("[EMAIL-STUB] To: {} | {} | {}", teacher.getEmail(), title, message);
+        try {
+            SimpleMailMessage mail = new SimpleMailMessage();
+            mail.setTo(teacher.getEmail());
+            mail.setSubject(title);
+            mail.setText(message);
+            mailSender.send(mail);
+            log.info("Email отправлен: {} -> {}", title, teacher.getEmail());
+        } catch (Exception e) {
+            log.warn("Не удалось отправить email на {} ({}): {}. Уведомление осталось " +
+                    "доступным во внутреннем центре уведомлений.", teacher.getEmail(), title, e.getMessage());
+        }
     }
 }

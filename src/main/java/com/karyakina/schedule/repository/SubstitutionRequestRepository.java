@@ -23,6 +23,10 @@ public interface SubstitutionRequestRepository extends JpaRepository<Substitutio
 
     void deleteBySickLeaveId(Long sickLeaveId);
 
+    List<SubstitutionRequest> findByOriginalTeacherIdOrCandidateTeacherId(Long originalTeacherId, Long candidateTeacherId);
+
+    void deleteByLessonInstanceIdIn(List<Long> lessonInstanceIds);
+
     @EntityGraph(attributePaths = {"lessonInstance", "lessonInstance.schedule", "lessonInstance.teacherLoad",
             "sickLeave", "originalTeacher", "candidateTeacher"})
     List<SubstitutionRequest> findAllByOrderByCreatedAtDesc();

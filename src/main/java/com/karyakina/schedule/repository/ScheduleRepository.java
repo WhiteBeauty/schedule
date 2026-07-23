@@ -24,4 +24,8 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
         @Param("teacherId") Long teacherId,
         @Param("academicYear") Integer academicYear
     );
+
+    List<Schedule> findByAcademicYearAndDayOfWeek(Integer academicYear, java.time.DayOfWeek dayOfWeek);
+
+    List<Schedule> findByAcademicYearAndAcademicWeek(Integer academicYear, Integer academicWeek);
 }

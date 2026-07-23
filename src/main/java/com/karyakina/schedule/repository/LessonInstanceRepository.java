@@ -36,4 +36,10 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
     @Query("SELECT li FROM LessonInstance li WHERE li.actualTeacher.id = :teacherId " +
            "AND li.lessonDate = :date AND li.status <> 'CANCELLED'")
     List<LessonInstance> findActiveByActualTeacherIdAndDate(@Param("teacherId") Long teacherId, @Param("date") LocalDate date);
+
+    List<LessonInstance> findByScheduleIdIn(List<Long> scheduleIds);
+
+    List<LessonInstance> findByTeacherLoadId(Long teacherLoadId);
+
+    List<LessonInstance> findByOriginalTeacherIdOrActualTeacherId(Long originalTeacherId, Long actualTeacherId);
 }

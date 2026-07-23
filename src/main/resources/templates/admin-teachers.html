@@ -252,6 +252,7 @@
                                     <button class="btn btn-sm" onclick="event.stopPropagation(); openAddLoadModal(${t.id}, '${t.fullName}')">➕ Нагрузка</button>
                                     <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openCuratorshipMenu(${t.id}, '${t.fullName}')">👥 Кураторство</button>
                                     <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openApproveHoursModal(${t.id}, '${t.fullName}')">✅ Часы</button>
+                                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteTeacher(${t.id}, '${t.fullName.replace(/'/g, "\\'")}')">🗑️ Удалить</button>
                                 </div>
                             </div>
                         </div>
@@ -261,6 +262,23 @@
                     console.error('Error:', e);
                     document.getElementById('teacherList').innerHTML = '<p class="text-danger">Ошибка загрузки: ' + e.message + '</p>';
                 });
+        }
+
+        function deleteTeacher(id, name) {
+            if (!confirm('Удалить преподавателя «' + name + '» полностью? Будут удалены вся его нагрузка, ' +
+                'пары в расписании, больничные и связанные записи. Отменить это действие нельзя.')) {
+                return;
+            }
+            fetch('/api/teachers/' + id, { method: 'DELETE' })
+                .then(async r => {
+                    if (r.ok) {
+                        loadTeachers();
+                    } else {
+                        const err = await r.json().catch(() => ({}));
+                        alert('Не удалось удалить преподавателя: ' + (err.error || 'неизвестная ошибка'));
+                    }
+                })
+                .catch(e => alert('Ошибка: ' + e.message));
         }
 
         function viewTeacher(id) {

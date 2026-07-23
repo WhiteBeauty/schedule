@@ -16,6 +16,7 @@
             <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
             <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
             <button class="btn btn-outline" onclick="generateSchedule(false)">🧮 Автосоставление (черновик)</button>
+            <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
         </div>
     </div>
@@ -186,6 +187,44 @@
     </div>
 </div>
 
+<!-- Modal Wipe Schedule -->
+<div class="modal-overlay" id="wipeModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0">🧨 Снести расписание</h3>
+            <button class="close-btn" onclick="closeWipeModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:1rem;">
+                Удаляет записи расписания (пары) по выбранному фильтру. Затронутые преподаватели
+                получат уведомление. Действие необратимо.
+            </p>
+            <label style="display:block;margin-bottom:0.5rem;">Учебный год:</label>
+            <input type="number" id="wipeYear" value="2026" style="width:100%;margin-bottom:1rem;">
+
+            <label style="display:block;margin-bottom:0.5rem;">День недели (необязательно):</label>
+            <select id="wipeDay" style="width:100%;margin-bottom:1rem;">
+                <option value="">— Все дни —</option>
+                <option value="MONDAY">Понедельник</option>
+                <option value="TUESDAY">Вторник</option>
+                <option value="WEDNESDAY">Среда</option>
+                <option value="THURSDAY">Четверг</option>
+                <option value="FRIDAY">Пятница</option>
+                <option value="SATURDAY">Суббота</option>
+            </select>
+
+            <label style="display:block;margin-bottom:0.5rem;">Учебная неделя (необязательно):</label>
+            <input type="number" id="wipeWeek" min="1" max="20" placeholder="Например, 5" style="width:100%;margin-bottom:1rem;">
+
+            <p id="wipeScopeHint" class="text-danger" style="font-weight:600;"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeWipeModal()">Отмена</button>
+            <button class="btn btn-danger" onclick="executeWipe()">🧨 Удалить</button>
+        </div>
+    </div>
+</div>
+
 <!-- Modal Groups -->
 <div class="modal-overlay" id="groupsModal">
     <div class="modal" style="max-width:700px">
@@ -296,6 +335,72 @@ function loadSelectOptions() {
                 filter.appendChild(opt2);
             });
         });
+}
+
+function openWipeModal() {
+    const year = document.getElementById('yearSelect') ? document.getElementById('yearSelect').value : 2026;
+    document.getElementById('wipeYear').value = year;
+    document.getElementById('wipeDay').value = '';
+    document.getElementById('wipeWeek').value = '';
+    updateWipeHint();
+    document.getElementById('wipeModal').classList.add('active');
+}
+
+function closeWipeModal() {
+    document.getElementById('wipeModal').classList.remove('active');
+}
+
+function updateWipeHint() {
+    const day = document.getElementById('wipeDay').value;
+    const week = document.getElementById('wipeWeek').value;
+    const hint = document.getElementById('wipeScopeHint');
+    if (!day && !week) {
+        hint.textContent = '⚠️ Будет удалено ВСЁ расписание за этот учебный год.';
+    } else if (day && week) {
+        hint.textContent = '⚠️ Будут удалены пары: ' + day + ', неделя ' + week + '.';
+    } else if (day) {
+        hint.textContent = '⚠️ Будут удалены все пары этого дня недели (все недели).';
+    } else {
+        hint.textContent = '⚠️ Будут удалены все пары этой учебной недели (все дни).';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const dayEl = document.getElementById('wipeDay');
+    const weekEl = document.getElementById('wipeWeek');
+    if (dayEl) dayEl.addEventListener('change', updateWipeHint);
+    if (weekEl) weekEl.addEventListener('input', updateWipeHint);
+});
+
+async function executeWipe() {
+    const year = document.getElementById('wipeYear').value;
+    const day = document.getElementById('wipeDay').value;
+    const week = document.getElementById('wipeWeek').value;
+
+    const scopeText = !day && !week ? 'ВСЁ расписание за учебный год ' + year
+        : (day && week ? 'пары: ' + day + ', неделя ' + week
+        : (day ? 'все пары дня ' + day : 'все пары недели ' + week));
+
+    if (!confirm('Вы уверены? Будет удалено: ' + scopeText + '. Это действие необратимо.')) return;
+
+    const params = new URLSearchParams({ academicYear: year });
+    if (day) params.set('dayOfWeek', day);
+    if (week) params.set('academicWeek', week);
+
+    try {
+        const res = await fetch('/api/schedule/wipe?' + params, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (err.error || 'не удалось выполнить снос расписания'));
+            return;
+        }
+        const result = await res.json();
+        alert('Удалено пар: ' + result.deletedPairs + ' (' + result.scope + ')');
+        closeWipeModal();
+        loadSchedule();
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
 }
 
 async function generateSchedule(persist) {
@@ -665,9 +770,13 @@ function editGroup(id, name, course, specialty) {
 }
 
 function deleteGroup(id) {
-    if (!confirm('Удалить группу?')) return;
+    if (!confirm('Удалить группу полностью? Будут удалены вся связанная нагрузка, пары в расписании и кураторство. Отменить нельзя.')) return;
     fetch(`/api/admin/groups/${id}`, {method: 'DELETE'})
-        .then(r => { if (r.ok) loadGroups(); else alert('Ошибка удаления'); });
+        .then(async r => {
+            if (r.ok) { loadGroups(); return; }
+            const err = await r.json().catch(() => ({}));
+            alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
+        });
 }
 
 // Disciplines management
@@ -741,9 +850,13 @@ function editDiscipline(id, code, name) {
 }
 
 function deleteDiscipline(id) {
-    if (!confirm('Удалить дисциплину?')) return;
+    if (!confirm('Удалить дисциплину полностью? Будут удалены вся связанная нагрузка и пары в расписании. Отменить нельзя.')) return;
     fetch(`/api/admin/disciplines/${id}`, {method: 'DELETE'})
-        .then(r => { if (r.ok) loadDisciplines(); else alert('Ошибка удаления'); });
+        .then(async r => {
+            if (r.ok) { loadDisciplines(); return; }
+            const err = await r.json().catch(() => ({}));
+            alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
+        });
 }
 </script>
 </body>

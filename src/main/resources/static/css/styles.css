@@ -177,6 +177,13 @@ body {
 
 .btn-outline:hover { background: #eff6ff; }
 
+.btn-danger {
+    background: #fff;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+.btn-danger:hover { background: #fef2f2; }
+
 .btn-sm { padding: 0.35rem 0.65rem; font-size: 0.8rem; }
 
 /* Tables */

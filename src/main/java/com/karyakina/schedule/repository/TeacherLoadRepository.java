@@ -32,4 +32,10 @@ public interface TeacherLoadRepository extends JpaRepository<TeacherLoad, Long> 
 
     @EntityGraph(attributePaths = {"teacher", "group", "discipline"})
     List<TeacherLoad> findByDisciplineIdAndAcademicYear(Long disciplineId, Integer academicYear);
+
+    List<TeacherLoad> findByTeacherId(Long teacherId);
+
+    List<TeacherLoad> findByDisciplineId(Long disciplineId);
+
+    List<TeacherLoad> findByGroupId(Long groupId);
 }

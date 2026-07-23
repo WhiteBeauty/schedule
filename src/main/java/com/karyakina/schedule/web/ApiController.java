@@ -42,6 +42,7 @@ public class ApiController {
     private final SickLeaveRepository sickLeaveRepository;
     private final SubstitutionRequestRepository substitutionRequestRepository;
     private final ScheduleRepository scheduleRepository;
+    private final AdminDeletionService adminDeletionService;
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -212,6 +213,22 @@ public class ApiController {
 
         teacher = teacherRepository.save(teacher);
         return ResponseEntity.ok(teacher);
+    }
+
+    @DeleteMapping("/teachers/{id}")
+    public ResponseEntity<?> deleteTeacher(@PathVariable Long id, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        try {
+            adminDeletionService.deleteTeacherCompletely(id);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/teachers/{id}")
@@ -598,7 +615,6 @@ public class ApiController {
         }
 
         List<TeacherLoad> toDelete = loadRepository.findAllById(ids);
-        loadRepository.deleteAllById(ids);
         for (TeacherLoad load : toDelete) {
             try {
                 notificationService.notifyTeacher(load.getTeacher(), Notification.Type.LOAD_CHANGED,
@@ -609,8 +625,47 @@ public class ApiController {
             } catch (Exception notifyEx) {
                 notifyEx.printStackTrace();
             }
+            try {
+                adminDeletionService.deleteTeacherLoadCompletely(load.getId());
+            } catch (Exception deleteEx) {
+                deleteEx.printStackTrace();
+            }
         }
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Полный снос расписания или снос по фильтру: только конкретный день недели,
+     * только конкретная учебная неделя, либо пересечение обоих условий. Без параметров
+     * dayOfWeek/academicWeek сносит весь учебный год целиком.
+     */
+    @PostMapping("/schedule/wipe")
+    public ResponseEntity<?> wipeSchedule(
+            @RequestParam(name = "academicYear", required = false) Integer academicYear,
+            @RequestParam(name = "dayOfWeek", required = false) String dayOfWeekParam,
+            @RequestParam(name = "academicWeek", required = false) Integer academicWeek,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
+        int year = academicYear != null ? academicYear : com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart();
+        DayOfWeek dayOfWeek = null;
+        if (dayOfWeekParam != null && !dayOfWeekParam.isBlank()) {
+            try {
+                dayOfWeek = DayOfWeek.valueOf(dayOfWeekParam.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Некорректный день недели: " + dayOfWeekParam));
+            }
+        }
+
+        try {
+            return ResponseEntity.ok(adminDeletionService.wipeSchedule(year, dayOfWeek, academicWeek));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     // ==================== Curatorship Management ====================
@@ -938,7 +993,7 @@ public class ApiController {
     }
 
     @DeleteMapping("/admin/groups/{id}")
-    public ResponseEntity<Void> deleteGroup(
+    public ResponseEntity<?> deleteGroup(
             @PathVariable Long id,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -947,8 +1002,12 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
-        groupRepository.deleteById(id);
-        return ResponseEntity.ok().build();
+        try {
+            adminDeletionService.deleteGroupCompletely(id);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     // ==================== Disciplines Management ====================
@@ -1009,7 +1068,7 @@ public class ApiController {
     }
 
     @DeleteMapping("/admin/disciplines/{id}")
-    public ResponseEntity<Void> deleteDiscipline(
+    public ResponseEntity<?> deleteDiscipline(
             @PathVariable Long id,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -1018,8 +1077,12 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
-        disciplineRepository.deleteById(id);
-        return ResponseEntity.ok().build();
+        try {
+            adminDeletionService.deleteDisciplineCompletely(id);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     // ==================== Schedule (Pairs) Management ====================
@@ -1141,7 +1204,7 @@ public class ApiController {
     }
 
     @DeleteMapping("/pairs/{id}")
-    public ResponseEntity<Void> deletePair(
+    public ResponseEntity<?> deletePair(
             @PathVariable Long id,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -1151,7 +1214,11 @@ public class ApiController {
         }
 
         Schedule toDelete = scheduleRepository.findById(id).orElse(null);
-        scheduleService.deleteSchedule(id);
+        try {
+            adminDeletionService.deleteScheduleEntryCompletely(id);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
         if (toDelete != null) {
             try {
                 scheduleChangeNotifier.pairDeleted(toDelete, adminDisplayName(user));

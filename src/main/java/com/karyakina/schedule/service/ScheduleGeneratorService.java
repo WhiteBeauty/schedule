@@ -7,6 +7,7 @@ import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.dto.ScheduleGenerationResultDto;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
+import com.karyakina.schedule.repository.TeacherRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,9 @@ public class ScheduleGeneratorService {
 
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
+    private final TeacherRepository teacherRepository;
+    private final TeacherAssignmentService teacherAssignmentService;
+    private final ScheduleChangeNotifier scheduleChangeNotifier;
 
     private static final DayOfWeek[] WORK_DAYS = {
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
@@ -62,9 +66,19 @@ public class ScheduleGeneratorService {
     private static final int MAX_COMFORTABLE_DAILY_PAIRS = 5;
 
     @Transactional
-    public ScheduleGenerationResultDto generate(Integer academicYear, boolean persist) {
+    public ScheduleGenerationResultDto generate(Integer academicYear, boolean persist, String adminName) {
         List<TeacherLoad> allLoads = loadRepository.findByAcademicYear(academicYear);
+        List<Teacher> allTeachers = teacherRepository.findAll();
         List<Schedule> existingSchedules = scheduleRepository.findByAcademicYear(academicYear);
+
+        // Подбор преподавателя для записей без явно указанного (teacher == null) —
+        // ЧИСТОЕ вычисление, ничего не сохраняет. Один преподаватель, ведущий несколько
+        // дисциплин, учитывается через Teacher.specialization; одна и та же группа
+        // при этом абсолютно нормально получает разные пары от разных преподавателей —
+        // это уже было так на уровне модели (TeacherLoad = преподаватель+группа+
+        // дисциплина, а не преподаватель+группа), просто раньше без него нельзя было
+        // импортировать строку без явного ФИО преподавателя.
+        TeacherAssignmentService.Resolution assignment = teacherAssignmentService.resolve(allLoads, allTeachers);
 
         Set<Long> loadsWithSchedule = new HashSet<>();
         existingSchedules.forEach(s -> loadsWithSchedule.add(s.getTeacherLoad().getId()));
@@ -76,19 +90,29 @@ public class ScheduleGeneratorService {
 
         State state = new State();
         for (Schedule s : existingSchedules) {
-            state.markBusy(s);
+            // Существующая пара уже имеет реально назначенного преподавателя
+            // (записей без преподавателя в расписании быть не может).
+            state.markBusy(s, s.getTeacherLoad().getTeacher().getId());
         }
 
         List<Schedule> created = new ArrayList<>();
-        List<String> conflicts = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>(assignment.conflicts);
         int unresolvedLoads = 0;
 
         for (TeacherLoad load : toSchedule) {
+            Teacher teacher = effectiveTeacher(load, assignment);
+            if (teacher == null) {
+                // Не удалось подобрать преподавателя вообще — сообщение уже добавлено
+                // в assignment.conflicts, здесь просто учитываем как нерешённую нагрузку.
+                unresolvedLoads++;
+                continue;
+            }
+
             int needed = sessionsPerWeek(load);
             int placedForLoad = 0;
 
             for (int session = 0; session < needed; session++) {
-                Placement best = findBestPlacement(load, state);
+                Placement best = findBestPlacement(load, teacher, state);
                 if (best != null) {
                     Schedule schedule = Schedule.builder()
                             .teacherLoad(load)
@@ -99,14 +123,14 @@ public class ScheduleGeneratorService {
                             .academicWeek(null)
                             .academicYear(load.getAcademicYear())
                             .build();
-                    state.markBusy(schedule);
+                    state.markBusy(schedule, teacher.getId());
                     created.add(schedule);
                     placedForLoad++;
                 } else {
                     conflicts.add(String.format(
-                            "Ne udalos razmestit paru %d/%d: %s, %s, gruppa %s - net svobodnyh slotov " +
-                            "bez narusheniya ogranicheniy",
-                            session + 1, needed, load.getTeacher().getFullName(),
+                            "Не удалось разместить пару %d/%d: %s, %s, группа %s — нет свободных слотов " +
+                            "без нарушения ограничений",
+                            session + 1, needed, teacher.getFullName(),
                             load.getDiscipline().getName(), load.getGroup().getName()));
                 }
             }
@@ -119,13 +143,15 @@ public class ScheduleGeneratorService {
             if (!Boolean.TRUE.equals(load.getOverload())
                     && approxWeeklyHours * APPROX_WEEKS_PER_YEAR > load.getPlannedHours() * 1.1) {
                 conflicts.add(String.format(
-                        "Prevyshenie planovoy nagruzki: %s / %s / %s - raschetno ~%d ch/god pri plane %d ch",
-                        load.getTeacher().getFullName(), load.getDiscipline().getName(), load.getGroup().getName(),
+                        "Превышение плановой нагрузки: %s / %s / %s — расчётно ~%d ч/год при плане %d ч",
+                        teacher.getFullName(), load.getDiscipline().getName(), load.getGroup().getName(),
                         approxWeeklyHours * APPROX_WEEKS_PER_YEAR, load.getPlannedHours()));
             }
         }
 
         for (TeacherLoad load : toSchedule) {
+            Teacher teacher = effectiveTeacher(load, assignment);
+            if (teacher == null) continue;
             long placedForThisLoad = created.stream().filter(s -> s.getTeacherLoad().getId().equals(load.getId())).count();
             int scheduledWeeklyHours = (int) (placedForThisLoad * 2);
             int scheduledYearlyHours = scheduledWeeklyHours * APPROX_WEEKS_PER_YEAR;
@@ -134,15 +160,42 @@ public class ScheduleGeneratorService {
                 double deviation = Math.abs(scheduledYearlyHours - planned) / (double) planned;
                 if (deviation > 0.05) {
                     conflicts.add(String.format(
-                            "Otklonenie ot plana > 5%%: %s / %s / %s - raspisano ~%d ch/god pri plane %d ch",
-                            load.getTeacher().getFullName(), load.getDiscipline().getName(),
+                            "Отклонение от плана > 5%%: %s / %s / %s — расписано ~%d ч/год при плане %d ч",
+                            teacher.getFullName(), load.getDiscipline().getName(),
                             load.getGroup().getName(), scheduledYearlyHours, planned));
                 }
             }
         }
 
-        if (persist && !created.isEmpty()) {
-            scheduleRepository.saveAll(created);
+        if (persist) {
+            // Фиксируем автоподбор преподавателя ТОЛЬКО при реальном сохранении —
+            // просмотр черновика (persist=false) не должен менять никакие данные,
+            // иначе повторный просмотр черновика был бы не идемпотентным.
+            for (TeacherLoad load : toSchedule) {
+                if (load.getTeacher() == null) {
+                    Teacher resolved = assignment.resolvedTeacherByLoadId.get(load.getId());
+                    if (resolved != null) {
+                        load.setTeacher(resolved);
+                        loadRepository.save(load);
+                    }
+                }
+            }
+            if (!created.isEmpty()) {
+                scheduleRepository.saveAll(created);
+                // Оповещаем преподавателей о том, что для них появились новые пары —
+                // раньше это происходило только при ручном добавлении пары, а после
+                // автосоставления уведомление никогда не отправлялось.
+                if (adminName != null) {
+                    for (Schedule schedule : created) {
+                        try {
+                            scheduleChangeNotifier.pairCreated(schedule, adminName);
+                        } catch (Exception notifyEx) {
+                            log.warn("Не удалось отправить уведомление о новой паре (teacherLoadId={}): {}",
+                                    schedule.getTeacherLoad().getId(), notifyEx.getMessage());
+                        }
+                    }
+                }
+            }
         }
 
         return ScheduleGenerationResultDto.builder()
@@ -154,6 +207,11 @@ public class ScheduleGeneratorService {
                 .build();
     }
 
+    /** Реальный преподаватель записи: явно указанный, либо подобранный автоподбором. */
+    private Teacher effectiveTeacher(TeacherLoad load, TeacherAssignmentService.Resolution assignment) {
+        return load.getTeacher() != null ? load.getTeacher() : assignment.resolvedTeacherByLoadId.get(load.getId());
+    }
+
     private static class Placement {
         int dayIdx;
         int slotIdx;
@@ -161,11 +219,11 @@ public class ScheduleGeneratorService {
         int score;
     }
 
-    private Placement findBestPlacement(TeacherLoad load, State state) {
-        Long teacherId = load.getTeacher().getId();
+    private Placement findBestPlacement(TeacherLoad load, Teacher teacher, State state) {
+        Long teacherId = teacher.getId();
         Long groupId = load.getGroup().getId();
-        int maxPerDay = load.getTeacher().getMaxPairsPerDay() != null
-                ? load.getTeacher().getMaxPairsPerDay() : DEFAULT_MAX_PAIRS_PER_DAY;
+        int maxPerDay = teacher.getMaxPairsPerDay() != null
+                ? teacher.getMaxPairsPerDay() : DEFAULT_MAX_PAIRS_PER_DAY;
 
         List<Integer> preferredDays = preferredDayIndexes(load);
         List<Integer> preferredSlots = preferredSlotIndexes(load);
@@ -183,7 +241,7 @@ public class ScheduleGeneratorService {
                 String classroom = pickClassroom(load.getGroup(), state, dayIdx, slotIdx);
                 if (classroom == null) continue;
 
-                int score = scorePlacement(load, state, dayIdx, slotIdx, classroom, preferredDays, preferredSlots);
+                int score = scorePlacement(load, teacher, state, dayIdx, slotIdx, classroom, preferredDays, preferredSlots);
 
                 if (best == null || score > best.score) {
                     best = new Placement();
@@ -197,12 +255,12 @@ public class ScheduleGeneratorService {
         return best;
     }
 
-    private int scorePlacement(TeacherLoad load, State state, int dayIdx, int slotIdx, String classroom,
+    private int scorePlacement(TeacherLoad load, Teacher teacher, State state, int dayIdx, int slotIdx, String classroom,
                                 List<Integer> preferredDays, List<Integer> preferredSlots) {
         int score = 0;
-        Long teacherId = load.getTeacher().getId();
+        Long teacherId = teacher.getId();
 
-        if (matchesSpecialization(load.getTeacher(), load.getDiscipline().getName())) {
+        if (TeacherAssignmentService.matchesSpecialization(teacher, load.getDiscipline().getName())) {
             score += 50;
         }
 
@@ -231,18 +289,6 @@ public class ScheduleGeneratorService {
         score += roomFitScore(load.getGroup(), classroom);
 
         return score;
-    }
-
-    private boolean matchesSpecialization(Teacher teacher, String disciplineName) {
-        if (teacher.getSpecialization() == null || teacher.getSpecialization().isBlank()) return false;
-        String discNorm = disciplineName.toLowerCase(Locale.ROOT);
-        for (String token : teacher.getSpecialization().split(",")) {
-            String t = token.trim().toLowerCase(Locale.ROOT);
-            if (!t.isEmpty() && (discNorm.contains(t) || t.contains(discNorm))) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private String pickClassroom(StudyGroup group, State state, int dayIdx, int slotIdx) {
@@ -328,10 +374,9 @@ public class ScheduleGeneratorService {
         final Map<String, boolean[][]> roomBusy = new HashMap<>();
         final Map<Long, int[]> teacherDailyCount = new HashMap<>();
 
-        void markBusy(Schedule s) {
+        void markBusy(Schedule s, Long teacherId) {
             int dayIdx = dayIndex(s.getDayOfWeek());
             int slotIdx = slotIndex(s.getStartTime());
-            Long teacherId = s.getTeacherLoad().getTeacher().getId();
             Long groupId = s.getTeacherLoad().getGroup().getId();
 
             if (dayIdx < 0) return;

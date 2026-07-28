@@ -46,6 +46,9 @@ public class ImportService {
     static {
         COLUMN_SYNONYMS.put(Field.TEACHER, List.of(
                 "фио преподавателя", "преподаватель", "фио", "педагог", "фио педагога"));
+        COLUMN_SYNONYMS.put(Field.CANDIDATE_TEACHERS, List.of(
+                "возможные преподаватели", "варианты преподавателя", "кандидаты в преподаватели",
+                "кандидаты", "варианты преподавателей"));
         COLUMN_SYNONYMS.put(Field.DISCIPLINE, List.of(
                 "дисциплина", "предмет", "название дисциплины"));
         COLUMN_SYNONYMS.put(Field.GROUP, List.of(
@@ -71,7 +74,7 @@ public class ImportService {
     }
 
     private enum Field {
-        TEACHER, DISCIPLINE, GROUP, TOTAL_HOURS, HOURS_1SEM, HOURS_2SEM,
+        TEACHER, CANDIDATE_TEACHERS, DISCIPLINE, GROUP, TOTAL_HOURS, HOURS_1SEM, HOURS_2SEM,
         HOURS_PER_WEEK, LESSON_TYPE, PREFERRED, DEPARTMENT, CONTROL_POINT
     }
 
@@ -79,6 +82,7 @@ public class ImportService {
     static class ParsedRow {
         int rowNumber;
         String teacherName;
+        String candidateTeachers;
         String disciplineName;
         String groupName;
         Integer totalHours;
@@ -101,6 +105,11 @@ public class ImportService {
         }
 
         ImportPersistenceService.ImportResult result = persistenceService.applyRows(parsed.validRows, academicYear);
+
+        Map<String, String> teacherDisciplines = parseTeacherDisciplineSheet(file);
+        if (!teacherDisciplines.isEmpty()) {
+            persistenceService.applyTeacherDisciplines(teacherDisciplines);
+        }
 
         List<String> detectedColumns = new ArrayList<>(parsed.detectedColumns);
 
@@ -152,22 +161,30 @@ public class ImportService {
 
         for (int i = 0; i < parsed.validRows.size(); i++) {
             ParsedRow row = parsed.validRows.get(i);
-            MatchCandidate candidate = findBestTeacherMatch(row.teacherName, allTeachers);
 
             String status;
-            if (candidate == null) {
-                status = "NEW";
-                fresh++;
-            } else if (candidate.similarity >= 0.999) {
-                status = "EXACT";
-                exact++;
-            } else if (candidate.similarity >= 0.70) {
-                status = "FUZZY";
-                fuzzy++;
-            } else {
-                status = "NEW";
-                fresh++;
+            MatchCandidate candidate;
+            if (isBlank(row.teacherName)) {
+                // Преподаватель не указан намеренно — подбор произойдёт при
+                // автосоставлении расписания, здесь не с чем сравнивать по ФИО.
+                status = "AUTO";
                 candidate = null;
+            } else {
+                candidate = findBestTeacherMatch(row.teacherName, allTeachers);
+                if (candidate == null) {
+                    status = "NEW";
+                    fresh++;
+                } else if (candidate.similarity >= 0.999) {
+                    status = "EXACT";
+                    exact++;
+                } else if (candidate.similarity >= 0.70) {
+                    status = "FUZZY";
+                    fuzzy++;
+                } else {
+                    status = "NEW";
+                    fresh++;
+                    candidate = null;
+                }
             }
 
             matchRows.add(ImportRowMatchDto.builder()
@@ -221,6 +238,11 @@ public class ImportService {
         ImportPersistenceService.ImportResult result = persistenceService.applyRowsWithDecisions(
                 parsed.validRows, academicYear, decisions, allTeachers);
 
+        Map<String, String> teacherDisciplines = parseTeacherDisciplineSheet(file);
+        if (!teacherDisciplines.isEmpty()) {
+            persistenceService.applyTeacherDisciplines(teacherDisciplines);
+        }
+
         String summary = String.format(
                 "Импорт завершён: %d записей обработано (%d новых преподавателей, %d привязано к существующим), %d ошибок в исходных данных.",
                 result.processedLoads, result.createdTeachers,
@@ -241,6 +263,84 @@ public class ImportService {
                 .detectedColumns(parsed.detectedColumns)
                 .summary(summary)
                 .build();
+    }
+
+    // ---- Второй лист импорта: "Преподаватели и дисциплины" (необязателен) ----
+    // Позволяет отдельно указать, какие дисциплины ведёт каждый преподаватель — один
+    // преподаватель может вести несколько (перечисляются через запятую в одной ячейке).
+    // Используется модулем автоподбора преподавателя для строк основного листа, где
+    // ФИО не указано явно.
+    private static final List<String> TEACHER_NAME_SYNONYMS = List.of(
+            "фио преподавателя", "преподаватель", "фио", "педагог");
+    private static final List<String> DISCIPLINES_LIST_SYNONYMS = List.of(
+            "дисциплины", "ведёт дисциплины", "ведет дисциплины", "предметы", "какие дисциплины");
+
+    /**
+     * Читает второй лист книги (индекс 1), если он есть, и возвращает
+     * ФИО преподавателя -> список дисциплин через запятую. Не бросает исключений —
+     * второй лист/файл CSV, где листов нет, просто не даёт результата.
+     */
+    private Map<String, String> parseTeacherDisciplineSheet(MultipartFile file) {
+        Map<String, String> result = new LinkedHashMap<>();
+        String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
+        if (filename.endsWith(".csv")) return result; // CSV не поддерживает несколько листов
+
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = WorkbookFactory.create(is)) {
+            if (workbook.getNumberOfSheets() < 2) return result;
+            Sheet sheet = workbook.getSheetAt(1);
+            DataFormatter formatter = new DataFormatter();
+
+            List<List<String>> rows = new ArrayList<>();
+            int lastCol = 0;
+            for (Row row : sheet) lastCol = Math.max(lastCol, row.getLastCellNum());
+            for (Row row : sheet) {
+                List<String> cells = new ArrayList<>();
+                for (int c = 0; c < lastCol; c++) {
+                    Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+                    cells.add(cell == null ? "" : formatter.formatCellValue(cell).trim());
+                }
+                rows.add(cells);
+            }
+            if (rows.isEmpty()) return result;
+
+            int nameCol = -1, disciplinesCol = -1;
+            int headerRow = -1;
+            for (int i = 0; i < Math.min(rows.size(), 5); i++) {
+                int nc = findColumn(rows.get(i), TEACHER_NAME_SYNONYMS);
+                int dc = findColumn(rows.get(i), DISCIPLINES_LIST_SYNONYMS);
+                if (nc >= 0 && dc >= 0) {
+                    nameCol = nc;
+                    disciplinesCol = dc;
+                    headerRow = i;
+                    break;
+                }
+            }
+            if (headerRow < 0) return result; // нет распознаваемых заголовков — лист пропускаем
+
+            for (int i = headerRow + 1; i < rows.size(); i++) {
+                List<String> row = rows.get(i);
+                if (isRowBlank(row)) continue;
+                String name = nameCol < row.size() ? row.get(nameCol) : null;
+                String disciplines = disciplinesCol < row.size() ? row.get(disciplinesCol) : null;
+                if (isBlank(name) || isBlank(disciplines)) continue;
+                result.merge(name.trim(), disciplines.trim(), (a, b) -> a + ", " + b);
+            }
+        } catch (Exception e) {
+            log.debug("Второй лист (преподаватели/дисциплины) не разобран: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    private int findColumn(List<String> headerRow, List<String> synonyms) {
+        for (int col = 0; col < headerRow.size(); col++) {
+            String cell = normalize(headerRow.get(col));
+            if (cell.isEmpty()) continue;
+            for (String syn : synonyms) {
+                if (cell.contains(syn)) return col;
+            }
+        }
+        return -1;
     }
 
     // ==================== Общий разбор + валидация (используется всеми тремя режимами) ====================
@@ -289,7 +389,7 @@ public class ImportService {
                     .totalRows(rows.size()).processedRows(0).errorRows(0)
                     .errors(List.of())
                     .summary("Не удалось распознать заголовки колонок. Убедитесь, что в файле " +
-                            "есть колонки ФИО преподавателя и Дисциплина")
+                            "есть колонки Дисциплина и Группа (ФИО преподавателя необязательно)")
                     .build();
             return result;
         }
@@ -307,10 +407,11 @@ public class ImportService {
             try {
                 ParsedRow parsed = parseRow(row, columnMap, excelRowNumber);
 
-                if (isBlank(parsed.teacherName)) {
-                    result.errors.add(rowError(excelRowNumber, "Не указано ФИО преподавателя", row));
-                    continue;
-                }
+                // ФИО преподавателя больше не обязательно: пустая ячейка означает
+                // "преподаватель будет подобран автоматически" (см. TeacherAssignmentService).
+                // Если в файле заполнена колонка "Возможные преподаватели" — подбор
+                // ограничится этим списком, иначе берётся любой преподаватель, чья
+                // специализация покрывает дисциплину этой строки.
                 if (isBlank(parsed.disciplineName)) {
                     result.errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
                     continue;
@@ -332,8 +433,13 @@ public class ImportService {
                     continue;
                 }
 
-                String dedupKey = normalize(parsed.teacherName) + "|" + normalize(parsed.disciplineName)
-                        + "|" + normalize(parsed.groupName);
+                // Для строк с преподавателем дубликат — это тот же преподаватель на ту же
+                // дисциплину/группу. Для строк БЕЗ преподавателя ("__AUTO__") дубликатом
+                // считаем повторение группы+дисциплины+типа занятия — иначе две строки
+                // "группа А, дисциплина Х, лекция" и "...практика" ошибочно бы схлопнулись.
+                String teacherKeyPart = isBlank(parsed.teacherName) ? "__AUTO__" : normalize(parsed.teacherName);
+                String dedupKey = teacherKeyPart + "|" + normalize(parsed.disciplineName)
+                        + "|" + normalize(parsed.groupName) + "|" + normalize(parsed.lessonType);
                 if (!seenKeys.add(dedupKey)) {
                     result.errors.add(rowError(excelRowNumber,
                             "Дубликат строки (тот же преподаватель/дисциплина/группа уже встречался в файле)", row));
@@ -437,10 +543,13 @@ public class ImportService {
                 bestRow = i;
             }
         }
-        // Требуем минимум ФИО + дисциплину, иначе не считаем это заголовком
+        // Требуем минимум дисциплину + группу. ФИО преподавателя теперь НЕОБЯЗАТЕЛЬНО:
+        // строка "группа + дисциплина" без преподавателя — это валидный способ описать
+        // нагрузку, преподавателя на неё подберёт модуль автосоставления расписания
+        // (см. TeacherAssignmentService) в момент генерации.
         if (bestRow >= 0) {
             Map<Field, Integer> map = detectColumns(rows.get(bestRow));
-            if (!map.containsKey(Field.TEACHER) || !map.containsKey(Field.DISCIPLINE)) {
+            if (!map.containsKey(Field.DISCIPLINE) || !map.containsKey(Field.GROUP)) {
                 return -1;
             }
         }
@@ -469,6 +578,7 @@ public class ImportService {
         ParsedRow parsed = new ParsedRow();
         parsed.rowNumber = rowNumber;
         parsed.teacherName = getCell(row, columnMap, Field.TEACHER);
+        parsed.candidateTeachers = emptyToNull(getCell(row, columnMap, Field.CANDIDATE_TEACHERS));
         parsed.disciplineName = getCell(row, columnMap, Field.DISCIPLINE);
         parsed.groupName = getCell(row, columnMap, Field.GROUP);
         parsed.totalHours = parseInt(getCell(row, columnMap, Field.TOTAL_HOURS));

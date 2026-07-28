@@ -44,6 +44,7 @@ public class TeacherLoadService {
     public List<ProductivityDto> calculateProductivity(Integer year) {
         List<TeacherLoad> loads = loadRepository.findByAcademicYear(year);
         Map<Long, List<TeacherLoad>> byTeacher = loads.stream()
+                .filter(l -> l.getTeacher() != null)
                 .collect(Collectors.groupingBy(l -> l.getTeacher().getId()));
 
         // Рассчитываем целевое значение на текущую дату

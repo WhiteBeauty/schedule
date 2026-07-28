@@ -16,9 +16,21 @@ public class TeacherLoad {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "teacher_id")
+    // Преподаватель может быть не задан при импорте (администратор указал только
+    // группу+дисциплину и, опционально, список кандидатов) — тогда модуль
+    // автосоставления расписания сам подбирает подходящего преподавателя из тех,
+    // кто ведёт эту дисциплину (см. Teacher.specialization) и наименее загружен на
+    // момент подбора. См. TeacherAssignmentService.
+    @ManyToOne(optional = true)
+    @JoinColumn(name = "teacher_id", nullable = true)
     private Teacher teacher;
+
+    // Необязательный список ФИО кандидатов-преподавателей через запятую (из колонки
+    // импорта "Возможные преподаватели"). Используется ТОЛЬКО когда teacher == null:
+    // модуль автоподбора выберет наименее загруженного преподавателя из этого списка,
+    // а если список пуст/не задан — из всех преподавателей, чья специализация
+    // покрывает дисциплину этой записи.
+    private String candidateTeacherNames;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "group_id")
@@ -75,6 +87,11 @@ public class TeacherLoad {
     @BatchSize(size = 20)
     @JsonIgnore
     private List<MonthlyRecord> monthlyRecords = new ArrayList<>();
+
+    @Transient
+    public boolean isUnassigned() {
+        return teacher == null;
+    }
 
     @Transient
     public int getRemainingHours() {

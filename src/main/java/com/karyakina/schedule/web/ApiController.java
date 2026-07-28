@@ -314,8 +314,8 @@ public class ApiController {
                     item.put("adjustedHours", rec.getAdjustedHours());
                     item.put("note", rec.getNote());
                     item.put("changedBy", rec.getChangedBy());
-                    item.put("teacherId", load.getTeacher().getId());
-                    item.put("teacherName", load.getTeacher().getFullName());
+                    item.put("teacherId", load.getTeacher() != null ? load.getTeacher().getId() : null);
+                    item.put("teacherName", load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен");
                     item.put("disciplineId", load.getDiscipline().getId());
                     item.put("disciplineName", load.getDiscipline().getName());
                     item.put("groupId", load.getGroup().getId());
@@ -413,7 +413,7 @@ public class ApiController {
                     ? monthNames[rec.getMonth()]
                     : String.valueOf(rec.getMonth());
                 String row = String.format("%s;%s;%s;%s;%d;%d;%d;%s;%s\n",
-                    load.getTeacher().getFullName(),
+                    load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен",
                     load.getDiscipline().getName(),
                     load.getGroup().getName(),
                     monthStr,
@@ -1149,7 +1149,7 @@ public class ApiController {
 
                     List<TeacherLoad> loads = loadRepository.findAll();
                     for (TeacherLoad load : loads) {
-                        if (load.getTeacher().getId().equals(teacherId) &&
+                        if (load.getTeacher() != null && load.getTeacher().getId().equals(teacherId) &&
                             load.getGroup().getId().equals(groupId) &&
                             load.getDiscipline().getId().equals(disciplineId)) {
                             teacherLoadId = load.getId();

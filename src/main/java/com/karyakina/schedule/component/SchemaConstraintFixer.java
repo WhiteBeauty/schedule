@@ -52,6 +52,25 @@ public class SchemaConstraintFixer implements ApplicationRunner {
         for (String[] pair : ENUM_COLUMNS) {
             dropChecksForColumn(pair[0], pair[1]);
         }
+        relaxNotNull("teacher_loads", "teacher_id");
+    }
+
+    /**
+     * Hibernate ddl-auto=update добавляет новые колонки/таблицы, но НЕ снимает уже
+     * существующее ограничение NOT NULL с колонки, если Java-поле стало nullable
+     * (TeacherLoad.teacher теперь необязателен — см. модуль автоподбора преподавателя).
+     * Без этого шага импорт строк "группа+дисциплина без преподавателя" будет падать
+     * с ошибкой БД null value in column "teacher_id" violates not-null constraint.
+     */
+    private void relaxNotNull(String table, String column) {
+        try {
+            entityManager.createNativeQuery(
+                    "ALTER TABLE " + table + " ALTER COLUMN " + column + " DROP NOT NULL"
+            ).executeUpdate();
+            log.info("Ensured {}.{} allows NULL", table, column);
+        } catch (Exception e) {
+            log.debug("Skipping NOT NULL relax for {}.{}: {}", table, column, e.getMessage());
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -197,7 +197,7 @@ public class AdminDeletionService {
         Set<Long> notifiedTeacherIds = new HashSet<>();
         for (TeacherLoad load : loads) {
             Teacher t = load.getTeacher();
-            if (!notifiedTeacherIds.add(t.getId())) continue;
+            if (t == null || !notifiedTeacherIds.add(t.getId())) continue;
             try {
                 notificationService.notifyTeacher(t, Notification.Type.LOAD_CHANGED,
                         "Изменение в вашей нагрузке", message, null, "/schedule", false);

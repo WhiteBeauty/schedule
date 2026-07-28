@@ -30,7 +30,7 @@ public class ScheduleGenerationController {
         if (user == null) return ResponseEntity.status(403).build();
 
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
-        return ResponseEntity.ok(generatorService.generate(year, false));
+        return ResponseEntity.ok(generatorService.generate(year, false, null));
     }
 
     @PostMapping("/apply")
@@ -41,7 +41,16 @@ public class ScheduleGenerationController {
         if (user == null) return ResponseEntity.status(403).build();
 
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
-        return ResponseEntity.ok(generatorService.generate(year, true));
+        return ResponseEntity.ok(generatorService.generate(year, true, adminDisplayName(user)));
+    }
+
+    private String adminDisplayName(User user) {
+        String first = user.getFirstName();
+        String last = user.getLastName();
+        if (first != null && !first.isBlank()) {
+            return last != null && !last.isBlank() ? first + " " + last : first;
+        }
+        return user.getUsername();
     }
 
     private User requireAdmin(Authentication authentication) {

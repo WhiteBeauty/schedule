@@ -44,15 +44,7 @@ public class ImportPersistenceService {
         ImportResult result = new ImportResult();
 
         for (ImportService.ParsedRow row : rows) {
-            Teacher teacher = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
-                    .orElseGet(() -> {
-                        result.createdTeachers++;
-                        Teacher t = Teacher.builder()
-                                .fullName(row.teacherName.trim())
-                                .department(row.department)
-                                .build();
-                        return teacherRepository.save(t);
-                    });
+            Teacher teacher = resolveExplicitTeacherOrNull(row, result);
 
             Discipline discipline = disciplineRepository.findByNameIgnoreCase(row.disciplineName.trim())
                     .orElseGet(() -> {
@@ -73,7 +65,8 @@ public class ImportPersistenceService {
             int hours1 = row.hours1 != null ? row.hours1 : totalHours / 2;
             int hours2 = row.hours2 != null ? row.hours2 : (totalHours - hours1);
 
-            TeacherLoad existing = findExistingLoad(teacher.getId(), group.getId(), discipline.getId(), academicYear);
+            TeacherLoad existing = findExistingLoad(
+                    teacher != null ? teacher.getId() : null, group.getId(), discipline.getId(), academicYear);
             if (existing != null) {
                 existing.setPlannedHours(totalHours);
                 existing.setFirstSemesterHours(hours1);
@@ -82,11 +75,13 @@ public class ImportPersistenceService {
                 if (row.lessonType != null) existing.setLessonType(row.lessonType);
                 if (row.preferredDaysTime != null) existing.setPreferredDays(row.preferredDaysTime);
                 if (row.controlPointType != null) existing.setControlPointType1(row.controlPointType);
+                if (row.candidateTeachers != null) existing.setCandidateTeacherNames(row.candidateTeachers);
                 loadRepository.save(existing);
                 result.updatedLoads++;
             } else {
                 TeacherLoad load = TeacherLoad.builder()
                         .teacher(teacher)
+                        .candidateTeacherNames(row.candidateTeachers)
                         .group(group)
                         .discipline(discipline)
                         .plannedHours(totalHours)
@@ -142,7 +137,8 @@ public class ImportPersistenceService {
             int hours1 = row.hours1 != null ? row.hours1 : totalHours / 2;
             int hours2 = row.hours2 != null ? row.hours2 : (totalHours - hours1);
 
-            TeacherLoad existing = findExistingLoad(teacher.getId(), group.getId(), discipline.getId(), academicYear);
+            TeacherLoad existing = findExistingLoad(
+                    teacher != null ? teacher.getId() : null, group.getId(), discipline.getId(), academicYear);
             if (existing != null) {
                 // Часы суммируются с текущей нагрузкой (тот же преподаватель мог уже вести
                 // эту пару — импорт "дозаписывает" часы, а не затирает их).
@@ -153,11 +149,13 @@ public class ImportPersistenceService {
                 if (row.lessonType != null) existing.setLessonType(row.lessonType);
                 if (row.preferredDaysTime != null) existing.setPreferredDays(row.preferredDaysTime);
                 if (row.controlPointType != null) existing.setControlPointType1(row.controlPointType);
+                if (row.candidateTeachers != null) existing.setCandidateTeacherNames(row.candidateTeachers);
                 loadRepository.save(existing);
                 result.updatedLoads++;
             } else {
                 TeacherLoad load = TeacherLoad.builder()
                         .teacher(teacher)
+                        .candidateTeacherNames(row.candidateTeachers)
                         .group(group)
                         .discipline(discipline)
                         .plannedHours(totalHours)
@@ -209,6 +207,14 @@ public class ImportPersistenceService {
             return saved;
         }
 
+        // Строка без ФИО преподавателя и без явного решения администратора — это
+        // "группа+дисциплина без преподавателя", подбор произойдёт позже, при
+        // автосоставлении расписания (TeacherAssignmentService). НЕ создаём Teacher
+        // с пустым ФИО.
+        if (isBlank(row.teacherName)) {
+            return null;
+        }
+
         // Нет явного решения — прежнее поведение: точный поиск по ФИО, иначе создать нового
         return teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
                 .orElseGet(() -> {
@@ -221,13 +227,76 @@ public class ImportPersistenceService {
                 });
     }
 
+    /** Аналог resolveTeacherForRow для простого импорта (без экрана предпросмотра/решений). */
+    private Teacher resolveExplicitTeacherOrNull(ImportService.ParsedRow row, ImportResult result) {
+        if (isBlank(row.teacherName)) {
+            return null;
+        }
+        return teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
+                .orElseGet(() -> {
+                    result.createdTeachers++;
+                    Teacher t = Teacher.builder()
+                            .fullName(row.teacherName.trim())
+                            .department(row.department)
+                            .build();
+                    return teacherRepository.save(t);
+                });
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    /**
+     * Применяет данные второго листа импорта "Преподаватели и дисциплины": для каждого
+     * найденного по ФИО преподавателя добавляет перечисленные дисциплины в его
+     * specialization (без дублей), не трогая остальных. Один преподаватель может вести
+     * несколько дисциплин — они перечисляются через запятую; используется модулем
+     * автоподбора преподавателя (TeacherAssignmentService) при генерации расписания.
+     * Преподаватели, отсутствующие в базе (ещё не встретились в основном листе и не
+     * заведены вручную), молча пропускаются — этот лист только дополняет специализацию.
+     */
+    @Transactional
+    public int applyTeacherDisciplines(java.util.Map<String, String> disciplinesByTeacherName) {
+        int updated = 0;
+        for (java.util.Map.Entry<String, String> entry : disciplinesByTeacherName.entrySet()) {
+            String teacherName = entry.getKey();
+            String disciplinesCsv = entry.getValue();
+            if (isBlank(teacherName) || isBlank(disciplinesCsv)) continue;
+
+            Teacher teacher = teacherRepository.findByFullNameIgnoreCase(teacherName.trim()).orElse(null);
+            if (teacher == null) continue;
+
+            java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
+            if (teacher.getSpecialization() != null && !teacher.getSpecialization().isBlank()) {
+                for (String tok : teacher.getSpecialization().split(",")) {
+                    String t = tok.trim();
+                    if (!t.isEmpty()) merged.add(t);
+                }
+            }
+            for (String tok : disciplinesCsv.split(",")) {
+                String t = tok.trim();
+                if (!t.isEmpty()) merged.add(t);
+            }
+
+            teacher.setSpecialization(String.join(", ", merged));
+            teacherRepository.save(teacher);
+            updated++;
+        }
+        return updated;
+    }
+
     private TeacherLoad findExistingLoad(Long teacherId, Long groupId, Long disciplineId, Integer year) {
         return loadRepository.findByAcademicYear(year).stream()
-                .filter(l -> l.getTeacher().getId().equals(teacherId)
+                .filter(l -> sameTeacher(l.getTeacher() != null ? l.getTeacher().getId() : null, teacherId)
                         && l.getGroup().getId().equals(groupId)
                         && l.getDiscipline().getId().equals(disciplineId))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private boolean sameTeacher(Long a, Long b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     private int nz(Integer v) {

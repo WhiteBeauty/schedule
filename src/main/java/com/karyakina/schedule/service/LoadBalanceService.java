@@ -57,8 +57,8 @@ public class LoadBalanceService {
 
         Map<String, Object> row = new HashMap<>();
         row.put("loadId", load.getId());
-        row.put("teacherId", load.getTeacher().getId());
-        row.put("teacherName", load.getTeacher().getFullName());
+        row.put("teacherId", load.getTeacher() != null ? load.getTeacher().getId() : null);
+        row.put("teacherName", load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен");
         row.put("disciplineName", load.getDiscipline().getName());
         row.put("groupName", load.getGroup().getName());
         row.put("hoursPerWeek", plannedWeek);

@@ -237,7 +237,8 @@
             const pills = {
                 EXACT: '<span class="status-pill status-exact">🟢 Совпадение</span>',
                 FUZZY: '<span class="status-pill status-fuzzy">🟡 Возможно, дубль</span>',
-                NEW: '<span class="status-pill status-new">🔵 Новый</span>'
+                NEW: '<span class="status-pill status-new">🔵 Новый</span>',
+                AUTO: '<span class="status-pill status-new">⚙️ Подберётся автоматически</span>'
             };
             const statusPill = pills[row.matchStatus] || row.matchStatus;
 
@@ -254,12 +255,14 @@
                 actionsHtml =
                     '<button class="btn btn-sm" onclick="resolveLink(' + row.rowIndex + ', ' + row.candidateTeacherId + ')">Это он</button> ' +
                     '<button class="btn btn-sm btn-outline" onclick="openEnrichModal(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Это новый</button>';
+            } else if (row.matchStatus === 'AUTO') {
+                actionsHtml = '<span class="text-muted">Преподаватель не указан в файле — программа подберёт его сама при составлении расписания</span>';
             } else {
                 actionsHtml = '<button class="btn btn-sm btn-outline" onclick="openEnrichModal(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Создать</button>';
             }
 
             tr.innerHTML =
-                '<td>' + escapeHtml(row.teacherNameFromFile) + '</td>' +
+                '<td>' + (row.teacherNameFromFile ? escapeHtml(row.teacherNameFromFile) : '<span class="text-muted">—</span>') + '</td>' +
                 '<td>' + escapeHtml(row.disciplineName) + ' / ' + escapeHtml(row.groupName) + '</td>' +
                 '<td>' + statusPill + '</td>' +
                 '<td>' + candidateText + '</td>' +

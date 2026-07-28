@@ -314,6 +314,7 @@ public class SubstitutionService {
                 originalLoad.getDiscipline().getId(), originalLoad.getAcademicYear());
         LinkedHashSet<Long> candidateIds = new LinkedHashSet<>();
         for (TeacherLoad tl : sameDiscipline) {
+            if (tl.getTeacher() == null) continue;
             Long tId = tl.getTeacher().getId();
             if (excluded.contains(tId) || !candidateIds.add(tId)) continue;
             if (isBusyOrSick(tId, date, instance)) continue;

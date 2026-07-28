@@ -26,6 +26,17 @@
         <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
         <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
         <div id="generationConflicts" style="margin-bottom:0.75rem;"></div>
+        <div id="generationLessonsWrap" style="margin-bottom:0.75rem; max-height: 420px; overflow-y: auto;">
+            <table class="table" style="margin:0;">
+                <thead>
+                    <tr>
+                        <th>День</th><th>Время</th><th>Дисциплина</th><th>Группа</th>
+                        <th>Преподаватель</th><th>Аудитория</th>
+                    </tr>
+                </thead>
+                <tbody id="generationLessonsBody"></tbody>
+            </table>
+        </div>
         <div style="display:flex; gap:0.5rem;">
             <button class="btn btn-sm" id="applyGenerationBtn" onclick="generateSchedule(true)">✅ Применить и сохранить</button>
             <button class="btn btn-sm btn-outline" onclick="document.getElementById('generationResultCard').style.display='none'">Скрыть</button>
@@ -454,6 +465,45 @@ function renderGenerationResult(result, wasApplied) {
         conflictsWrap.appendChild(ul);
     }
 
+    // Сам черновик/результат — конкретные пары, а не только сводные цифры. Раньше
+    // администратор не мог посмотреть, ЧТО именно будет создано, до нажатия
+    // "Применить" — теперь это видно сразу после "Автосоставление (черновик)".
+    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт','SATURDAY':'Сб'};
+    const lessonsBody = document.getElementById('generationLessonsBody');
+    lessonsBody.innerHTML = '';
+    const lessons = result.createdSchedules || [];
+    if (lessons.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="6" class="text-muted">Нет пар для отображения</td>';
+        lessonsBody.appendChild(tr);
+    } else {
+        // Сортируем для удобства просмотра: день -> время -> группа
+        const sorted = [...lessons].sort((a, b) => {
+            const dayOrder = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+            const da = dayOrder.indexOf(a.dayOfWeek), db = dayOrder.indexOf(b.dayOfWeek);
+            if (da !== db) return da - db;
+            if (a.startTime !== b.startTime) return (a.startTime || '').localeCompare(b.startTime || '');
+            const ga = a.teacherLoad && a.teacherLoad.group ? a.teacherLoad.group.name : '';
+            const gb = b.teacherLoad && b.teacherLoad.group ? b.teacherLoad.group.name : '';
+            return ga.localeCompare(gb);
+        });
+        sorted.forEach(s => {
+            const load = s.teacherLoad || {};
+            const discipline = load.discipline ? load.discipline.name : '—';
+            const group = load.group ? load.group.name : '—';
+            const teacher = load.teacher ? load.teacher.fullName : '—';
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td>' + (dayNames[s.dayOfWeek] || s.dayOfWeek || '—') + '</td>' +
+                '<td>' + (s.startTime || '') + '–' + (s.endTime || '') + '</td>' +
+                '<td>' + escapeHtml(discipline) + '</td>' +
+                '<td>' + escapeHtml(group) + '</td>' +
+                '<td>' + escapeHtml(teacher) + '</td>' +
+                '<td>' + escapeHtml(s.classroom || '—') + '</td>';
+            lessonsBody.appendChild(tr);
+        });
+    }
+
     const applyBtn = document.getElementById('applyGenerationBtn');
     if (applyBtn) applyBtn.style.display = wasApplied ? 'none' : 'inline-block';
 }
@@ -857,6 +907,12 @@ function deleteDiscipline(id) {
             const err = await r.json().catch(() => ({}));
             alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
         });
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : s;
+    return div.innerHTML;
 }
 </script>
 </body>

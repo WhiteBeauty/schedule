@@ -57,4 +57,19 @@ public class NotificationController {
             return ResponseEntity.badRequest().build();
         }
     }
+
+    @PostMapping("/mark-all-read")
+    public ResponseEntity<Map<String, Integer>> markAllRead(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        int updated;
+        if (user.getRole() == User.Role.ADMIN) {
+            updated = notificationService.markAllReadForAdmins();
+        } else {
+            Teacher teacher = user.getTeacher();
+            updated = teacher == null ? 0 : notificationService.markAllReadForTeacher(teacher.getId());
+        }
+        return ResponseEntity.ok(Map.of("updated", updated));
+    }
 }

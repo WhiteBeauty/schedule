@@ -4,6 +4,7 @@ import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.dto.DashboardDto;
 import com.karyakina.schedule.dto.ProductivityDto;
 import com.karyakina.schedule.dto.TeacherProfileDto;
+import com.karyakina.schedule.repository.CuratorshipRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
 import com.karyakina.schedule.util.AcademicYearUtil;
@@ -24,6 +25,7 @@ public class TeacherLoadService {
 
     private final TeacherLoadRepository loadRepository;
     private final TeacherRepository teacherRepository;
+    private final CuratorshipRepository curatorshipRepository;
 
     public List<TeacherLoad> findByYear(Integer year) {
         return loadRepository.findByAcademicYear(year);
@@ -48,12 +50,6 @@ public class TeacherLoadService {
                 .collect(Collectors.groupingBy(l -> l.getTeacher().getId()));
 
         // Рассчитываем целевое значение на текущую дату
-        int[] academicYears = AcademicYearUtil.getCurrentAcademicYear();
-        int currentYear = LocalDate.now().getYear();
-        int currentMonth = LocalDate.now().getMonthValue();
-
-        // Определяем прогресс учебного года (0.0 - 1.0)
-        // Учебный год: сентябрь - май (9 месяцев)
         int progress = calculateAcademicYearProgress();
         double targetProgress = Math.min(progress * 100, 100);
 
@@ -62,6 +58,15 @@ public class TeacherLoadService {
             Teacher t = teacherLoads.get(0).getTeacher();
             double totalPlan = teacherLoads.stream().mapToInt(TeacherLoad::getPlannedHours).sum();
             double totalRead = teacherLoads.stream().mapToInt(TeacherLoad::getReadHours).sum();
+
+            // Кураторские часы (см. Curatorship): plan = запланировано на год,
+            // factual = количество проведённых кураторских часов = количество записей
+            // в журнале (logs) — раньше эти часы вообще нигде не учитывались.
+            List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
+            double curatorshipPlan = curatorships.stream()
+                    .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
+            double curatorshipDone = curatorships.stream()
+                    .mapToInt(c -> c.getLogs() != null ? c.getLogs().size() : 0).sum();
 
             long totalCp = teacherLoads.stream()
                     .mapToLong(l -> l.getControlPoints().size()).sum();
@@ -83,8 +88,8 @@ public class TeacherLoadService {
                     ? 100.0 - ((double) totalAdjustments / totalRecords * 100)
                     : 100.0;
 
-            // Процент выполнения плана
-            double planCompletion = totalPlan > 0 ? (totalRead / totalPlan) * 100 : 0;
+            double planCompletion = computePlanCompletion(
+                    teacherLoads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, progress);
 
             // Своевременность контрольных точек
             double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
@@ -116,12 +121,72 @@ public class TeacherLoadService {
                     .timelinessPercent(Math.round(timeliness * 100.0) / 100.0)
                     .accuracyPercent(Math.round(accuracy * 100.0) / 100.0)
                     .targetProgress(Math.round(targetProgress * 100.0) / 100.0)
-                    .formulaUsed("(План*0.5) + (Своевременность*0.3) + (Точность*0.2)")
+                    .curatorshipPlannedHours(curatorshipPlan)
+                    .curatorshipDoneHours(curatorshipDone)
+                    .formulaUsed("(План*0.5) + (Своевременность*0.3) + (Точность*0.2); План = факт/ожидаемое-на-сегодня " +
+                            "по расписанию + кураторские часы")
                     .build());
         });
 
         result.sort(Comparator.comparingDouble(ProductivityDto::getProductivityIndex).reversed());
         return result;
+    }
+
+    /**
+     * "Выполнение плана" считается не как простое readHours/plannedHours за ВЕСЬ год
+     * (это давало заниженный/оторванный от реальности процент в начале года и
+     * завышенный в конце вне зависимости от того, сколько пар РЕАЛЬНО уже должно
+     * было пройти), а относительно ОЖИДАЕМЫХ на сегодняшний день часов — тех, что
+     * уже должны были состояться по факту еженедельного расписания
+     * (см. MonthlyRecordService.recalculateHoursForLoad, который считает эти часы
+     * из реальных пар в Schedule). Плюс сюда же добавляются кураторские часы.
+     * Если расписание ещё не сгенерировано (expectedToDate == 0), используем долю
+     * от годового плана по проценту прошедшего учебного года как разумный запасной
+     * вариант, чтобы не показывать искусственный 0%.
+     */
+    private double computePlanCompletion(List<TeacherLoad> teacherLoads, double totalPlan, double totalRead,
+                                          double curatorshipPlan, double curatorshipDone, int yearProgressPercent) {
+        double expectedTeachingToDate = computeExpectedHoursToDate(teacherLoads);
+        double yearProgress = yearProgressPercent / 100.0;
+        double expectedCuratorshipToDate = curatorshipPlan * yearProgress;
+
+        double expectedToDate = expectedTeachingToDate > 0.5
+                ? expectedTeachingToDate + expectedCuratorshipToDate
+                : (totalPlan * yearProgress) + expectedCuratorshipToDate;
+
+        double actualToDate = totalRead + curatorshipDone;
+        return expectedToDate > 0 ? Math.min(150, (actualToDate / expectedToDate) * 100) : 0;
+    }
+
+    /**
+     * Сколько часов преподавания УЖЕ ДОЛЖНО было состояться к сегодняшнему дню по
+     * факту реального расписания (не по среднегодовой доле, а по конкретным дням
+     * недели пар в MonthlyRecord.hours, которые в свою очередь посчитаны из Schedule).
+     * Полностью прошедшие месяцы считаются целиком, текущий месяц — пропорционально
+     * прошедшим дням.
+     */
+    private double computeExpectedHoursToDate(List<TeacherLoad> teacherLoads) {
+        LocalDate today = LocalDate.now();
+        double total = 0;
+        for (TeacherLoad load : teacherLoads) {
+            if (load.getAcademicYear() == null) continue;
+            int academicYearStart = load.getAcademicYear();
+            for (MonthlyRecord mr : load.getMonthlyRecords()) {
+                int hours = mr.getHours() != null ? mr.getHours() : 0;
+                if (hours == 0) continue;
+                int calendarYear = mr.getMonth() >= 9 ? academicYearStart : academicYearStart + 1;
+                LocalDate monthStart = LocalDate.of(calendarYear, mr.getMonth(), 1);
+                LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
+                if (today.isAfter(monthEnd)) {
+                    total += hours;
+                } else if (!today.isBefore(monthStart)) {
+                    double fraction = today.getDayOfMonth() / (double) monthStart.lengthOfMonth();
+                    total += hours * fraction;
+                }
+                // будущие месяцы (ещё не наступили) в ожидаемое "на сегодня" не входят
+            }
+        }
+        return total;
     }
 
     private int calculateAcademicYearProgress() {
@@ -250,8 +315,16 @@ public class TeacherLoadService {
                 ? 100.0 - ((double) totalAdjustments / totalRecords * 100)
                 : 100.0;
 
-        // Процент выполнения плана
-        double planCompletion = totalPlan > 0 ? (totalRead / totalPlan) * 100 : 0;
+        int academicYearProgress = calculateAcademicYearProgress();
+        List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
+        double curatorshipPlan = curatorships.stream()
+                .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
+        double curatorshipDone = curatorships.stream()
+                .mapToInt(c -> c.getLogs() != null ? c.getLogs().size() : 0).sum();
+
+        // Процент выполнения плана — по факту от расписания на сегодняшний день + кураторские часы
+        double planCompletion = computePlanCompletion(
+                loads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, academicYearProgress);
 
         // Своевременность контрольных точек
         double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
@@ -274,7 +347,7 @@ public class TeacherLoadService {
         }
 
         // Рассчитываем целевое значение на текущую дату
-        double targetProgress = calculateAcademicYearProgress();
+        double targetProgress = academicYearProgress;
 
         DashboardDto.ProductivityBarDto productivity = DashboardDto.ProductivityBarDto.builder()
                 .index(index)

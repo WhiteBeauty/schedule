@@ -23,6 +23,11 @@ public class ImportReportDto {
     private int createdLoads;
     private int updatedLoads;
     private List<ImportRowErrorDto> errors;
+    // Не ошибки — строки, где несколько групп/дисциплин в одной ячейке были разбиты
+    // по запятой/`;`, но программа не до конца уверена, что разбиение верное
+    // (см. ImportService.expandMultiValueRows). Импорт всё равно применяется —
+    // это просто явный сигнал администратору перепроверить конкретные строки.
+    private List<ImportRowErrorDto> splitNotices;
     private List<String> detectedColumns; // какие колонки распознала система
     private String summary;            // человекочитаемое резюме для отображения администратору
 }

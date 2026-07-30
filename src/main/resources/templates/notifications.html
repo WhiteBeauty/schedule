@@ -35,9 +35,12 @@
         <p class="page-subtitle">Заявки на замену и системные сообщения модуля форс-мажоров и импорта.</p>
     </div>
 
-    <div class="tabs">
-        <button class="tab-btn active" id="tabUnread" onclick="switchTab('unread')">Непрочитанные</button>
-        <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Все</button>
+    <div class="tabs" style="justify-content: space-between;">
+        <div style="display:flex; gap:0.5rem;">
+            <button class="tab-btn active" id="tabUnread" onclick="switchTab('unread')">Непрочитанные</button>
+            <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Все</button>
+        </div>
+        <button class="btn btn-sm btn-outline" id="markAllBtn" onclick="markAllRead(this)">✓✓ Отметить все прочитанным</button>
     </div>
 
     <div id="list"><p class="text-muted">Загрузка...</p></div>
@@ -120,6 +123,25 @@
                 if (actions) actions.remove();
             }
         } catch (e) {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function markAllRead(btn) {
+        if (btn) btn.disabled = true;
+        try {
+            const res = await fetch('/api/notifications/mark-all-read', { method: 'POST' });
+            if (!res.ok) {
+                if (btn) btn.disabled = false;
+                return;
+            }
+            allItems.forEach(n => n.isRead = true);
+            render();
+            const badge = document.getElementById('nav-notifications-badge');
+            if (badge) badge.style.display = 'none';
+        } catch (e) {
+            // ignore — кнопка просто разблокируется, пользователь может повторить
+        } finally {
             if (btn) btn.disabled = false;
         }
     }

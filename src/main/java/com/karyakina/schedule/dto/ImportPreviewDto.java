@@ -15,6 +15,7 @@ public class ImportPreviewDto {
     private int errorCount;
     private List<ImportRowMatchDto> rows;
     private List<ImportRowErrorDto> errors;
+    private List<ImportRowErrorDto> splitNotices;
     private List<String> detectedColumns;
     private String summary;
 }

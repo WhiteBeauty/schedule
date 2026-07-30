@@ -14,5 +14,7 @@ public class ProductivityDto {
     private double timelinessPercent;
     private double accuracyPercent;
     private double targetProgress; // Целевое значение на текущую дату
+    private double curatorshipPlannedHours;
+    private double curatorshipDoneHours;
     private String formulaUsed;
 }

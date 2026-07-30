@@ -1196,6 +1196,13 @@ public class ApiController {
             } catch (Exception notifyEx) {
                 notifyEx.printStackTrace();
             }
+            try {
+                // Помесячный учёт считается по факту от реального расписания —
+                // пересчитываем сразу, а не оставляем нули до следующего импорта.
+                monthlyRecordService.recalculateHoursForLoad(teacherLoadId);
+            } catch (Exception syncEx) {
+                syncEx.printStackTrace();
+            }
             return ResponseEntity.ok(created);
         } catch (Exception e) {
             e.printStackTrace();
@@ -1224,6 +1231,11 @@ public class ApiController {
                 scheduleChangeNotifier.pairDeleted(toDelete, adminDisplayName(user));
             } catch (Exception notifyEx) {
                 notifyEx.printStackTrace();
+            }
+            try {
+                monthlyRecordService.recalculateHoursForLoad(toDelete.getTeacherLoad().getId());
+            } catch (Exception syncEx) {
+                syncEx.printStackTrace();
             }
         }
         return ResponseEntity.ok().build();
@@ -1275,6 +1287,11 @@ public class ApiController {
                 } catch (Exception notifyEx) {
                     notifyEx.printStackTrace();
                 }
+            }
+            try {
+                monthlyRecordService.recalculateHoursForLoad(updated.getTeacherLoad().getId());
+            } catch (Exception syncEx) {
+                syncEx.printStackTrace();
             }
 
             return ResponseEntity.ok(updated);

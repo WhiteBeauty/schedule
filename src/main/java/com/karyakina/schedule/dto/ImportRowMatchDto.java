@@ -17,4 +17,7 @@ public class ImportRowMatchDto {
     private String candidateTeacherName;
     private String candidateDepartment;
     private double similarity;
+
+    private boolean splitAmbiguous;
+    private String splitNote;
 }

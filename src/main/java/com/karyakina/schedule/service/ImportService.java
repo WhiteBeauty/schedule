@@ -6,6 +6,8 @@ import com.karyakina.schedule.dto.ImportReportDto;
 import com.karyakina.schedule.dto.ImportRowDecisionDto;
 import com.karyakina.schedule.dto.ImportRowErrorDto;
 import com.karyakina.schedule.dto.ImportRowMatchDto;
+import com.karyakina.schedule.repository.DisciplineRepository;
+import com.karyakina.schedule.repository.StudyGroupRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +42,8 @@ public class ImportService {
 
     private final ImportPersistenceService persistenceService;
     private final TeacherRepository teacherRepository;
+    private final DisciplineRepository disciplineRepository;
+    private final StudyGroupRepository studyGroupRepository;
 
     // ---- синонимы заголовков колонок (нормализованные: нижний регистр, без "ё") ----
     private static final Map<Field, List<String>> COLUMN_SYNONYMS = new EnumMap<>(Field.class);
@@ -93,6 +97,12 @@ public class ImportService {
         String preferredDaysTime;
         String department;
         String controlPointType;
+
+        // Заполняются при разборе ячеек "Группа"/"Дисциплина" с несколькими значениями
+        // через запятую/точку с запятой (см. expandMultiValueRows). Исходный текст
+        // сохраняется, чтобы показать администратору, что именно было разбито.
+        boolean splitAmbiguous;
+        String splitNote;
     }
 
     /**
@@ -114,11 +124,14 @@ public class ImportService {
         List<String> detectedColumns = new ArrayList<>(parsed.detectedColumns);
 
         String summary = String.format(
-                "Успешно обработано %d записей из %d, %d ошибок%s",
+                "Успешно обработано %d записей из %d, %d ошибок%s%s",
                 result.processedLoads, parsed.totalDataRows, parsed.errors.size(),
                 parsed.errors.isEmpty() ? "" : " в строках " + parsed.errors.stream()
                         .map(e -> String.valueOf(e.getRowNumber()))
-                        .reduce((a, b) -> a + ", " + b).orElse(""));
+                        .reduce((a, b) -> a + ", " + b).orElse(""),
+                parsed.splitNotices.isEmpty() ? "" : String.format(
+                        ". %d строк с разбитыми по запятой/`;` группами/дисциплинами стоит перепроверить",
+                        parsed.splitNotices.size()));
 
         return ImportReportDto.builder()
                 .success(true)
@@ -132,6 +145,7 @@ public class ImportService {
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
                 .errors(parsed.errors)
+                .splitNotices(parsed.splitNotices)
                 .detectedColumns(detectedColumns)
                 .summary(summary)
                 .build();
@@ -151,6 +165,7 @@ public class ImportService {
                     .errorCount(parsed.fatalError.getErrorRows())
                     .rows(List.of())
                     .errors(parsed.fatalError.getErrors())
+                    .splitNotices(List.of())
                     .summary(parsed.fatalError.getSummary())
                     .build();
         }
@@ -199,12 +214,18 @@ public class ImportService {
                     .candidateTeacherName(candidate != null ? candidate.teacher.getFullName() : null)
                     .candidateDepartment(candidate != null ? candidate.teacher.getDepartment() : null)
                     .similarity(candidate != null ? candidate.similarity : 0.0)
+                    .splitAmbiguous(row.splitAmbiguous)
+                    .splitNote(row.splitNote)
                     .build());
         }
 
         String summary = String.format(
-                "Разобрано %d строк: %d точных совпадений, %d возможных дублей требуют проверки, %d новых преподавателей. %d ошибок.",
-                parsed.validRows.size(), exact, fuzzy, fresh, parsed.errors.size());
+                "Разобрано %d строк: %d точных совпадений, %d возможных дублей требуют проверки, %d новых преподавателей. " +
+                        "%d ошибок.%s",
+                parsed.validRows.size(), exact, fuzzy, fresh, parsed.errors.size(),
+                parsed.splitNotices.isEmpty() ? "" : String.format(
+                        " %d строк со списком через запятую/`;` в группе или дисциплине стоит перепроверить.",
+                        parsed.splitNotices.size()));
 
         return ImportPreviewDto.builder()
                 .success(true)
@@ -215,6 +236,7 @@ public class ImportService {
                 .errorCount(parsed.errors.size())
                 .rows(matchRows)
                 .errors(parsed.errors)
+                .splitNotices(parsed.splitNotices)
                 .detectedColumns(parsed.detectedColumns)
                 .summary(summary)
                 .build();
@@ -244,9 +266,13 @@ public class ImportService {
         }
 
         String summary = String.format(
-                "Импорт завершён: %d записей обработано (%d новых преподавателей, %d привязано к существующим), %d ошибок в исходных данных.",
+                "Импорт завершён: %d записей обработано (%d новых преподавателей, %d привязано к существующим), " +
+                        "%d ошибок в исходных данных.%s",
                 result.processedLoads, result.createdTeachers,
-                parsed.validRows.size() - result.createdTeachers, parsed.errors.size());
+                parsed.validRows.size() - result.createdTeachers, parsed.errors.size(),
+                parsed.splitNotices.isEmpty() ? "" : String.format(
+                        " %d строк с разбитыми по запятой/`;` группами/дисциплинами стоит перепроверить.",
+                        parsed.splitNotices.size()));
 
         return ImportReportDto.builder()
                 .success(true)
@@ -260,6 +286,7 @@ public class ImportService {
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
                 .errors(parsed.errors)
+                .splitNotices(parsed.splitNotices)
                 .detectedColumns(parsed.detectedColumns)
                 .summary(summary)
                 .build();
@@ -343,11 +370,124 @@ public class ImportService {
         return -1;
     }
 
+    // ==================== Разбор нескольких значений в ячейке Группа/Дисциплина ====================
+    // Поддерживаем 2 формата в ОДНОЙ ячейке (третий — просто повторить строку с другой
+    // группой/дисциплиной — уже работает сам по себе, каждая строка файла и так
+    // обрабатывается независимо):
+    //   "ИБ-21, ИБ-22"   — через запятую
+    //   "ИБ-21; ИБ-22"   — через точку с запятой
+    private static final java.util.regex.Pattern MULTI_VALUE_SPLIT = java.util.regex.Pattern.compile("[,;]+");
+
+    private List<String> splitTokens(String raw) {
+        if (raw == null) return Collections.singletonList(null);
+        List<String> tokens = new ArrayList<>();
+        for (String part : MULTI_VALUE_SPLIT.split(raw)) {
+            String t = part.trim();
+            if (!t.isEmpty()) tokens.add(t);
+        }
+        return tokens.isEmpty() ? Collections.singletonList(raw) : tokens;
+    }
+
+    private ParsedRow copyRow(ParsedRow src) {
+        ParsedRow copy = new ParsedRow();
+        copy.rowNumber = src.rowNumber;
+        copy.teacherName = src.teacherName;
+        copy.candidateTeachers = src.candidateTeachers;
+        copy.disciplineName = src.disciplineName;
+        copy.groupName = src.groupName;
+        copy.totalHours = src.totalHours;
+        copy.hours1 = src.hours1;
+        copy.hours2 = src.hours2;
+        copy.hoursPerWeek = src.hoursPerWeek;
+        copy.lessonType = src.lessonType;
+        copy.preferredDaysTime = src.preferredDaysTime;
+        copy.department = src.department;
+        copy.controlPointType = src.controlPointType;
+        return copy;
+    }
+
+    /**
+     * Если ячейка Группа и/или Дисциплина содержит несколько значений через запятую
+     * или `;` — "размножает" строку на все комбинации (одинаковые часы/тип занятия
+     * достаются каждой копии: дисциплина преподаётся каждой группе в полном объёме).
+     * Если ячейка одна (без разделителей) — возвращает исходную строку без изменений.
+     *
+     * Уверенность в правильности разбиения оценивается по базе данных:
+     *  - все токены уже существуют как отдельные группы/дисциплины -> уверенно (не помечаем);
+     *  - НИ ОДИН токен не найден -> вероятно, всё верно (это просто новые группы/дисциплины
+     *    из ещё не импортированного файла), но помечаем на всякий случай;
+     *  - ЧАСТЬ токенов найдена, часть нет -> подозрительно: возможно, это одно название
+     *    с запятой внутри (например, "Методы, средства и технологии..."), а не список —
+     *    помечаем как требующее проверки администратором.
+     */
+    private List<ParsedRow> expandMultiValueRows(ParsedRow raw) {
+        List<String> groupTokens = isBlank(raw.groupName) ? Collections.singletonList(raw.groupName) : splitTokens(raw.groupName);
+        List<String> disciplineTokens = isBlank(raw.disciplineName) ? Collections.singletonList(raw.disciplineName) : splitTokens(raw.disciplineName);
+
+        if (groupTokens.size() <= 1 && disciplineTokens.size() <= 1) {
+            return List.of(raw);
+        }
+
+        boolean groupsAllKnown = groupTokens.size() <= 1 || groupTokens.stream()
+                .allMatch(g -> studyGroupRepository.findByNameIgnoreCase(g).isPresent());
+        boolean groupsNoneKnown = groupTokens.size() <= 1 || groupTokens.stream()
+                .noneMatch(g -> studyGroupRepository.findByNameIgnoreCase(g).isPresent());
+        boolean disciplinesAllKnown = disciplineTokens.size() <= 1 || disciplineTokens.stream()
+                .allMatch(d -> disciplineRepository.findByNameIgnoreCase(d).isPresent());
+        boolean disciplinesNoneKnown = disciplineTokens.size() <= 1 || disciplineTokens.stream()
+                .noneMatch(d -> disciplineRepository.findByNameIgnoreCase(d).isPresent());
+
+        boolean mixedGroup = groupTokens.size() > 1 && !groupsAllKnown && !groupsNoneKnown;
+        boolean mixedDiscipline = disciplineTokens.size() > 1 && !disciplinesAllKnown && !disciplinesNoneKnown;
+
+        List<String> notes = new ArrayList<>();
+        boolean ambiguous = false;
+        if (groupTokens.size() > 1) {
+            notes.add("группа \"" + raw.groupName + "\" разбита на " + groupTokens.size() + ": " + String.join(", ", groupTokens));
+            if (mixedGroup) {
+                notes.add("часть значений группы не найдена в базе как отдельная группа — возможно, это одно название, а не список");
+                ambiguous = true;
+            } else if (groupsNoneKnown) {
+                notes.add("все получившиеся группы новые (ещё не заводились) — проверьте, что разбиение верное");
+                ambiguous = true;
+            }
+        }
+        if (disciplineTokens.size() > 1) {
+            notes.add("дисциплина \"" + raw.disciplineName + "\" разбита на " + disciplineTokens.size() + ": " + String.join(", ", disciplineTokens));
+            if (mixedDiscipline) {
+                notes.add("часть значений дисциплины не найдена в базе как отдельная дисциплина — возможно, это одно название с запятой внутри, а не список");
+                ambiguous = true;
+            } else if (disciplinesNoneKnown) {
+                notes.add("все получившиеся дисциплины новые (ещё не заводились) — проверьте, что разбиение верное");
+                ambiguous = true;
+            }
+        }
+
+        String note = String.join("; ", notes);
+        List<ParsedRow> result = new ArrayList<>();
+        for (String g : groupTokens) {
+            for (String d : disciplineTokens) {
+                ParsedRow copy = copyRow(raw);
+                copy.groupName = g;
+                copy.disciplineName = d;
+                copy.splitAmbiguous = ambiguous;
+                copy.splitNote = note;
+                result.add(copy);
+            }
+        }
+        return result;
+    }
+
     // ==================== Общий разбор + валидация (используется всеми тремя режимами) ====================
 
     private static class ParseResult {
         List<ParsedRow> validRows = new ArrayList<>();
         List<ImportRowErrorDto> errors = new ArrayList<>();
+        // Не ошибки — строки, где разбиение ячейки Группа/Дисциплина по запятой/`;`
+        // прошло, но программа не уверена, что это действительно несколько значений,
+        // а не одно название с запятой внутри. Строка всё равно импортируется
+        // (result.validRows), это просто явное указание админу перепроверить её.
+        List<ImportRowErrorDto> splitNotices = new ArrayList<>();
         List<String> detectedColumns = new ArrayList<>();
         int totalDataRows = 0;
         ImportReportDto fatalError; // заполняется, если разбор в принципе не удался
@@ -405,48 +545,64 @@ public class ImportService {
             int excelRowNumber = i + 1;
 
             try {
-                ParsedRow parsed = parseRow(row, columnMap, excelRowNumber);
+                ParsedRow rawParsed = parseRow(row, columnMap, excelRowNumber);
 
-                // ФИО преподавателя больше не обязательно: пустая ячейка означает
-                // "преподаватель будет подобран автоматически" (см. TeacherAssignmentService).
-                // Если в файле заполнена колонка "Возможные преподаватели" — подбор
-                // ограничится этим списком, иначе берётся любой преподаватель, чья
-                // специализация покрывает дисциплину этой строки.
-                if (isBlank(parsed.disciplineName)) {
-                    result.errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
-                    continue;
-                }
-                if (isBlank(parsed.groupName)) {
-                    result.errors.add(rowError(excelRowNumber, "Не указана группа", row));
-                    continue;
-                }
-                if (parsed.totalHours != null && parsed.totalHours < 0) {
-                    result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов за год", row));
-                    continue;
-                }
-                if (parsed.hoursPerWeek != null && parsed.hoursPerWeek < 0) {
-                    result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов в неделю", row));
-                    continue;
-                }
-                if (parsed.totalHours == null && parsed.hours1 == null && parsed.hours2 == null) {
-                    result.errors.add(rowError(excelRowNumber, "Не указаны плановые часы (год или по семестрам)", row));
-                    continue;
-                }
+                // РАЗБОР НЕСКОЛЬКИХ ГРУПП/ДИСЦИПЛИН В ОДНОЙ ЯЧЕЙКЕ.
+                // В файле значения могут быть перечислены через запятую ("ИБ-21, ИБ-22"),
+                // через точку с запятой ("ИБ-21; ИБ-22"), либо просто повторены отдельными
+                // строками (это и так уже работает — каждая строка обрабатывается независимо).
+                // Здесь разбираем первые два случая: если ячейка содержит несколько токенов,
+                // строка "размножается" на все комбинации группа×дисциплина с одинаковыми
+                // часами/типом занятия у каждой копии.
+                for (ParsedRow parsed : expandMultiValueRows(rawParsed)) {
 
-                // Для строк с преподавателем дубликат — это тот же преподаватель на ту же
-                // дисциплину/группу. Для строк БЕЗ преподавателя ("__AUTO__") дубликатом
-                // считаем повторение группы+дисциплины+типа занятия — иначе две строки
-                // "группа А, дисциплина Х, лекция" и "...практика" ошибочно бы схлопнулись.
-                String teacherKeyPart = isBlank(parsed.teacherName) ? "__AUTO__" : normalize(parsed.teacherName);
-                String dedupKey = teacherKeyPart + "|" + normalize(parsed.disciplineName)
-                        + "|" + normalize(parsed.groupName) + "|" + normalize(parsed.lessonType);
-                if (!seenKeys.add(dedupKey)) {
-                    result.errors.add(rowError(excelRowNumber,
-                            "Дубликат строки (тот же преподаватель/дисциплина/группа уже встречался в файле)", row));
-                    continue;
-                }
+                    // ФИО преподавателя больше не обязательно: пустая ячейка означает
+                    // "преподаватель будет подобран автоматически" (см. TeacherAssignmentService).
+                    // Если в файле заполнена колонка "Возможные преподаватели" — подбор
+                    // ограничится этим списком, иначе берётся любой преподаватель, чья
+                    // специализация покрывает дисциплину этой строки.
+                    if (isBlank(parsed.disciplineName)) {
+                        result.errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
+                        continue;
+                    }
+                    if (isBlank(parsed.groupName)) {
+                        result.errors.add(rowError(excelRowNumber, "Не указана группа", row));
+                        continue;
+                    }
+                    if (parsed.totalHours != null && parsed.totalHours < 0) {
+                        result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов за год", row));
+                        continue;
+                    }
+                    if (parsed.hoursPerWeek != null && parsed.hoursPerWeek < 0) {
+                        result.errors.add(rowError(excelRowNumber, "Отрицательное значение часов в неделю", row));
+                        continue;
+                    }
+                    if (parsed.totalHours == null && parsed.hours1 == null && parsed.hours2 == null) {
+                        result.errors.add(rowError(excelRowNumber, "Не указаны плановые часы (год или по семестрам)", row));
+                        continue;
+                    }
 
-                result.validRows.add(parsed);
+                    // Для строк с преподавателем дубликат — это тот же преподаватель на ту же
+                    // дисциплину/группу. Для строк БЕЗ преподавателя ("__AUTO__") дубликатом
+                    // считаем повторение группы+дисциплины+типа занятия — иначе две строки
+                    // "группа А, дисциплина Х, лекция" и "...практика" ошибочно бы схлопнулись.
+                    String teacherKeyPart = isBlank(parsed.teacherName) ? "__AUTO__" : normalize(parsed.teacherName);
+                    String dedupKey = teacherKeyPart + "|" + normalize(parsed.disciplineName)
+                            + "|" + normalize(parsed.groupName) + "|" + normalize(parsed.lessonType);
+                    if (!seenKeys.add(dedupKey)) {
+                        result.errors.add(rowError(excelRowNumber,
+                                "Дубликат строки (тот же преподаватель/дисциплина/группа уже встречался в файле" +
+                                        " — включая варианты, полученные разбиением списка через запятую/`;`)", row));
+                        continue;
+                    }
+
+                    if (parsed.splitAmbiguous) {
+                        result.splitNotices.add(rowError(excelRowNumber,
+                                "Уточните разбиение: " + parsed.splitNote, row));
+                    }
+
+                    result.validRows.add(parsed);
+                }
             } catch (Exception e) {
                 result.errors.add(rowError(excelRowNumber, "Ошибка обработки строки: " + e.getMessage(), row));
             }

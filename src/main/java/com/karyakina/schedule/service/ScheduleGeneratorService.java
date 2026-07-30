@@ -40,6 +40,7 @@ public class ScheduleGeneratorService {
     private final TeacherRepository teacherRepository;
     private final TeacherAssignmentService teacherAssignmentService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
+    private final MonthlyRecordService monthlyRecordService;
 
     private static final DayOfWeek[] WORK_DAYS = {
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
@@ -182,6 +183,28 @@ public class ScheduleGeneratorService {
             }
             if (!created.isEmpty()) {
                 scheduleRepository.saveAll(created);
+                // Помесячный учёт (MonthlyRecord.hours) раньше оставался нулевой заглушкой —
+                // теперь пересчитываем его по факту сгенерированного расписания для каждой
+                // затронутой нагрузки (учитываются и уже существовавшие пары этой нагрузки).
+                Map<Long, List<Schedule>> schedulesByLoadId = new HashMap<>();
+                for (Schedule s : existingSchedules) {
+                    schedulesByLoadId.computeIfAbsent(s.getTeacherLoad().getId(), k -> new ArrayList<>()).add(s);
+                }
+                for (Schedule s : created) {
+                    schedulesByLoadId.computeIfAbsent(s.getTeacherLoad().getId(), k -> new ArrayList<>()).add(s);
+                }
+                Set<Long> touchedLoadIds = new HashSet<>();
+                for (Schedule s : created) touchedLoadIds.add(s.getTeacherLoad().getId());
+                for (Long loadId : touchedLoadIds) {
+                    try {
+                        TeacherLoad load = loadRepository.findById(loadId).orElse(null);
+                        if (load != null) {
+                            monthlyRecordService.recalculateHoursForLoad(load, schedulesByLoadId.getOrDefault(loadId, List.of()));
+                        }
+                    } catch (Exception syncEx) {
+                        log.warn("Не удалось пересчитать помесячный учёт для нагрузки {}: {}", loadId, syncEx.getMessage());
+                    }
+                }
                 // Оповещаем преподавателей о том, что для них появились новые пары —
                 // раньше это происходило только при ручном добавлении пары, а после
                 // автосоставления уведомление никогда не отправлялось.
@@ -340,19 +363,56 @@ public class ScheduleGeneratorService {
         return Math.max(1, (int) Math.round(hoursPerWeek / 2.0));
     }
 
+    /**
+     * Разбирает ячейку "Предпочтительные дни и время" из импорта. В файле это
+     * свободный текст на русском ("Пн, Ср", "понедельник, среда, до 12:00" и т.п.),
+     * а не английские имена DayOfWeek — раньше здесь стоял DayOfWeek.valueOf(...),
+     * который никогда не совпадал с реальными данными импорта, поэтому предпочтения
+     * по дням фактически всегда игнорировались.
+     */
     private List<Integer> preferredDayIndexes(TeacherLoad load) {
         if (load.getPreferredDays() == null || load.getPreferredDays().isBlank()) return List.of();
         List<Integer> result = new ArrayList<>();
-        for (String token : load.getPreferredDays().split(",")) {
-            try {
-                DayOfWeek dow = DayOfWeek.valueOf(token.trim().toUpperCase(Locale.ROOT));
-                for (int i = 0; i < WORK_DAYS.length; i++) {
-                    if (WORK_DAYS[i] == dow) result.add(i);
-                }
-            } catch (IllegalArgumentException ignored) {
+        for (String token : load.getPreferredDays().split("[,;]")) {
+            DayOfWeek dow = parseRussianOrEnglishDay(token);
+            if (dow == null) continue;
+            for (int i = 0; i < WORK_DAYS.length; i++) {
+                if (WORK_DAYS[i] == dow && !result.contains(i)) result.add(i);
             }
         }
         return result;
+    }
+
+    /** Достаёт день недели из свободного текста токена ("Пн", "среда", "MONDAY", "Ср до 12:00"). */
+    private DayOfWeek parseRussianOrEnglishDay(String token) {
+        if (token == null) return null;
+        String trimmed = token.trim();
+        if (trimmed.isEmpty()) return null;
+
+        // Берём только начальную буквенную часть токена — дальше может идти время
+        // ("Ср 9:00-12:00", "среда до обеда").
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^[А-Яа-яЁёA-Za-z]+")
+                .matcher(trimmed);
+        if (!m.find()) return null;
+        String word = m.group().toUpperCase(Locale.ROOT).replace("Ё", "Е");
+
+        return switch (word) {
+            case "ПН", "ПОНЕДЕЛЬНИК" -> DayOfWeek.MONDAY;
+            case "ВТ", "ВТОРНИК" -> DayOfWeek.TUESDAY;
+            case "СР", "СРЕДА" -> DayOfWeek.WEDNESDAY;
+            case "ЧТ", "ЧЕТВЕРГ" -> DayOfWeek.THURSDAY;
+            case "ПТ", "ПЯТНИЦА" -> DayOfWeek.FRIDAY;
+            case "СБ", "СУББОТА" -> DayOfWeek.SATURDAY;
+            case "ВС", "ВОСКРЕСЕНЬЕ" -> DayOfWeek.SUNDAY;
+            default -> {
+                try {
+                    yield DayOfWeek.valueOf(word); // на случай английских названий в файле
+                } catch (IllegalArgumentException e) {
+                    yield null;
+                }
+            }
+        };
     }
 
     private List<Integer> preferredSlotIndexes(TeacherLoad load) {

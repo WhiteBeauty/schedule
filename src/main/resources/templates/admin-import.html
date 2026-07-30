@@ -112,6 +112,16 @@
             <div class="stat"><div class="stat-label">Обновлено нагрузок</div><div class="stat-value" id="statUpdated">-</div></div>
         </div>
 
+        <div id="splitNoticesWrap" style="display:none; margin-bottom:1.25rem;">
+            <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600; color:var(--warning, #b45309);">
+                ⚠️ Разбитые по запятой/`;` группы или дисциплины — перепроверьте:
+            </div>
+            <table class="error-table" style="width:100%; border-collapse:collapse;">
+                <thead><tr><th>Строка</th><th>Уточнение</th><th>Содержимое</th></tr></thead>
+                <tbody id="splitNoticesBody"></tbody>
+            </table>
+        </div>
+
         <div id="errorsWrap" style="display:none;">
             <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600;">Строки с ошибками:</div>
             <table class="error-table" style="width:100%; border-collapse:collapse;">
@@ -261,9 +271,14 @@
                 actionsHtml = '<button class="btn btn-sm btn-outline" onclick="openEnrichModal(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Создать</button>';
             }
 
+            const disciplineGroupCell = escapeHtml(row.disciplineName) + ' / ' + escapeHtml(row.groupName) +
+                (row.splitAmbiguous
+                    ? ' <span title="' + escapeAttr(row.splitNote || '') + '" style="cursor:help;">⚠️</span>'
+                    : '');
+
             tr.innerHTML =
                 '<td>' + (row.teacherNameFromFile ? escapeHtml(row.teacherNameFromFile) : '<span class="text-muted">—</span>') + '</td>' +
-                '<td>' + escapeHtml(row.disciplineName) + ' / ' + escapeHtml(row.groupName) + '</td>' +
+                '<td>' + disciplineGroupCell + '</td>' +
                 '<td>' + statusPill + '</td>' +
                 '<td>' + candidateText + '</td>' +
                 '<td id="action-' + row.rowIndex + '">' + actionsHtml + '</td>';
@@ -361,6 +376,20 @@
         document.getElementById('statErrors').textContent = report.errorRows || 0;
         document.getElementById('statCreatedTeachers').textContent = report.createdTeachers || 0;
         document.getElementById('statUpdated').textContent = report.updatedLoads || 0;
+
+        const splitNoticesWrap = document.getElementById('splitNoticesWrap');
+        const splitNoticesBody = document.getElementById('splitNoticesBody');
+        splitNoticesBody.innerHTML = '';
+        if (report.splitNotices && report.splitNotices.length) {
+            splitNoticesWrap.style.display = 'block';
+            report.splitNotices.forEach(note => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + note.rowNumber + '</td><td>' + escapeHtml(note.message) + '</td><td class="text-muted">' + escapeHtml(note.rawData || '') + '</td>';
+                splitNoticesBody.appendChild(tr);
+            });
+        } else {
+            splitNoticesWrap.style.display = 'none';
+        }
 
         const errorsWrap = document.getElementById('errorsWrap');
         const errorsBody = document.getElementById('errorsBody');

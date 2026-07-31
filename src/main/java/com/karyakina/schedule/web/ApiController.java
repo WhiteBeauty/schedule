@@ -37,6 +37,7 @@ public class ApiController {
     private final CuratorshipRepository curatorshipRepository;
     private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
+    private final SettingsService settingsService;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
     private final SickLeaveRepository sickLeaveRepository;
@@ -1008,8 +1009,66 @@ public class ApiController {
         if (body.containsKey("specialty")) {
             group.setSpecialty(body.get("specialty").toString());
         }
+        // Обед этой конкретной группы — либо "HH:mm" (задаём/меняем), либо null
+        // (очищаем override, группа вернётся на общий обед потока, если он настроен).
+        if (body.containsKey("lunchStart") || body.containsKey("lunchEnd")) {
+            Object startVal = body.get("lunchStart");
+            Object endVal = body.get("lunchEnd");
+            try {
+                group.setLunchStart(startVal != null && !startVal.toString().isBlank()
+                        ? java.time.LocalTime.parse(startVal.toString()) : null);
+                group.setLunchEnd(endVal != null && !endVal.toString().isBlank()
+                        ? java.time.LocalTime.parse(endVal.toString()) : null);
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().build();
+            }
+            if ((group.getLunchStart() == null) != (group.getLunchEnd() == null)) {
+                return ResponseEntity.badRequest().build(); // оба поля или оба пустые
+            }
+        }
 
         return ResponseEntity.ok(groupRepository.save(group));
+    }
+
+    /** Общий обед для всего потока по умолчанию — используется группами без своего override. */
+    @GetMapping("/admin/settings/lunch")
+    public ResponseEntity<?> getGlobalLunch(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        java.time.LocalTime[] window = settingsService.getGlobalLunchWindow();
+        if (window == null) return ResponseEntity.ok(Map.of("configured", false));
+        return ResponseEntity.ok(Map.of("configured", true, "start", window[0].toString(), "end", window[1].toString()));
+    }
+
+    @PostMapping("/admin/settings/lunch")
+    public ResponseEntity<?> setGlobalLunch(@RequestBody Map<String, String> body, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        try {
+            settingsService.setGlobalLunch(
+                    java.time.LocalTime.parse(body.get("start")),
+                    java.time.LocalTime.parse(body.get("end")));
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/admin/settings/lunch")
+    public ResponseEntity<?> clearGlobalLunch(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        settingsService.clearGlobalLunch();
+        return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/admin/groups/{id}")

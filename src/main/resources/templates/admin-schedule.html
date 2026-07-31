@@ -245,6 +245,15 @@
             <button class="close-btn" onclick="closeGroupsModal()">×</button>
         </div>
         <div class="modal-body">
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;padding:0.75rem;background:var(--bg-soft,#f5f5f5);border-radius:8px">
+                <span style="font-weight:600;white-space:nowrap">🍽️ Обед для всего потока:</span>
+                <input type="time" id="globalLunchStart" style="width:110px">
+                <span>–</span>
+                <input type="time" id="globalLunchEnd" style="width:110px">
+                <button class="btn btn-sm btn-primary" onclick="saveGlobalLunch()">Сохранить</button>
+                <button class="btn btn-sm btn-outline" onclick="clearGlobalLunch()">Убрать</button>
+                <span class="text-muted" style="font-size:0.8rem">действует для групп без своего обеда (колонка "Обед" ниже)</span>
+            </div>
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
                 <input type="text" id="newGroupName" placeholder="Название группы" style="flex:1">
                 <input type="number" id="newGroupCourse" placeholder="Курс" style="width:80px" min="1" max="6">
@@ -252,7 +261,7 @@
                 <button class="btn btn-primary" onclick="addGroup()">➕</button>
             </div>
             <table id="groupsTable">
-                <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Действия</th></tr></thead>
+                <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Обед группы</th><th>Действия</th></tr></thead>
                 <tbody id="groupsBody"></tbody>
             </table>
         </div>
@@ -750,6 +759,41 @@ function exportCsv() {
 function openGroupsModal() {
     document.getElementById('groupsModal').classList.add('active');
     loadGroups();
+    loadGlobalLunch();
+}
+
+function loadGlobalLunch() {
+    fetch('/api/admin/settings/lunch')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('globalLunchStart').value = data.configured ? data.start : '';
+            document.getElementById('globalLunchEnd').value = data.configured ? data.end : '';
+        })
+        .catch(() => {});
+}
+
+function saveGlobalLunch() {
+    const start = document.getElementById('globalLunchStart').value;
+    const end = document.getElementById('globalLunchEnd').value;
+    if (!start || !end) { alert('Укажите начало и конец обеда'); return; }
+    fetch('/api/admin/settings/lunch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({start, end})
+    }).then(async r => {
+        if (r.ok) { alert('Обед для потока сохранён'); return; }
+        const err = await r.json().catch(() => ({}));
+        alert('Ошибка: ' + (err.error || 'не удалось сохранить'));
+    });
+}
+
+function clearGlobalLunch() {
+    fetch('/api/admin/settings/lunch', { method: 'DELETE' }).then(r => {
+        if (r.ok) {
+            document.getElementById('globalLunchStart').value = '';
+            document.getElementById('globalLunchEnd').value = '';
+        }
+    });
 }
 
 function closeGroupsModal() {
@@ -764,10 +808,12 @@ function loadGroups() {
             tbody.innerHTML = '';
             data.forEach(g => {
                 const tr = document.createElement('tr');
+                const lunch = (g.lunchStart && g.lunchEnd) ? (g.lunchStart.substring(0,5) + '–' + g.lunchEnd.substring(0,5)) : '<span class="text-muted">общий поток</span>';
                 tr.innerHTML = `
                     <td>${g.name}</td>
                     <td>${g.course}</td>
                     <td>${g.specialty || '-'}</td>
+                    <td>${lunch} <button class="btn btn-sm btn-outline" onclick="editGroupLunch(${g.id}, '${g.lunchStart || ''}', '${g.lunchEnd || ''}')" title="Изменить обед этой группы">✏️</button></td>
                     <td>
                         <button class="btn btn-sm btn-outline" onclick="editGroup(${g.id}, '${g.name}', ${g.course}, '${g.specialty || ''}')">✏️</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})" style="background:var(--danger);color:#fff">🗑️</button>
@@ -776,6 +822,24 @@ function loadGroups() {
                 tbody.appendChild(tr);
             });
         });
+}
+
+function editGroupLunch(id, currentStart, currentEnd) {
+    const start = prompt('Начало обеда этой группы (ЧЧ:ММ), пусто — вернуть общий обед потока:', currentStart.substring(0,5));
+    if (start === null) return;
+    let end = '';
+    if (start.trim() !== '') {
+        end = prompt('Конец обеда этой группы (ЧЧ:ММ):', currentEnd.substring(0,5));
+        if (end === null) return;
+    }
+    fetch(`/api/admin/groups/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({lunchStart: start.trim() || null, lunchEnd: end.trim() || null})
+    }).then(r => {
+        if (r.ok) loadGroups();
+        else alert('Ошибка обновления обеда');
+    });
 }
 
 function addGroup() {

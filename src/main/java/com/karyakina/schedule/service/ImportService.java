@@ -219,6 +219,13 @@ public class ImportService {
                     .build());
         }
 
+        // "Дубли" (совпадения с уже существующими преподавателями — EXACT/FUZZY)
+        // выводим ПЕРЕД полностью новыми строками (NEW/AUTO), чтобы администратор
+        // сначала проверил все совпадения, а не искал их вперемешку с новыми.
+        // Порядок строк с одинаковым статусом не меняется (стабильная сортировка).
+        Map<String, Integer> statusPriority = Map.of("EXACT", 0, "FUZZY", 1, "NEW", 2, "AUTO", 3);
+        matchRows.sort(Comparator.comparingInt(r -> statusPriority.getOrDefault(r.getMatchStatus(), 9)));
+
         String summary = String.format(
                 "Разобрано %d строк: %d точных совпадений, %d возможных дублей требуют проверки, %d новых преподавателей. " +
                         "%d ошибок.%s",
@@ -607,6 +614,10 @@ public class ImportService {
                 result.errors.add(rowError(excelRowNumber, "Ошибка обработки строки: " + e.getMessage(), row));
             }
         }
+
+        // Дубликаты — первыми (проще сравнить их друг с другом), остальные ошибки —
+        // следом, в изначальном порядке (стабильная сортировка).
+        result.errors.sort(Comparator.comparingInt(e -> e.getMessage() != null && e.getMessage().startsWith("Дубликат") ? 0 : 1));
 
         return result;
     }

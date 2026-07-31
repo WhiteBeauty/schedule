@@ -41,6 +41,7 @@ public class ScheduleGeneratorService {
     private final TeacherAssignmentService teacherAssignmentService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
     private final MonthlyRecordService monthlyRecordService;
+    private final SettingsService settingsService;
 
     private static final DayOfWeek[] WORK_DAYS = {
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
@@ -242,6 +243,27 @@ public class ScheduleGeneratorService {
         int score;
     }
 
+    /**
+     * Обед. Администратор задаёт обеденный перерыв либо для конкретной группы
+     * (StudyGroup.lunchStart/lunchEnd — приоритетно), либо для всего потока целиком
+     * (SettingsService.getGlobalLunchWindow — если для группы своё не задано). Слот,
+     * пересекающийся с этим интервалом, при составлении расписания не используется.
+     */
+    private boolean slotOverlapsLunch(StudyGroup group, int slotIdx) {
+        LocalTime[] window = effectiveLunchWindow(group);
+        if (window == null) return false;
+        LocalTime slotStart = TIME_SLOTS[slotIdx][0];
+        LocalTime slotEnd = TIME_SLOTS[slotIdx][1];
+        return slotStart.isBefore(window[1]) && window[0].isBefore(slotEnd);
+    }
+
+    private LocalTime[] effectiveLunchWindow(StudyGroup group) {
+        if (group.getLunchStart() != null && group.getLunchEnd() != null) {
+            return new LocalTime[]{group.getLunchStart(), group.getLunchEnd()};
+        }
+        return settingsService.getGlobalLunchWindow();
+    }
+
     private Placement findBestPlacement(TeacherLoad load, Teacher teacher, State state) {
         Long teacherId = teacher.getId();
         Long groupId = load.getGroup().getId();
@@ -260,6 +282,7 @@ public class ScheduleGeneratorService {
             for (int slotIdx = 0; slotIdx < TIME_SLOTS.length; slotIdx++) {
                 if (state.isTeacherBusy(teacherId, dayIdx, slotIdx)) continue;
                 if (state.isGroupBusy(groupId, dayIdx, slotIdx)) continue;
+                if (slotOverlapsLunch(load.getGroup(), slotIdx)) continue;
 
                 String classroom = pickClassroom(load.getGroup(), state, dayIdx, slotIdx);
                 if (classroom == null) continue;

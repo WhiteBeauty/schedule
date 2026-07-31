@@ -668,6 +668,26 @@ public class ApiController {
         }
     }
 
+    /**
+     * Одноразовая очистка нагрузок, у которых группа и/или дисциплина — слитное
+     * название нескольких значений через запятую/`;` (данные, оставшиеся с импорта
+     * до появления автоматического разбиения таких ячеек). Безопасно вызывать
+     * повторно — если слитных названий не осталось, просто ничего не делает.
+     */
+    @PostMapping("/admin/cleanup/split-merged-names")
+    public ResponseEntity<?> splitMergedGroupsAndDisciplines(Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        try {
+            return ResponseEntity.ok(adminDeletionService.splitMergedGroupsAndDisciplines());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // ==================== Curatorship Management ====================
 
     @PostMapping("/curatorships")

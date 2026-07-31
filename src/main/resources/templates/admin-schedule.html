@@ -16,6 +16,7 @@
             <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
             <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
             <button class="btn btn-outline" onclick="generateSchedule(false)">🧮 Автосоставление (черновик)</button>
+            <button class="btn btn-outline" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">🧹 Разбить слитные группы/дисциплины</button>
             <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
         </div>
@@ -907,6 +908,43 @@ function deleteDiscipline(id) {
             const err = await r.json().catch(() => ({}));
             alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
         });
+}
+
+async function runSplitMergedNamesCleanup(btn) {
+    if (!confirm('Найти нагрузки, где группа и/или дисциплина названы слитно через запятую/; (например, "ИС2-Б23, ИС1-Б23"), ' +
+        'и разбить их на отдельные записи? Старые пары в расписании по таким нагрузкам будут удалены — по новым записям ' +
+        'расписание нужно будет составить заново.')) return;
+
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/admin/cleanup/split-merged-names', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert('Ошибка: ' + (data.error || res.status));
+            return;
+        }
+        if (data.loadsSplit === 0) {
+            alert('Слитных названий групп/дисциплин не найдено — очистка не потребовалась.');
+        } else {
+            alert('Готово: разобрано нагрузок — ' + data.loadsSplit + ', создано новых записей — ' + data.loadsCreated +
+                ', удалено старых пар расписания — ' + data.schedulesRemoved +
+                ', удалено пустых групп — ' + data.groupsDeleted + ', удалено пустых дисциплин — ' + data.disciplinesDeleted +
+                '.\n\nТеперь нужно заново запустить автосоставление расписания для новых записей.');
+        }
+        loadGenerationYearIfNeeded();
+    } catch (e) {
+        alert('Ошибка запроса: ' + e.message);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function loadGenerationYearIfNeeded() {
+    // Обновляем таблицу нагрузок на странице, если она уже загружена — чтобы
+    // сразу увидеть результат очистки без ручной перезагрузки страницы.
+    if (typeof loadSchedule === 'function') {
+        try { loadSchedule(); } catch (e) { /* таблицы нагрузок на этой странице может не быть */ }
+    }
 }
 
 function escapeHtml(s) {

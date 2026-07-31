@@ -41,6 +41,7 @@ public class AdminDeletionService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final MonthlyRecordService monthlyRecordService;
 
     @Transactional
     public void deleteTeacherCompletely(Long teacherId) {
@@ -166,6 +167,125 @@ public class AdminDeletionService {
         TeacherLoad load = loadRepository.findById(loadId)
                 .orElseThrow(() -> new RuntimeException("Нагрузка не найдена: " + loadId));
         deleteTeacherLoadCascade(load);
+    }
+
+    private static final java.util.regex.Pattern MULTI_VALUE_SPLIT = java.util.regex.Pattern.compile("[,;]+");
+
+    private List<String> splitTokens(String raw) {
+        List<String> tokens = new ArrayList<>();
+        for (String part : MULTI_VALUE_SPLIT.split(raw)) {
+            String t = part.trim();
+            if (!t.isEmpty()) tokens.add(t);
+        }
+        return tokens;
+    }
+
+    /**
+     * ОДНОРАЗОВАЯ ОЧИСТКА уже накопленных "слитных" названий групп/дисциплин — тех,
+     * что попали в базу ДО того, как импорт научился разбивать ячейку с несколькими
+     * значениями через запятую/`;` (см. ImportService.expandMultiValueRows). Симптом
+     * именно в этом, а не в самом алгоритме составления расписания: если у нагрузки
+     * группа буквально называется "ИС2-Б23, ИС1-Б23, ИВТ, М, ИСТ" (одно "имя" вместо
+     * пяти групп), а дисциплина — "Высшая математика, мат. Анализ" (одно "имя" вместо
+     * двух дисциплин), то преподаватель выглядит так, будто ведёт 5 групп и 2 предмета
+     * одновременно — на самом деле это одна (кривая) запись нагрузки, generator её
+     * размещает без конфликтов, но по смыслу это неверно.
+     *
+     * Каждую такую нагрузку разбивает на отдельные записи (одна на каждую комбинацию
+     * группа×дисциплина), удаляет старые пары расписания по ней (они относятся к
+     * "плохой" версии — по новым записям расписание нужно составить заново), затем
+     * удаляет саму слитную нагрузку, а если на слитную группу/дисциплину больше никто
+     * не ссылается — удаляет и её.
+     */
+    @Transactional
+    public Map<String, Object> splitMergedGroupsAndDisciplines() {
+        List<TeacherLoad> allLoads = loadRepository.findAll();
+        int loadsSplit = 0, loadsCreated = 0, schedulesRemoved = 0;
+        Set<Long> touchedGroupIds = new HashSet<>();
+        Set<Long> touchedDisciplineIds = new HashSet<>();
+
+        for (TeacherLoad load : new ArrayList<>(allLoads)) {
+            String groupName = load.getGroup().getName();
+            String disciplineName = load.getDiscipline().getName();
+            List<String> groupTokens = splitTokens(groupName);
+            List<String> disciplineTokens = splitTokens(disciplineName);
+            if (groupTokens.isEmpty()) groupTokens = List.of(groupName);
+            if (disciplineTokens.isEmpty()) disciplineTokens = List.of(disciplineName);
+            if (groupTokens.size() <= 1 && disciplineTokens.size() <= 1) continue; // нечего разбивать
+
+            touchedGroupIds.add(load.getGroup().getId());
+            touchedDisciplineIds.add(load.getDiscipline().getId());
+            schedulesRemoved += scheduleRepository.findByTeacherLoadId(load.getId()).size();
+
+            for (String g : groupTokens) {
+                StudyGroup group = groupRepository.findByNameIgnoreCase(g)
+                        .orElseGet(() -> groupRepository.save(StudyGroup.builder().name(g).build()));
+                for (String d : disciplineTokens) {
+                    Discipline discipline = disciplineRepository.findByNameIgnoreCase(d)
+                            .orElseGet(() -> disciplineRepository.save(Discipline.builder().name(d).build()));
+
+                    TeacherLoad copy = TeacherLoad.builder()
+                            .teacher(load.getTeacher())
+                            .candidateTeacherNames(load.getCandidateTeacherNames())
+                            .group(group)
+                            .discipline(discipline)
+                            .plannedHours(load.getPlannedHours())
+                            .firstSemesterHours(load.getFirstSemesterHours())
+                            .secondSemesterHours(load.getSecondSemesterHours())
+                            .readHours(0)
+                            .academicYear(load.getAcademicYear())
+                            .hoursPerWeek(load.getHoursPerWeek())
+                            .lessonType(load.getLessonType())
+                            .preferredDays(load.getPreferredDays())
+                            .controlPointType1(load.getControlPointType1())
+                            .overload(load.getOverload())
+                            .build();
+                    TeacherLoad saved = loadRepository.save(copy);
+                    monthlyRecordService.createMonthlyRecordsForLoad(saved);
+                    loadsCreated++;
+                }
+            }
+
+            try {
+                notifyAffectedTeachers(List.of(load),
+                        "Исправлена ошибка данных: нагрузка «" + disciplineName + "» / «" + groupName + "» была " +
+                        "слитным названием нескольких групп/дисциплин и разбита на отдельные записи. Прежние пары " +
+                        "по ней удалены — расписание по новым записям нужно составить заново.");
+            } catch (Exception e) {
+                log.warn("Не удалось уведомить преподавателя об очистке слитной нагрузки {}: {}", load.getId(), e.getMessage());
+            }
+
+            deleteTeacherLoadCascade(load);
+            loadsSplit++;
+        }
+
+        int groupsDeleted = 0;
+        for (Long groupId : touchedGroupIds) {
+            StudyGroup group = groupRepository.findById(groupId).orElse(null);
+            if (group != null && loadRepository.findByGroupId(groupId).isEmpty()) {
+                groupRepository.delete(group);
+                groupsDeleted++;
+            }
+        }
+        int disciplinesDeleted = 0;
+        for (Long disciplineId : touchedDisciplineIds) {
+            Discipline discipline = disciplineRepository.findById(disciplineId).orElse(null);
+            if (discipline != null && loadRepository.findByDisciplineId(disciplineId).isEmpty()) {
+                disciplineRepository.delete(discipline);
+                disciplinesDeleted++;
+            }
+        }
+
+        log.info("Очистка слитных названий: разобрано нагрузок {}, создано новых {}, удалено пар {}, удалено групп {}, удалено дисциплин {}",
+                loadsSplit, loadsCreated, schedulesRemoved, groupsDeleted, disciplinesDeleted);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("loadsSplit", loadsSplit);
+        result.put("loadsCreated", loadsCreated);
+        result.put("schedulesRemoved", schedulesRemoved);
+        result.put("groupsDeleted", groupsDeleted);
+        result.put("disciplinesDeleted", disciplinesDeleted);
+        return result;
     }
 
     private void deleteTeacherLoadCascade(TeacherLoad load) {

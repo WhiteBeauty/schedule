@@ -340,10 +340,13 @@ public class ImportService {
 
             int nameCol = -1, disciplinesCol = -1;
             int headerRow = -1;
-            for (int i = 0; i < Math.min(rows.size(), 5); i++) {
+            for (int i = 0; i < Math.min(rows.size(), 10); i++) {
                 int nc = findColumn(rows.get(i), TEACHER_NAME_SYNONYMS);
                 int dc = findColumn(rows.get(i), DISCIPLINES_LIST_SYNONYMS);
-                if (nc >= 0 && dc >= 0) {
+                // nc != dc: если и "ФИО", и "дисциплины" совпали на ОДНОЙ и той же ячейке —
+                // это не настоящая шапка таблицы, а, например, строка с пояснительным
+                // текстом, где оба слова случайно встретились в одном абзаце.
+                if (nc >= 0 && dc >= 0 && nc != dc) {
                     nameCol = nc;
                     disciplinesCol = dc;
                     headerRow = i;
@@ -586,6 +589,23 @@ public class ImportService {
                     }
                     if (parsed.totalHours == null && parsed.hours1 == null && parsed.hours2 == null) {
                         result.errors.add(rowError(excelRowNumber, "Не указаны плановые часы (год или по семестрам)", row));
+                        continue;
+                    }
+
+                    // МАКСИМУМ 36 ЧАСОВ В НЕДЕЛЮ НА ОДНУ ДИСЦИПЛИНУ У ОДНОГО ПРЕПОДАВАТЕЛЯ
+                    // (18 пар — больше физически не размещается в недельном расписании).
+                    // Проверяем и явно указанное "часов в неделю", и то, что получится при
+                    // пересчёте из "часов за год" (÷36 недель) — именно так в файл ранее
+                    // попадали нереалистичные годовые часы (17784, 16000, 3000 и т.п.),
+                    // и генератор расписания потом просто не мог их разместить.
+                    double effectiveHoursPerWeek = parsed.hoursPerWeek != null
+                            ? parsed.hoursPerWeek
+                            : (parsed.totalHours != null ? parsed.totalHours / 36.0 : 0);
+                    if (effectiveHoursPerWeek > 36) {
+                        result.errors.add(rowError(excelRowNumber, String.format(
+                                "Слишком много часов в неделю на одну дисциплину: %.1f ч (максимум 36 ч/нед = 18 пар). " +
+                                        "Проверьте колонку \"Часов за год\"/\"Часов в неделю\" — похоже, туда попало " +
+                                        "суммарное/годовое число вместо недельной нагрузки", effectiveHoursPerWeek), row));
                         continue;
                     }
 

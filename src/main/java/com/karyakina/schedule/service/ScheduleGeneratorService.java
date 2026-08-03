@@ -101,6 +101,59 @@ public class ScheduleGeneratorService {
         List<String> conflicts = new ArrayList<>(assignment.conflicts);
         int unresolvedLoads = 0;
 
+        // ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА ВМЕСТИМОСТИ — до попытки размещения. Раньше о
+        // нехватке слотов узнавали только постфактум, по десяткам одинаковых "не
+        // удалось разместить пару N/18" на каждую нагрузку. Здесь заранее прикидываем
+        // (по данным ДО этого прогона — без учёта других нагрузок, которые будут
+        // размещаться в этом же прогоне, поэтому оценка оптимистичная), хватит ли
+        // вообще физически свободных слотов у группы и у преподавателя, и если нет —
+        // выводим одно ясное предупреждение НАВЕРХУ отчёта вместо стены конфликтов.
+        List<String> capacityWarnings = new ArrayList<>();
+
+        // ДУБЛИКАТЫ НАГРУЗКИ: если одна и та же тройка преподаватель+дисциплина+группа
+        // встречается НЕСКОЛЬКИМИ записями (например, с разными часами — 1200ч и
+        // 17784ч), они конкурируют за одни и те же слоты и почти гарантированно дают
+        // "не удалось разместить". Это не лечится автосоставлением — записи нужно
+        // вручную свести/удалить лишние в таблице нагрузок.
+        Map<String, List<TeacherLoad>> byTriple = new HashMap<>();
+        for (TeacherLoad load : allLoads) {
+            String key = (load.getTeacher() != null ? load.getTeacher().getId() : "auto") + "|"
+                    + load.getDiscipline().getId() + "|" + load.getGroup().getId();
+            byTriple.computeIfAbsent(key, k -> new ArrayList<>()).add(load);
+        }
+        for (List<TeacherLoad> group : byTriple.values()) {
+            if (group.size() <= 1) continue;
+            TeacherLoad first = group.get(0);
+            String hoursList = group.stream()
+                    .map(l -> String.valueOf(l.getPlannedHours() != null ? l.getPlannedHours() : 0))
+                    .reduce((a, b) -> a + ", " + b).orElse("");
+            capacityWarnings.add(String.format(
+                    "Дубликат нагрузки: %s / %s / группа %s — найдено %d одинаковых записей с планом " +
+                    "часов (%s) — они будут конкурировать за одни и те же слоты. Удалите лишние вручную " +
+                    "в таблице нагрузок, оставив одну верную запись",
+                    first.getTeacher() != null ? first.getTeacher().getFullName() : "преподаватель не назначен",
+                    first.getDiscipline().getName(), first.getGroup().getName(), group.size(), hoursList));
+        }
+
+        for (TeacherLoad load : toSchedule) {
+            Teacher teacher = effectiveTeacher(load, assignment);
+            if (teacher == null) continue;
+            int needed = sessionsPerWeek(load);
+            int groupFree = countFreeGroupSlots(load.getGroup(), state);
+            int teacherFree = countFreeTeacherSlots(teacher, state);
+            int feasible = Math.min(groupFree, teacherFree);
+            if (needed > feasible) {
+                capacityWarnings.add(String.format(
+                        "%s / %s / группа %s: по плану нужно %d пар/нед, а ориентировочно физически " +
+                        "доступно максимум %d (свободно у группы: %d слотов с учётом обеда, у " +
+                        "преподавателя: %d слотов с учётом остальной нагрузки). Проверьте часы в файле " +
+                        "импорта (пункт про 36 ч/нед на дисциплину) либо перераспределите нагрузку между " +
+                        "преподавателями",
+                        teacher.getFullName(), load.getDiscipline().getName(), load.getGroup().getName(),
+                        needed, feasible, groupFree, teacherFree));
+            }
+        }
+
         for (TeacherLoad load : toSchedule) {
             Teacher teacher = effectiveTeacher(load, assignment);
             if (teacher == null) {
@@ -113,6 +166,7 @@ public class ScheduleGeneratorService {
             int needed = sessionsPerWeek(load);
             int placedForLoad = 0;
 
+            int failedForLoad = 0;
             for (int session = 0; session < needed; session++) {
                 Placement best = findBestPlacement(load, teacher, state);
                 if (best != null) {
@@ -129,12 +183,20 @@ public class ScheduleGeneratorService {
                     created.add(schedule);
                     placedForLoad++;
                 } else {
-                    conflicts.add(String.format(
-                            "Не удалось разместить пару %d/%d: %s, %s, группа %s — нет свободных слотов " +
-                            "без нарушения ограничений",
-                            session + 1, needed, teacher.getFullName(),
-                            load.getDiscipline().getName(), load.getGroup().getName()));
+                    failedForLoad++;
                 }
+            }
+            // ОДНО сообщение на нагрузку вместо строки на каждую непоставленную пару —
+            // раньше при нехватке слотов на 18 пар в неделю список конфликтов заполнялся
+            // 18 практически одинаковыми строками ("пара 1/18", "пара 2/18", ...), из-за
+            // чего отчёт был нечитаемым (сотни строк). Сама причина уже видна из
+            // "Предварительной проверки вместимости" выше (см. capacityWarnings).
+            if (failedForLoad > 0) {
+                conflicts.add(String.format(
+                        "Не удалось разместить %d из %d пар: %s, %s, группа %s — нет свободных слотов " +
+                        "без нарушения ограничений (обед, занятость преподавателя/группы, максимум пар в день)",
+                        failedForLoad, needed, teacher.getFullName(),
+                        load.getDiscipline().getName(), load.getGroup().getName()));
             }
 
             if (placedForLoad < needed) {
@@ -227,6 +289,7 @@ public class ScheduleGeneratorService {
                 .placedLessons(created.size())
                 .unresolvedLoads(unresolvedLoads)
                 .createdSchedules(created)
+                .capacityWarnings(capacityWarnings)
                 .conflicts(conflicts)
                 .build();
     }
@@ -262,6 +325,34 @@ public class ScheduleGeneratorService {
             return new LocalTime[]{group.getLunchStart(), group.getLunchEnd()};
         }
         return settingsService.getGlobalLunchWindow();
+    }
+
+    /** Свободных слотов у группы за неделю (без учёта обеда и уже занятых слотов). */
+    private int countFreeGroupSlots(StudyGroup group, State state) {
+        int free = 0;
+        for (int dayIdx = 0; dayIdx < WORK_DAYS.length; dayIdx++) {
+            for (int slotIdx = 0; slotIdx < TIME_SLOTS.length; slotIdx++) {
+                if (slotOverlapsLunch(group, slotIdx)) continue;
+                if (state.isGroupBusy(group.getId(), dayIdx, slotIdx)) continue;
+                free++;
+            }
+        }
+        return free;
+    }
+
+    /** Свободных слотов у преподавателя за неделю (с учётом максимума пар в день). */
+    private int countFreeTeacherSlots(Teacher teacher, State state) {
+        int maxPerDay = teacher.getMaxPairsPerDay() != null ? teacher.getMaxPairsPerDay() : DEFAULT_MAX_PAIRS_PER_DAY;
+        int free = 0;
+        for (int dayIdx = 0; dayIdx < WORK_DAYS.length; dayIdx++) {
+            int dailyFree = 0;
+            for (int slotIdx = 0; slotIdx < TIME_SLOTS.length && dailyFree < maxPerDay; slotIdx++) {
+                if (state.isTeacherBusy(teacher.getId(), dayIdx, slotIdx)) continue;
+                dailyFree++;
+            }
+            free += dailyFree;
+        }
+        return free;
     }
 
     private Placement findBestPlacement(TeacherLoad load, Teacher teacher, State state) {
@@ -377,12 +468,23 @@ public class ScheduleGeneratorService {
         return 0;
     }
 
+    /** Максимум часов в неделю на одну дисциплину у одного преподавателя (18 пар = 36ч). */
+    private static final int MAX_HOURS_PER_WEEK_PER_LOAD = 36;
+
     private int sessionsPerWeek(TeacherLoad load) {
+        double hoursPerWeek;
         if (load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
-            return Math.max(1, (int) Math.round(load.getHoursPerWeek() / 2.0));
+            hoursPerWeek = load.getHoursPerWeek();
+        } else {
+            int planned = load.getPlannedHours() != null ? load.getPlannedHours() : 0;
+            hoursPerWeek = planned / (double) APPROX_WEEKS_PER_YEAR;
         }
-        int planned = load.getPlannedHours() != null ? load.getPlannedHours() : 0;
-        double hoursPerWeek = planned / (double) APPROX_WEEKS_PER_YEAR;
+        // Защита от нереалистичных данных (например, если в "часов за год" по ошибке
+        // попало суммарное/годовое число, а не часы одной дисциплины на одну группу) —
+        // такие значения не должны заставлять генератор пытаться впихнуть 18+ пар
+        // в неделю, где физически нет столько слотов. См. также проверку при импорте
+        // (ImportService), которая должна отсеивать такие строки ещё раньше.
+        hoursPerWeek = Math.min(hoursPerWeek, MAX_HOURS_PER_WEEK_PER_LOAD);
         return Math.max(1, (int) Math.round(hoursPerWeek / 2.0));
     }
 

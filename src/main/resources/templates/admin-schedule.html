@@ -26,6 +26,7 @@
     <div class="card" id="generationResultCard" style="display:none; margin-bottom:1.5rem;">
         <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
         <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
+        <div id="generationCapacityWarnings" style="margin-bottom:0.75rem;"></div>
         <div id="generationConflicts" style="margin-bottom:0.75rem;"></div>
         <div id="generationLessonsWrap" style="margin-bottom:0.75rem; max-height: 420px; overflow-y: auto;">
             <table class="table" style="margin:0;">
@@ -457,6 +458,28 @@ function renderGenerationResult(result, wasApplied) {
         `рассмотрено нагрузок — <b>${result.totalLoadsConsidered}</b>, ` +
         `расставлено пар — <b>${result.placedLessons}</b>, ` +
         `нагрузок с нерешёнными конфликтами — <b>${result.unresolvedLoads}</b>`;
+
+    const capacityWrap = document.getElementById('generationCapacityWarnings');
+    capacityWrap.innerHTML = '';
+    if (result.capacityWarnings && result.capacityWarnings.length) {
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;padding:0.75rem;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight:600;margin-bottom:0.35rem;color:#8a6300';
+        title.textContent = '⚠️ Предварительная проверка перед составлением — есть проблемы с данными (' +
+            result.capacityWarnings.length + '):';
+        box.appendChild(title);
+        const ul = document.createElement('ul');
+        ul.style.cssText = 'margin:0;padding-left:1.25rem;font-size:0.85rem;color:#5c4600';
+        result.capacityWarnings.forEach(c => {
+            const li = document.createElement('li');
+            li.textContent = c;
+            li.style.marginBottom = '0.25rem';
+            ul.appendChild(li);
+        });
+        box.appendChild(ul);
+        capacityWrap.appendChild(box);
+    }
 
     const conflictsWrap = document.getElementById('generationConflicts');
     conflictsWrap.innerHTML = '';

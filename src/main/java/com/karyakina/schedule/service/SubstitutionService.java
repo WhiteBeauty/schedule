@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -34,6 +35,9 @@ public class SubstitutionService {
     private final TeacherRepository teacherRepository;
     private final ScheduleRepository scheduleRepository;
     private final NotificationService notificationService;
+
+    /** Горизонт поиска свободного дня для автопереноса пары (в календарных днях после конца больничного). */
+    private static final int RESCHEDULE_SEARCH_HORIZON_DAYS = 21;
 
     /**
      * Точка входа: больничный/форс-мажор зарегистрирован.
@@ -92,14 +96,7 @@ public class SubstitutionService {
         List<Candidate> candidates = findCandidates(instance, excludeTeacherIds);
 
         if (candidates.isEmpty()) {
-            notificationService.notifyAdmins(
-                    Notification.Type.SUBSTITUTION_UNRESOLVED,
-                    "Не найдена замена на " + instance.getLessonDate(),
-                    "Занятие: " + instance.getSchedule().getTeacherLoad().getDiscipline().getName()
-                            + ", группа " + instance.getSchedule().getTeacherLoad().getGroup().getName()
-                            + ", преподаватель " + instance.getOriginalTeacher().getFullName()
-                            + " отсутствует (" + sickLeave.getReason() + "), кандидаты на замену не найдены.",
-                    null);
+            resolveOrReportConflict(instance, sickLeave);
             return;
         }
 
@@ -163,14 +160,7 @@ public class SubstitutionService {
         List<Candidate> candidates = findCandidates(instance, excludeTeacherIds);
 
         if (candidates.isEmpty()) {
-            notificationService.notifyAdmins(
-                    Notification.Type.SUBSTITUTION_UNRESOLVED,
-                    "Не найдена замена на " + instance.getLessonDate(),
-                    "Занятие: " + instance.getSchedule().getTeacherLoad().getDiscipline().getName()
-                            + ", группа " + instance.getSchedule().getTeacherLoad().getGroup().getName()
-                            + ", преподаватель " + instance.getOriginalTeacher().getFullName()
-                            + " отсутствует (" + sickLeave.getReason() + "), кандидаты на замену не найдены.",
-                    null);
+            resolveOrReportConflict(instance, sickLeave);
             return;
         }
 
@@ -292,6 +282,129 @@ public class SubstitutionService {
 
     public List<SubstitutionRequest> findAll() {
         return substitutionRequestRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    /**
+     * Замену найти не удалось (findCandidates вернул пустой список). Прежде чем сдаться,
+     * пробуем ПЕРЕНЕСТИ пару на другой свободный день в пределах {@link #RESCHEDULE_SEARCH_HORIZON_DAYS}
+     * дней после окончания больничного — на исходного преподавателя (он к тому моменту уже
+     * здоров), в то же время дня и по возможности в ту же аудиторию. Если это тоже не
+     * получилось — уведомляем администрацию тремя конкретными вариантами действий, каждый
+     * из которых уже реализован как метод сервиса (см. {@link LessonInstanceService}):
+     *   1) отменить занятие              -> LessonInstanceService.cancelInstance(...)
+     *   2) поставить самостоятельную работу -> LessonInstanceService.markIndependentWork(...)
+     *   3) назначить преподавателя вручную  -> LessonInstanceService.replaceInstance(...)
+     * (см. новый LessonInstanceAdminController — эти три действия доступны как REST-эндпоинты).
+     */
+    @Transactional
+    public void resolveOrReportConflict(LessonInstance instance, SickLeave sickLeave) {
+        if (tryRescheduleToFreeDay(instance, sickLeave)) {
+            return;
+        }
+
+        String disc = instance.getSchedule().getTeacherLoad().getDiscipline().getName();
+        String group = instance.getSchedule().getTeacherLoad().getGroup().getName();
+        String when = instance.getLessonDate() + " "
+                + instance.getSchedule().getStartTime() + "-" + instance.getSchedule().getEndTime();
+
+        notificationService.notifyAdmins(
+                Notification.Type.SUBSTITUTION_UNRESOLVED,
+                "Не удалось заменить преподавателя на " + instance.getLessonDate(),
+                "Не удалось заменить преподавателя " + instance.getOriginalTeacher().getFullName()
+                        + " на паре " + when + " (" + disc + ", группа " + group + "): "
+                        + "нет доступного преподавателя этой дисциплины и не нашлось свободного дня "
+                        + "для переноса в ближайшие " + RESCHEDULE_SEARCH_HORIZON_DAYS + " дней. "
+                        + "Варианты действий: 1) отменить занятие; 2) назначить группе самостоятельную работу; "
+                        + "3) назначить конкретного преподавателя вручную (администратор указывает, кого именно).",
+                null);
+    }
+
+    /**
+     * Ищет свободный день (группа, преподаватель и аудитория свободны) в том же временном
+     * слоте, что и исходная пара, начиная со дня, следующего за концом больничного. При
+     * успехе создаёт одноразовую запись {@link Schedule} (academicWeek = конкретная неделя,
+     * а не "каждую неделю"), генерирует по ней занятие на найденную дату и отменяет исходное
+     * (PLANNED) занятие с пометкой о переносе. Преподаватель НЕ меняется — переносится время.
+     *
+     * Упрощение: если аудитория исходной пары в подходящий день занята — просто переходим
+     * к следующему дню, а не подбираем другую аудиторию (полный подбор аудиторий — в
+     * ScheduleGeneratorService; дублировать его здесь ради редкого краевого случая избыточно).
+     */
+    private boolean tryRescheduleToFreeDay(LessonInstance instance, SickLeave sickLeave) {
+        Schedule originalSchedule = instance.getSchedule();
+        var load = originalSchedule.getTeacherLoad();
+        Teacher originalTeacher = instance.getOriginalTeacher();
+        Integer academicYear = instance.getAcademicYear();
+        String classroom = originalSchedule.getClassroom();
+
+        LocalDate searchFrom = sickLeave.getEndDate().plusDays(1);
+        LocalDate searchUntil = searchFrom.plusDays(RESCHEDULE_SEARCH_HORIZON_DAYS);
+
+        for (LocalDate date = searchFrom; !date.isAfter(searchUntil); date = date.plusDays(1)) {
+            if (date.getDayOfWeek() == DayOfWeek.SUNDAY) continue;
+            if (date.equals(instance.getLessonDate())) continue;
+
+            // Идемпотентно материализуем занятия этого дня (как это уже делает
+            // handleNewSickLeave), чтобы честно проверить занятость по факту, а не по шаблону.
+            List<LessonInstance> dayInstances = lessonInstanceService.generateInstancesForDate(date, academicYear);
+
+            boolean groupBusy = dayInstances.stream()
+                    .filter(li -> li.getStatus() != LessonInstance.Status.CANCELLED)
+                    .filter(li -> !li.getId().equals(instance.getId()))
+                    .anyMatch(li -> li.getSchedule().getTeacherLoad().getGroup().getId().equals(load.getGroup().getId())
+                            && timeOverlap(li.getSchedule().getStartTime(), li.getSchedule().getEndTime(),
+                                    originalSchedule.getStartTime(), originalSchedule.getEndTime()));
+            if (groupBusy) continue;
+
+            boolean teacherBusy = dayInstances.stream()
+                    .filter(li -> li.getStatus() != LessonInstance.Status.CANCELLED)
+                    .filter(li -> !li.getId().equals(instance.getId()))
+                    .anyMatch(li -> li.getActualTeacher().getId().equals(originalTeacher.getId())
+                            && timeOverlap(li.getSchedule().getStartTime(), li.getSchedule().getEndTime(),
+                                    originalSchedule.getStartTime(), originalSchedule.getEndTime()));
+            if (teacherBusy) continue;
+
+            boolean roomBusy = classroom != null && dayInstances.stream()
+                    .filter(li -> li.getStatus() != LessonInstance.Status.CANCELLED)
+                    .filter(li -> !li.getId().equals(instance.getId()))
+                    .anyMatch(li -> classroom.equals(li.getSchedule().getClassroom())
+                            && timeOverlap(li.getSchedule().getStartTime(), li.getSchedule().getEndTime(),
+                                    originalSchedule.getStartTime(), originalSchedule.getEndTime()));
+            if (roomBusy) continue;
+
+            int targetWeek = lessonInstanceService.computeAcademicWeek(date, academicYear);
+            Schedule makeup = Schedule.builder()
+                    .teacherLoad(load)
+                    .dayOfWeek(date.getDayOfWeek())
+                    .startTime(originalSchedule.getStartTime())
+                    .endTime(originalSchedule.getEndTime())
+                    .classroom(classroom)
+                    .academicWeek(targetWeek) // только эта конкретная неделя, не "каждую неделю"
+                    .academicYear(academicYear)
+                    .build();
+            scheduleRepository.save(makeup);
+            lessonInstanceService.generateInstancesForDate(date, academicYear);
+
+            lessonInstanceService.cancelInstance(instance.getId(),
+                    "Перенесено на " + date + " в связи с отсутствием преподавателя ("
+                            + (sickLeave.getReason() != null ? sickLeave.getReason() : "больничный") + ")",
+                    "system:auto-reschedule");
+
+            String msg = "Пара перенесена: " + load.getDiscipline().getName() + ", группа " + load.getGroup().getName()
+                    + ". Было: " + instance.getLessonDate() + " " + originalSchedule.getStartTime()
+                    + "-" + originalSchedule.getEndTime()
+                    + ". Стало: " + date + " " + originalSchedule.getStartTime() + "-" + originalSchedule.getEndTime()
+                    + (classroom != null ? ", ауд. " + classroom : "") + ". Преподаватель не меняется: "
+                    + originalTeacher.getFullName() + ".";
+
+            notificationService.notifyTeacher(originalTeacher, Notification.Type.SCHEDULE_CHANGED,
+                    "Ваша пара перенесена на " + date, msg, null);
+            notificationService.notifyAdmins(Notification.Type.SCHEDULE_CHANGED,
+                    "Пара перенесена (автоматически): " + date, msg, null);
+
+            return true;
+        }
+        return false;
     }
 
     private static class Candidate {

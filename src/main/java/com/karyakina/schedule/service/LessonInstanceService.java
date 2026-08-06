@@ -122,6 +122,30 @@ public class LessonInstanceService {
     }
 
     /**
+     * Пара не проводится очно — группе назначается самостоятельная работа (форс-мажор,
+     * когда ни замену, ни перенос на другой день найти не удалось). Как и при отмене,
+     * ранее начисленные часы (если пара уже была CONFIRMED/REPLACED) вычитаются обратно —
+     * фактически занятие не состоялось в обычном формате.
+     */
+    @Transactional
+    public LessonInstance markIndependentWork(Long instanceId, String note, String changedBy) {
+        LessonInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
+
+        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
+                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+            subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
+                    "Переведено в самостоятельную работу от " + instance.getLessonDate()
+                            + (note != null ? ": " + note : ""), changedBy);
+        }
+
+        instance.setStatus(LessonInstance.Status.INDEPENDENT_WORK);
+        instance.setCancelledAt(LocalDateTime.now());
+        instance.setNote(note != null ? note : "Самостоятельная работа");
+        return instanceRepository.save(instance);
+    }
+
+    /**
      * Замена преподавателя на конкретном занятии (форс-мажор). Часы автоматически
      * переносятся: списываются у исходного (если были начислены) и начисляются
      * заменяющему преподавателю. Если у заменяющего нет собственной плановой нагрузки

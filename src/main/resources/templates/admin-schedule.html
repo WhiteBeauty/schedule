@@ -50,9 +50,10 @@
         <div class="filters">
             <label>Учебный год:
                 <select id="yearSelect" onchange="loadSchedule()">
-                    <option value="2026" selected>2026</option>
-                    <option value="2027">2027</option>
-                    <option value="2028">2028</option>
+                    <option th:each="y : ${#numbers.sequence(year - 1, year + 3)}"
+                            th:value="${y}"
+                            th:text="${y}"
+                            th:selected="${y == year}"></option>
                 </select>
             </label>
             <button class="btn btn-sm btn-outline" onclick="loadSchedule()">🔄 Обновить</button>

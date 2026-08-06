@@ -425,6 +425,17 @@ public class ScheduleGeneratorService {
 
         score += roomFitScore(load.getGroup(), classroom);
 
+        // ЗАЩИТА ОТ ПЕРЕУТОМЛЕНИЯ: у одной группы не должно стоять 2 одинаковые пары
+        // подряд с одним и тем же преподавателем (например, 4 часа подряд одного и того
+        // же "Программирования"). Это не жёсткий запрет (при явной нехватке слотов лучше
+        // всё-таки расставить нагрузку, чем оставить её вовсе непоставленной), а очень
+        // сильный штраф — такой вариант выбирается только если все остальные варианты
+        // для этой пары исчерпаны/хуже.
+        if (state.groupSlotHasSameAdjacent(load.getGroup().getId(), dayIdx, slotIdx,
+                load.getDiscipline().getId(), teacherId)) {
+            score -= 1000;
+        }
+
         return score;
     }
 
@@ -559,6 +570,15 @@ public class ScheduleGeneratorService {
         final Map<String, boolean[][]> roomBusy = new HashMap<>();
         final Map<Long, int[]> teacherDailyCount = new HashMap<>();
 
+        /**
+         * ЗАЩИТА ОТ ПЕРЕУТОМЛЕНИЯ: для каждой группы храним, какая пара (дисциплина+
+         * преподаватель) стоит в каждом слоте недели. Используется в scorePlacement,
+         * чтобы штрафовать (не запрещать намертво — иначе при нехватке слотов нагрузка
+         * рискует остаться нерасставленной) постановку одной и той же пары ДВА раза
+         * подряд у одной группы — см. groupSlotHasSame(...).
+         */
+        final Map<Long, Object[][]> groupSlotContent = new HashMap<>();
+
         void markBusy(Schedule s, Long teacherId) {
             int dayIdx = dayIndex(s.getDayOfWeek());
             int slotIdx = slotIndex(s.getStartTime());
@@ -569,6 +589,7 @@ public class ScheduleGeneratorService {
             boolean[][] tBusy = teacherBusy.computeIfAbsent(teacherId, k -> new boolean[WORK_DAYS.length][TIME_SLOTS.length]);
             boolean[][] gBusy = groupBusy.computeIfAbsent(groupId, k -> new boolean[WORK_DAYS.length][TIME_SLOTS.length]);
             int[] daily = teacherDailyCount.computeIfAbsent(teacherId, k -> new int[WORK_DAYS.length]);
+            Object[][] gContent = groupSlotContent.computeIfAbsent(groupId, k -> new Object[WORK_DAYS.length][TIME_SLOTS.length]);
 
             if (slotIdx >= 0) {
                 tBusy[dayIdx][slotIdx] = true;
@@ -577,11 +598,32 @@ public class ScheduleGeneratorService {
                     boolean[][] rBusy = roomBusy.computeIfAbsent(s.getClassroom(), k -> new boolean[WORK_DAYS.length][TIME_SLOTS.length]);
                     rBusy[dayIdx][slotIdx] = true;
                 }
+                Long disciplineId = s.getTeacherLoad().getDiscipline() != null ? s.getTeacherLoad().getDiscipline().getId() : null;
+                gContent[dayIdx][slotIdx] = new Object[]{disciplineId, teacherId};
             } else {
                 Arrays.fill(tBusy[dayIdx], true);
                 Arrays.fill(gBusy[dayIdx], true);
             }
             daily[dayIdx]++;
+        }
+
+        /**
+         * Правда ли, что в соседнем (предыдущем или следующем) слоте ЭТОГО ЖЕ дня у ЭТОЙ
+         * ЖЕ группы уже стоит та же пара (дисциплина+преподаватель) — т.е. постановка
+         * кандидата сюда даст 2 одинаковые пары подряд.
+         */
+        boolean groupSlotHasSameAdjacent(Long groupId, int dayIdx, int slotIdx, Long disciplineId, Long teacherId) {
+            Object[][] content = groupSlotContent.get(groupId);
+            if (content == null || disciplineId == null || teacherId == null) return false;
+            return matches(content, dayIdx, slotIdx - 1, disciplineId, teacherId)
+                    || matches(content, dayIdx, slotIdx + 1, disciplineId, teacherId);
+        }
+
+        private boolean matches(Object[][] content, int dayIdx, int slotIdx, Long disciplineId, Long teacherId) {
+            if (slotIdx < 0 || slotIdx >= TIME_SLOTS.length) return false;
+            Object cell = content[dayIdx][slotIdx];
+            if (!(cell instanceof Object[] pair)) return false;
+            return disciplineId.equals(pair[0]) && teacherId.equals(pair[1]);
         }
 
         boolean isTeacherBusy(Long teacherId, int day, int slot) {

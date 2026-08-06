@@ -215,16 +215,19 @@ public class ImportPersistenceService {
             return null;
         }
 
-        // Нет явного решения — прежнее поведение: точный поиск по ФИО, иначе создать нового
-        return teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
-                .orElseGet(() -> {
-                    result.createdTeachers++;
-                    Teacher t = Teacher.builder()
-                            .fullName(row.teacherName.trim())
-                            .department(row.department)
-                            .build();
-                    return teacherRepository.save(t);
-                });
+        // Нет явного решения — прежнее поведение: точный поиск по ФИО, иначе создать нового.
+        // Берём первого из найденных: в базе могут быть дубликаты по ФИО (без уникального
+        // ограничения), и getSingleResult выбрасывает NonUniqueResultException.
+        List<Teacher> existing = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        result.createdTeachers++;
+        Teacher t = Teacher.builder()
+                .fullName(row.teacherName.trim())
+                .department(row.department)
+                .build();
+        return teacherRepository.save(t);
     }
 
     /** Аналог resolveTeacherForRow для простого импорта (без экрана предпросмотра/решений). */
@@ -232,15 +235,16 @@ public class ImportPersistenceService {
         if (isBlank(row.teacherName)) {
             return null;
         }
-        return teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim())
-                .orElseGet(() -> {
-                    result.createdTeachers++;
-                    Teacher t = Teacher.builder()
-                            .fullName(row.teacherName.trim())
-                            .department(row.department)
-                            .build();
-                    return teacherRepository.save(t);
-                });
+        List<Teacher> existing = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        result.createdTeachers++;
+        Teacher t = Teacher.builder()
+                .fullName(row.teacherName.trim())
+                .department(row.department)
+                .build();
+        return teacherRepository.save(t);
     }
 
     private boolean isBlank(String s) {
@@ -264,8 +268,9 @@ public class ImportPersistenceService {
             String disciplinesCsv = entry.getValue();
             if (isBlank(teacherName) || isBlank(disciplinesCsv)) continue;
 
-            Teacher teacher = teacherRepository.findByFullNameIgnoreCase(teacherName.trim()).orElse(null);
-            if (teacher == null) continue;
+            List<Teacher> teachers = teacherRepository.findByFullNameIgnoreCase(teacherName.trim());
+            if (teachers.isEmpty()) continue;
+            Teacher teacher = teachers.get(0);
 
             java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
             if (teacher.getSpecialization() != null && !teacher.getSpecialization().isBlank()) {

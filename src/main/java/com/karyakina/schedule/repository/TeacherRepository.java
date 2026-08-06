@@ -19,7 +19,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
     @EntityGraph(attributePaths = {"user"})
     Optional<Teacher> findByUserId(Long userId);
 
-    Optional<Teacher> findByFullNameIgnoreCase(String fullName);
+    List<Teacher> findByFullNameIgnoreCase(String fullName);
 
     @EntityGraph(attributePaths = {"loads", "loads.discipline"})
     List<Teacher> findByDepartment(String department);

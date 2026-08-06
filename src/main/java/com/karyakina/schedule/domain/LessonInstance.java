@@ -14,10 +14,12 @@ import java.time.LocalDateTime;
  * начисляются фактические часы (actual_hours / readHours у {@link TeacherLoad}).
  *
  * Жизненный цикл:
- *  PLANNED   — пара стоит в расписании, ещё не наступила/не подтверждена;
- *  CONFIRMED — пара проведена, часы начислены преподавателю из teacherLoad;
- *  CANCELLED — пара отменена (например, болел преподаватель, замену не нашли);
- *  REPLACED  — пара проведена другим преподавателем (см. originalTeacher/teacher).
+ *  PLANNED           — пара стоит в расписании, ещё не наступила/не подтверждена;
+ *  CONFIRMED         — пара проведена, часы начислены преподавателю из teacherLoad;
+ *  CANCELLED         — пара отменена (например, болел преподаватель, замену не нашли);
+ *  REPLACED          — пара проведена другим преподавателем (см. originalTeacher/teacher);
+ *  INDEPENDENT_WORK  — пара не проведена очно, группе назначена самостоятельная работа
+ *                       (форс-мажор у преподавателя, замену/перенос найти не удалось).
  */
 @Entity
 @Table(name = "lesson_instances", uniqueConstraints = {
@@ -78,6 +80,6 @@ public class LessonInstance {
     private LocalDateTime createdAt;
 
     public enum Status {
-        PLANNED, CONFIRMED, CANCELLED, REPLACED
+        PLANNED, CONFIRMED, CANCELLED, REPLACED, INDEPENDENT_WORK
     }
 }

@@ -23,9 +23,16 @@ import java.util.*;
  * the best-scoring one wins:
  *   +50 discipline matches teacher specialization
  *   +20 even weekly load distribution (penalty for 6-in-a-row day)
- *   +15 minimizes teacher gaps ("windows") that day
+ *   +6  minimizes teacher gaps ("windows") that day (deliberately weak — see below)
  *   +10 matches teacher's preferred day/time
  *   +5  room capacity fit for the group
+ *   -25 this SAME load (teacher+discipline+group) already has a session this weekday
+ *   -8  this SAME load already has a session at this exact time-of-day (another day)
+ * The last two exist so that a discipline needing 2+ sessions/week doesn't land on the
+ * same time slot on consecutive days ("под копирку" — Monday and Tuesday identical) and
+ * so a teacher's whole load doesn't collapse onto the first 2 days of the week (the old
+ * +15 gap-minimizing bonus used to dominate the day-balance score and caused exactly
+ * that; it's now +6, weak enough that balanceBonus actually drives day spread again).
  * Hard constraints (never violated): teacher/group double-booking, max pairs/day,
  * planned-hours overrun without an "overload" flag is flagged as a conflict, not blocked.
  */
@@ -414,7 +421,28 @@ public class ScheduleGeneratorService {
         }
 
         if (state.isAdjacentToExisting(teacherId, dayIdx, slotIdx)) {
-            score += 15;
+            // Раньше было +15 — этот бонус ("не оставлять преподавателю окна в течение
+            // дня") перевешивал разницу в баллах между "плотный день" и "новый пустой
+            // день" (см. balanceBonus ниже, шаг ~4 балла), из-за чего вся нагрузка
+            // преподавателя стягивалась в первые 2 дня недели, а остальные дни
+            // оставались пустыми. Снижен до +6, чтобы balanceBonus снова реально
+            // управлял распределением по дням, а не игнорировался.
+            score += 6;
+        }
+
+        // РАЗНООБРАЗИЕ ПО ДНЯМ ДЛЯ ОДНОЙ И ТОЙ ЖЕ НАГРУЗКИ: если у этой же тройки
+        // преподаватель+дисциплина+группа уже стоит пара в этот день недели — сильно
+        // штрафуем повторную постановку сюда же. Именно это раньше давало "под копирку"
+        // расписание (математика в 8:30 и в понедельник, и во вторник) — генератор без
+        // разбора выбирал день с лучшим локальным баллом, а другие сессии ТОЙ ЖЕ
+        // нагрузки не знали, что этот день уже занят их "родственной" парой.
+        if (state.loadUsedDay(load.getId(), dayIdx)) {
+            score -= 25;
+        }
+        // Слабее штрафуем повтор того же номера пары (времени дня) в другой день —
+        // чтобы у той же нагрузки не всегда была ровно одна и та же позиция в расписании.
+        if (state.loadUsedSlot(load.getId(), slotIdx)) {
+            score -= 8;
         }
 
         if (preferredDays.contains(dayIdx) && preferredSlots.contains(slotIdx)) {
@@ -579,10 +607,23 @@ public class ScheduleGeneratorService {
          */
         final Map<Long, Object[][]> groupSlotContent = new HashMap<>();
 
+        /**
+         * СПРЕД ПО НЕДЕЛЕ: для каждой нагрузки (TeacherLoad — конкретная пара
+         * преподаватель+дисциплина+группа) храним, какие дни недели и какие номера пар
+         * уже заняты ЭТОЙ ЖЕ нагрузкой. Без этого сессии одной нагрузки (например, 2
+         * пары "Высшей математики" в неделю) склонны вставать в один и тот же час на
+         * СОСЕДНИХ днях (пн 8:30 + вт 8:30) — расписание выглядит как "под копирку".
+         * Используется в scorePlacement, чтобы предпочитать для 2-й и последующих
+         * сессий той же нагрузки ДРУГОЙ день недели (и по возможности другое время).
+         */
+        final Map<Long, boolean[]> loadDaysUsed = new HashMap<>();
+        final Map<Long, boolean[]> loadSlotsUsed = new HashMap<>();
+
         void markBusy(Schedule s, Long teacherId) {
             int dayIdx = dayIndex(s.getDayOfWeek());
             int slotIdx = slotIndex(s.getStartTime());
             Long groupId = s.getTeacherLoad().getGroup().getId();
+            Long loadId = s.getTeacherLoad().getId();
 
             if (dayIdx < 0) return;
 
@@ -600,11 +641,30 @@ public class ScheduleGeneratorService {
                 }
                 Long disciplineId = s.getTeacherLoad().getDiscipline() != null ? s.getTeacherLoad().getDiscipline().getId() : null;
                 gContent[dayIdx][slotIdx] = new Object[]{disciplineId, teacherId};
+
+                if (loadId != null) {
+                    boolean[] daysUsed = loadDaysUsed.computeIfAbsent(loadId, k -> new boolean[WORK_DAYS.length]);
+                    boolean[] slotsUsed = loadSlotsUsed.computeIfAbsent(loadId, k -> new boolean[TIME_SLOTS.length]);
+                    daysUsed[dayIdx] = true;
+                    slotsUsed[slotIdx] = true;
+                }
             } else {
                 Arrays.fill(tBusy[dayIdx], true);
                 Arrays.fill(gBusy[dayIdx], true);
             }
             daily[dayIdx]++;
+        }
+
+        /** Уже стоит ли у ЭТОЙ ЖЕ нагрузки (той же тройки преподаватель+дисциплина+группа) пара в этот день недели. */
+        boolean loadUsedDay(Long loadId, int dayIdx) {
+            boolean[] arr = loadDaysUsed.get(loadId);
+            return arr != null && arr[dayIdx];
+        }
+
+        /** Уже стоит ли у ЭТОЙ ЖЕ нагрузки пара в это же время дня (независимо от дня недели). */
+        boolean loadUsedSlot(Long loadId, int slotIdx) {
+            boolean[] arr = loadSlotsUsed.get(loadId);
+            return arr != null && arr[slotIdx];
         }
 
         /**

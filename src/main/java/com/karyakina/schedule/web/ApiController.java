@@ -52,6 +52,7 @@ public class ApiController {
     private final NotificationService notificationService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
     private final LoadBalanceService loadBalanceService;
+    private final SickLeaveReschedulingService sickLeaveReschedulingService;
 
     private String adminDisplayName(User user) {
         String first = user.getFirstName();
@@ -1455,6 +1456,16 @@ public class ApiController {
                 } catch (Exception notifyEx) {
                     notifyEx.printStackTrace();
                 }
+            }
+
+            // МОДУЛЬ АВТОСОСТАВЛЕНИЯ: структурированный переезд/замена пар за период больничного
+            // (не заменяет substitutionService выше, а дополняет его результатом с диагностикой
+            // для тех пар, где обычный подбор замены не сработал)
+            try {
+                sickLeaveReschedulingService.handleTeacherSickLeave(
+                        saved.getTeacher().getId(), saved.getStartDate(), saved.getEndDate());
+            } catch (Exception ex) {
+                ex.printStackTrace();
             }
 
             return ResponseEntity.ok(saved);

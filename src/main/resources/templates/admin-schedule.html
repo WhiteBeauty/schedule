@@ -15,14 +15,16 @@
         <div style="display:flex;gap:0.5rem">
             <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
             <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
-            <button class="btn btn-outline" onclick="generateSchedule(false)">🧮 Автосоставление (черновик)</button>
+            <button class="btn btn-outline" id="genRunBtn" type="button">🧮 Автосоставление</button>
             <button class="btn btn-outline" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">🧹 Разбить слитные группы/дисциплины</button>
             <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
         </div>
     </div>
 
-    <!-- Результат автосоставления расписания -->
+    <div th:replace="~{fragments/generation-modal :: panel}"></div>
+
+    <!-- Результат автосоставления расписания (устаревший блок, оставлен для совместимости) -->
     <div class="card" id="generationResultCard" style="display:none; margin-bottom:1.5rem;">
         <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
         <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
@@ -1041,5 +1043,7 @@ function escapeHtml(s) {
     return div.innerHTML;
 }
 </script>
+<div th:replace="~{fragments/generation-modal :: modal}"></div>
+<script src="/js/schedule-generation.js"></script>
 </body>
 </html>

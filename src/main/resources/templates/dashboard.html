@@ -387,7 +387,7 @@
         const teacherModal = document.getElementById('teacherModal');
         const closeModal = document.getElementById('closeModal');
         const closeModalFooter = document.getElementById('closeModalFooter');
-        const defaultAcademicYear = window.defaultAcademicYear || 2026;
+        const defaultAcademicYear = window.defaultAcademicYear || new Date().getFullYear();
 
         teacherCard?.addEventListener('click', () => {
             teacherModal.classList.add('active');
@@ -558,7 +558,7 @@
         });
 
         function viewAdminTeacher(id) {
-            const year = 2026;
+            const year = defaultAcademicYear;
             fetch(`/api/teachers/${id}/profile?year=${year}`)
                 .then(r => r.json())
                 .then(p => {
@@ -587,7 +587,7 @@
                                         <tr><td><strong>Телефон:</strong></td><td>${p.phone || '-'}</td></tr>
                                         <tr><td><strong>Ставка:</strong></td><td>${p.rate || '-'} ставки</td></tr>
                                     </table>
-                    <h4>Нагрузка на <span th:text="${year}">2026</span> год</h4>
+                    <h4>Нагрузка на ${year} год</h4>
                                     <table style="font-size: 0.85rem;">
                                         <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
                                         <tbody>${loadsHtml}</tbody>

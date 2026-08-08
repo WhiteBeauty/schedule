@@ -99,6 +99,7 @@
 <script th:inline="javascript">
 /*<![CDATA[*/
 const isAdmin = /*[[${isAdmin}]]*/ false;
+const defaultYear = /*[[${defaultYear}]]*/ 2025;
 
 document.addEventListener('DOMContentLoaded', () => {
     if (isAdmin) {
@@ -128,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openProfile(id) {
-    fetch(`/api/teachers/${id}/profile?year=2026`)
+    fetch(`/api/teachers/${id}/profile?year=${defaultYear}`)
         .then(r => r.json())
         .then(p => {
             const body = document.getElementById('profileBody');

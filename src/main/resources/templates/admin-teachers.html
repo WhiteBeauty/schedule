@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Все преподаватели - Администратор</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:inline="javascript">
+        /*<![CDATA[*/
+        window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
+        /*]]>*/
+    </script>
     <style>
         .teacher-card {
             display: flex;
@@ -150,7 +155,7 @@
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Учебный год *</label>
-                    <input type="number" id="addLoadYear" value="2026" min="2026" max="2030" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    <input type="number" id="addLoadYear" th:value="${year}" th:min="${year}" th:max="${year + 4}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
                 </div>
             </div>
             <div class="modal-footer">
@@ -284,7 +289,7 @@
         function viewTeacher(id) {
             currentTeacherId = id;
             isEditMode = false;
-            const year = 2026;
+            const year = window.DEFAULT_ACADEMIC_YEAR;
 
             Promise.all([
                 fetch(`/api/teachers/${id}`).then(r => r.json()),
@@ -332,7 +337,7 @@
                     <h4 style="margin: 1.5rem 0 0.75rem;">Кураторство</h4>
                     ${curatorshipHtml}
 
-                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на <span th:text="${year}">2026</span> год</h4>
+                    <h4 style="margin: 1.5rem 0 0.75rem;">Нагрузка на ${year} год</h4>
                     <table style="font-size: 0.85rem;">
                         <thead>
                             <tr>
@@ -669,7 +674,7 @@
         }
 
         function approveHours(teacherId) {
-            const year = 2026;
+            const year = window.DEFAULT_ACADEMIC_YEAR;
             fetch(`/api/teachers/${teacherId}/profile?year=${year}`)
                 .then(r => r.json())
                 .then(profile => {

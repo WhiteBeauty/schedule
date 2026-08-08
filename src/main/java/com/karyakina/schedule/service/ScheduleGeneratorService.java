@@ -12,6 +12,7 @@ import com.karyakina.schedule.dto.PlannedLessonDto;
 import com.karyakina.schedule.dto.ResolutionDecision;
 import com.karyakina.schedule.dto.ScheduleGenerationResultDto;
 import com.karyakina.schedule.repository.ScheduleRepository;
+import com.karyakina.schedule.repository.ClassroomRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
@@ -69,6 +70,7 @@ public class ScheduleGeneratorService {
 
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
+    private final ClassroomRepository classroomRepository;
     private final TeacherRepository teacherRepository;
     private final TeacherAssignmentService teacherAssignmentService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
@@ -283,7 +285,7 @@ public class ScheduleGeneratorService {
             SolverInput input = new SolverInput(
                     buildGroups(candidates, config, session),
                     buildTeachers(teacherByLoad.values(), config, session),
-                    GenerationGrid.rooms(),
+                    GenerationGrid.rooms(classroomRepository.findAll()),
                     demands,
                     config);
 

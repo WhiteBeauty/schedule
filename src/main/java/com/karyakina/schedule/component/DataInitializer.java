@@ -3,6 +3,7 @@ package com.karyakina.schedule.component;
 import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.repository.*;
 import com.karyakina.schedule.service.MonthlyRecordService;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -167,7 +168,7 @@ public class DataInitializer implements CommandLineRunner {
         Discipline disc6 = Discipline.builder().name("Линейная алгебра").code("MA.201").build();
         disc6 = disciplineRepository.save(disc6);
 
-        Integer academicYear = 2026;
+        Integer academicYear = AcademicYearUtil.getCurrentAcademicYearStart();
 
         // Создаём нагрузки (TeacherLoad)
         List<TeacherLoad> loads = new ArrayList<>();

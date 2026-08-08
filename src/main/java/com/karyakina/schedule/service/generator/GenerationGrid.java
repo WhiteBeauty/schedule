@@ -1,18 +1,25 @@
 package com.karyakina.schedule.service.generator;
 
+import com.karyakina.schedule.domain.Classroom;
+
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Сетка недели: рабочие дни, расписание звонков и фонд аудиторий.
  * Значения совпадают с теми, что использовались в прежней версии генератора,
  * поэтому уже сохранённое расписание корректно ложится в новую сетку.
  *
- * <p>Аудитории пока заданы константой (в модели нет отдельной сущности «аудитория» —
- * {@code Schedule.classroom} это строка). Чтобы завести их в БД, достаточно заменить
- * {@link #rooms()} на чтение из таблицы: остальной код работает с {@link Room}.
+ * <p>Аудитории теперь читаются из БД ({@link #rooms(List)}, см. {@code ClassroomRepository}).
+ * Список {@link #CLASSROOMS} остаётся как резервный набор на случай, если администратор
+ * ещё не завёл ни одной аудитории (пустая таблица) — так демо/новый проект продолжает
+ * работать «из коробки», а после первого импорта аудиторий (лист «Аудитории» в файле
+ * импорта) или ручного добавления автоматически переключается на данные из БД.
  */
 public final class GenerationGrid {
 
@@ -40,8 +47,31 @@ public final class GenerationGrid {
             {"Актовый зал", "120"}, {"Лаб. 1", "15"}, {"Лаб. 2", "15"},
     };
 
-    /** Аудитория: название (оно же значение {@code Schedule.classroom}) и вместимость. */
-    public record Room(String name, int capacity) {
+    /**
+     * Аудитория: название (оно же значение {@code Schedule.classroom}), вместимость
+     * и, опционально, набор дисциплин, для которых она закреплена.
+     *
+     * @param allowedDisciplines названия дисциплин в нижнем регистре, для которых
+     *                           разрешено ставить пары в этой аудитории; пустой набор
+     *                           означает, что аудитория открыта для ЛЮБОЙ дисциплины
+     *                           (см. {@link #isOpenFor(String)})
+     */
+    public record Room(String name, int capacity, Set<String> allowedDisciplines) {
+        public Room {
+            allowedDisciplines = allowedDisciplines == null ? Set.of() : Set.copyOf(allowedDisciplines);
+        }
+
+        public Room(String name, int capacity) {
+            this(name, capacity, Set.of());
+        }
+
+        /** Разрешена ли в этой аудитории данная дисциплина (без учёта регистра). */
+        public boolean isOpenFor(String disciplineName) {
+            if (allowedDisciplines.isEmpty() || disciplineName == null) {
+                return true;
+            }
+            return allowedDisciplines.contains(disciplineName.trim().toLowerCase());
+        }
     }
 
     private GenerationGrid() {
@@ -105,6 +135,7 @@ public final class GenerationGrid {
         return -1;
     }
 
+    /** Резервный фонд аудиторий — используется, только если в БД ещё ничего не заведено. */
     public static List<Room> rooms() {
         List<Room> result = new ArrayList<>(CLASSROOMS.length);
         for (String[] room : CLASSROOMS) {
@@ -119,6 +150,27 @@ public final class GenerationGrid {
         return result;
     }
 
+    /**
+     * Фонд аудиторий из БД. Если таблица пуста (администратор ещё не добавил ни одной
+     * аудитории вручную и не импортировал лист «Аудитории»), используется резервный
+     * список {@link #rooms()}, чтобы генерация расписания работала «из коробки».
+     */
+    public static List<Room> rooms(List<Classroom> dbClassrooms) {
+        if (dbClassrooms == null || dbClassrooms.isEmpty()) {
+            return rooms();
+        }
+        return dbClassrooms.stream()
+                .map(c -> new Room(
+                        c.getName(),
+                        c.getCapacity() == null ? 0 : c.getCapacity(),
+                        c.getAllowedDisciplines() == null ? Set.of()
+                                : c.getAllowedDisciplines().stream()
+                                        .filter(d -> d != null && !d.isBlank())
+                                        .map(d -> d.trim().toLowerCase())
+                                        .collect(Collectors.toUnmodifiableSet())))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
     /** Пересекается ли пара с обеденным окном группы. */
     public static boolean overlapsLunch(int pairIdx, LocalTime lunchStart, LocalTime lunchEnd) {
         if (lunchStart == null || lunchEnd == null) {
@@ -127,3 +179,4 @@ public final class GenerationGrid {
         return start(pairIdx).isBefore(lunchEnd) && lunchStart.isBefore(end(pairIdx));
     }
 }
+

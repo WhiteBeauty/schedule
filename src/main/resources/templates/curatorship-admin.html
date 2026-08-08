@@ -99,7 +99,7 @@
 </div>
 
 <script th:inline="javascript">
-const currentYear = 2026;
+const currentYear = /*[[${defaultYear}]]*/ 2025;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadCuratorships();

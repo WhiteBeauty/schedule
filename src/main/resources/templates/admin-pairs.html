@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Расписание пар</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:inline="javascript">
+        /*<![CDATA[*/
+        window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
+        /*]]>*/
+    </script>
 </head>
 <body>
 <div th:replace="~{fragments/nav :: sidebar}"></div>
@@ -609,7 +614,7 @@ function addSickLeave() {
         startDate,
         endDate,
         reason,
-        academicYear: 2026
+        academicYear: window.DEFAULT_ACADEMIC_YEAR
     };
 
     fetch('/api/sick-leaves', {

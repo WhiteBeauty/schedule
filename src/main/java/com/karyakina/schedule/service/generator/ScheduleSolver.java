@@ -390,12 +390,29 @@ public class ScheduleSolver {
         for (SolverInput.Demand demand : input.demands()) {
             SolverInput.GroupRef group = groups.get(demand.groupId());
             int students = group == null ? 0 : group.studentCount();
+            // Аудитория подходит, если хватает вместимости И (если у аудитории есть
+            // список закреплённых дисциплин) дисциплина нагрузки в этот список входит.
+            // Аудитория без явного списка дисциплин открыта для любых пар — так задаются
+            // обычные лекционные/семинарские аудитории, в отличие от специализированных
+            // лабораторий, для которых список дисциплин указан явно при импорте.
             List<GenerationGrid.Room> suitable = input.rooms().stream()
                     .filter(room -> room.capacity() <= 0 || students <= 0 || room.capacity() >= students)
+                    .filter(room -> room.isOpenFor(demand.disciplineName()))
                     .sorted(Comparator.comparingInt(GenerationGrid.Room::capacity))
                     .toList();
             // Если группа не влезает никуда — не оставляем её без вариантов совсем:
-            // отдаём самые большие аудитории, а несоответствие уйдёт в предупреждения.
+            // отдаём самые большие ПОДХОДЯЩИЕ ПО ДИСЦИПЛИНЕ аудитории, а несоответствие
+            // по вместимости уйдёт в предупреждения.
+            if (suitable.isEmpty()) {
+                suitable = input.rooms().stream()
+                        .filter(room -> room.isOpenFor(demand.disciplineName()))
+                        .sorted(Comparator.comparingInt(GenerationGrid.Room::capacity).reversed())
+                        .limit(3)
+                        .toList();
+            }
+            // Если и дисциплина ни в одной аудитории явно не разрешена (например, все
+            // аудитории специализированы под другие предметы) — лучше дать хоть какой-то
+            // вариант, чем оставить нагрузку совсем без аудиторий.
             result.put(demand.loadId(), suitable.isEmpty()
                     ? input.rooms().stream()
                             .sorted(Comparator.comparingInt(GenerationGrid.Room::capacity).reversed())

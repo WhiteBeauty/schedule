@@ -141,7 +141,7 @@ window.defaultYear = /*[[${defaultYear}]]*/ 2026;
 /*]]>*/
 </script>
 <script>
-const defaultYear = window.defaultYear || 2026;
+const defaultYear = window.defaultYear || new Date().getFullYear();
 let currentLoadId = null;
 
 document.addEventListener('DOMContentLoaded', loadData);

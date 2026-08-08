@@ -1,9 +1,11 @@
 package com.karyakina.schedule.service;
 
+import com.karyakina.schedule.domain.Classroom;
 import com.karyakina.schedule.domain.Discipline;
 import com.karyakina.schedule.domain.StudyGroup;
 import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.domain.TeacherLoad;
+import com.karyakina.schedule.repository.ClassroomRepository;
 import com.karyakina.schedule.repository.DisciplineRepository;
 import com.karyakina.schedule.repository.StudyGroupRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
@@ -28,6 +30,7 @@ public class ImportPersistenceService {
     private final DisciplineRepository disciplineRepository;
     private final StudyGroupRepository groupRepository;
     private final TeacherLoadRepository loadRepository;
+    private final ClassroomRepository classroomRepository;
     private final MonthlyRecordService monthlyRecordService;
 
     public static class ImportResult {
@@ -249,6 +252,61 @@ public class ImportPersistenceService {
 
     private boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    /**
+     * Применяет данные листа "Группы": для каждой перечисленной группы, которой ещё нет
+     * в базе, создаёт запись StudyGroup (только по названию — вместимость/курс/специальность
+     * заполняются администратором вручную позже). Список дисциплин из этого листа сейчас
+     * не сохраняется отдельно — он используется только для того, чтобы группа появилась
+     * в системе, даже если ещё ни разу не встретилась в строках основной нагрузки.
+     */
+    @Transactional
+    public int applyGroupsSheet(java.util.Map<String, String> groupDisciplines) {
+        int created = 0;
+        for (String groupName : groupDisciplines.keySet()) {
+            if (isBlank(groupName)) continue;
+            String trimmed = groupName.trim();
+            if (groupRepository.findByNameIgnoreCase(trimmed).isPresent()) continue;
+            groupRepository.save(StudyGroup.builder().name(trimmed).build());
+            created++;
+        }
+        return created;
+    }
+
+    /**
+     * Применяет данные листа "Аудитории": создаёт новые аудитории или дополняет уже
+     * существующие (по названию, без учёта регистра) вместимостью/списком закреплённых
+     * дисциплин, если они указаны в файле. Существующие значения не затираются пустыми —
+     * повторный импорт того же файла безопасен.
+     */
+    @Transactional
+    public int applyClassrooms(List<ImportService.ParsedClassroom> rooms) {
+        int created = 0;
+        for (ImportService.ParsedClassroom parsed : rooms) {
+            if (parsed.name() == null || parsed.name().isBlank()) continue;
+            String name = parsed.name().trim();
+
+            Classroom classroom = classroomRepository.findByNameIgnoreCase(name).orElse(null);
+            boolean isNew = classroom == null;
+            if (isNew) {
+                classroom = Classroom.builder().name(name).allowedDisciplines(new java.util.ArrayList<>()).build();
+            }
+
+            if (parsed.capacity() != null) {
+                classroom.setCapacity(parsed.capacity());
+            }
+            if (parsed.allowedDisciplines() != null && !parsed.allowedDisciplines().isEmpty()) {
+                java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>(
+                        classroom.getAllowedDisciplines() == null ? List.of() : classroom.getAllowedDisciplines());
+                merged.addAll(parsed.allowedDisciplines());
+                classroom.setAllowedDisciplines(new java.util.ArrayList<>(merged));
+            }
+
+            classroomRepository.save(classroom);
+            if (isNew) created++;
+        }
+        return created;
     }
 
     /**

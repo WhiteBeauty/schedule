@@ -58,7 +58,7 @@
         <div class="card-header"><span class="card-title">Файл нагрузки</span></div>
 
         <div style="margin-bottom:1rem;">
-            <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например 2026 для 2026/2027):</label><br>
+            <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например <span th:text="${year}">2025</span> для <span th:text="${year + '/' + (year + 1)}">2025/2026</span>):</label><br>
             <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
         </div>
 
@@ -104,12 +104,13 @@
         <div class="card-header"><span class="card-title">Отчёт об импорте</span></div>
         <div id="reportSummary" style="font-size:1rem; font-weight:600; margin-bottom:1rem;"></div>
 
-        <div class="grid" style="grid-template-columns: repeat(5, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
+        <div class="grid" style="grid-template-columns: repeat(6, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
             <div class="stat"><div class="stat-label">Строк в файле</div><div class="stat-value" id="statTotal">-</div></div>
             <div class="stat"><div class="stat-label">Импортировано</div><div class="stat-value text-success" id="statProcessed">-</div></div>
             <div class="stat"><div class="stat-label">Ошибок</div><div class="stat-value text-danger" id="statErrors">-</div></div>
             <div class="stat"><div class="stat-label">Новых преподавателей</div><div class="stat-value" id="statCreatedTeachers">-</div></div>
             <div class="stat"><div class="stat-label">Обновлено нагрузок</div><div class="stat-value" id="statUpdated">-</div></div>
+            <div class="stat"><div class="stat-label">Добавлено аудиторий</div><div class="stat-value" id="statCreatedClassrooms">-</div></div>
         </div>
 
         <div id="splitNoticesWrap" style="display:none; margin-bottom:1.25rem;">
@@ -131,6 +132,34 @@
         </div>
 
         <button class="btn btn-outline" style="margin-top:1.5rem;" onclick="backToUpload()">📥 Импортировать ещё файл</button>
+    </div>    <div class="card" style="margin-top:1.5rem;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="card-title">🏫 Аудитории</span>
+            <button class="btn btn-sm btn-outline" onclick="toggleAddClassroom()">+ Добавить</button>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem;">
+            Фонд аудиторий для автосоставления расписания. Появляются здесь автоматически после
+            импорта файла (лист «Аудитории»/«Аудитория»/«Кабинет») или добавляются вручную.
+            Аудитория без указанных дисциплин открыта для ЛЮБЫХ пар.
+        </p>
+
+        <div id="addClassroomForm" style="display:none; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap; align-items:flex-end;">
+            <label style="font-size:0.8rem;">Название<br>
+                <input type="text" id="newClassroomName" placeholder="например 305" style="padding:0.4rem; border:1px solid var(--border); border-radius:0.4rem;">
+            </label>
+            <label style="font-size:0.8rem;">Вместимость<br>
+                <input type="number" id="newClassroomCapacity" placeholder="не задано" style="padding:0.4rem; border:1px solid var(--border); border-radius:0.4rem; width:8rem;">
+            </label>
+            <label style="font-size:0.8rem;">Закреплённые дисциплины (через запятую, необязательно)<br>
+                <input type="text" id="newClassroomDisciplines" placeholder="открыта для любых пар" style="padding:0.4rem; border:1px solid var(--border); border-radius:0.4rem; width:22rem;">
+            </label>
+            <button class="btn btn-sm" onclick="createClassroom()">Сохранить</button>
+        </div>
+
+        <table class="error-table" style="width:100%; border-collapse:collapse;">
+            <thead><tr><th>Название</th><th>Вместимость</th><th>Закреплённые дисциплины</th><th></th></tr></thead>
+            <tbody id="classroomsBody"><tr><td colspan="4" class="text-muted">Загрузка…</td></tr></tbody>
+        </table>
     </div>
 </main>
 
@@ -376,6 +405,8 @@
         document.getElementById('statErrors').textContent = report.errorRows || 0;
         document.getElementById('statCreatedTeachers').textContent = report.createdTeachers || 0;
         document.getElementById('statUpdated').textContent = report.updatedLoads || 0;
+        document.getElementById('statCreatedClassrooms').textContent = report.createdClassrooms || 0;
+        if (report.createdClassrooms) { loadClassrooms(); }
 
         const splitNoticesWrap = document.getElementById('splitNoticesWrap');
         const splitNoticesBody = document.getElementById('splitNoticesBody');
@@ -415,6 +446,83 @@
     function escapeAttr(s) {
         return (s || '').replace(/'/g, "\\'");
     }
+
+    // ---- Аудитории ----
+    async function loadClassrooms() {
+        const tbody = document.getElementById('classroomsBody');
+        try {
+            const res = await fetch('/api/classrooms');
+            if (!res.ok) throw new Error('status ' + res.status);
+            const rooms = await res.json();
+            if (!rooms.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-muted">Пока пусто — импортируйте файл с листом «Аудитории» или добавьте вручную.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = '';
+            rooms.forEach(r => {
+                const disciplines = (r.allowedDisciplines && r.allowedDisciplines.length)
+                    ? escapeHtml(r.allowedDisciplines.join(', '))
+                    : '<span class="text-muted">любые пары</span>';
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + escapeHtml(r.name) + '</td>' +
+                    '<td>' + (r.capacity != null ? r.capacity : '<span class="text-muted">—</span>') + '</td>' +
+                    '<td>' + disciplines + '</td>' +
+                    '<td><button class="btn btn-sm btn-outline" onclick="deleteClassroom(' + r.id + ')">Удалить</button></td>';
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-danger">Не удалось загрузить список аудиторий</td></tr>';
+        }
+    }
+
+    function toggleAddClassroom() {
+        const form = document.getElementById('addClassroomForm');
+        form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    async function createClassroom() {
+        const name = document.getElementById('newClassroomName').value.trim();
+        if (!name) { alert('Укажите название аудитории'); return; }
+        const capacityRaw = document.getElementById('newClassroomCapacity').value.trim();
+        const disciplinesRaw = document.getElementById('newClassroomDisciplines').value.trim();
+        const payload = {
+            name,
+            capacity: capacityRaw ? parseInt(capacityRaw, 10) : null,
+            allowedDisciplines: disciplinesRaw ? disciplinesRaw.split(',').map(s => s.trim()).filter(Boolean) : []
+        };
+        try {
+            const res = await fetch('/api/classrooms', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                alert(body.error || 'Не удалось добавить аудиторию');
+                return;
+            }
+            document.getElementById('newClassroomName').value = '';
+            document.getElementById('newClassroomCapacity').value = '';
+            document.getElementById('newClassroomDisciplines').value = '';
+            document.getElementById('addClassroomForm').style.display = 'none';
+            loadClassrooms();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
+    }
+
+    async function deleteClassroom(id) {
+        if (!confirm('Удалить аудиторию?')) return;
+        try {
+            const res = await fetch('/api/classrooms/' + id, {method: 'DELETE'});
+            if (!res.ok) { alert('Не удалось удалить аудиторию'); return; }
+            loadClassrooms();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
+    }
+
+    loadClassrooms();
 </script>
 </body>
 </html>

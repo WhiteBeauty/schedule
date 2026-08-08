@@ -121,17 +121,26 @@ public class ImportService {
             persistenceService.applyTeacherDisciplines(teacherDisciplines);
         }
 
+        Map<String, String> groupDisciplines = parseGroupDisciplinesSheet(file);
+        if (!groupDisciplines.isEmpty()) {
+            result.createdGroups += persistenceService.applyGroupsSheet(groupDisciplines);
+        }
+
+        List<ParsedClassroom> classrooms = parseClassroomsSheet(file);
+        int createdClassrooms = classrooms.isEmpty() ? 0 : persistenceService.applyClassrooms(classrooms);
+
         List<String> detectedColumns = new ArrayList<>(parsed.detectedColumns);
 
         String summary = String.format(
-                "Успешно обработано %d записей из %d, %d ошибок%s%s",
+                "Успешно обработано %d записей из %d, %d ошибок%s%s%s",
                 result.processedLoads, parsed.totalDataRows, parsed.errors.size(),
                 parsed.errors.isEmpty() ? "" : " в строках " + parsed.errors.stream()
                         .map(e -> String.valueOf(e.getRowNumber()))
                         .reduce((a, b) -> a + ", " + b).orElse(""),
                 parsed.splitNotices.isEmpty() ? "" : String.format(
                         ". %d строк с разбитыми по запятой/`;` группами/дисциплинами стоит перепроверить",
-                        parsed.splitNotices.size()));
+                        parsed.splitNotices.size()),
+                createdClassrooms == 0 ? "" : String.format(". Добавлено аудиторий: %d", createdClassrooms));
 
         return ImportReportDto.builder()
                 .success(true)
@@ -144,6 +153,7 @@ public class ImportService {
                 .createdGroups(result.createdGroups)
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
+                .createdClassrooms(createdClassrooms)
                 .errors(parsed.errors)
                 .splitNotices(parsed.splitNotices)
                 .detectedColumns(detectedColumns)
@@ -272,14 +282,23 @@ public class ImportService {
             persistenceService.applyTeacherDisciplines(teacherDisciplines);
         }
 
+        Map<String, String> groupDisciplines = parseGroupDisciplinesSheet(file);
+        if (!groupDisciplines.isEmpty()) {
+            result.createdGroups += persistenceService.applyGroupsSheet(groupDisciplines);
+        }
+
+        List<ParsedClassroom> classrooms = parseClassroomsSheet(file);
+        int createdClassrooms = classrooms.isEmpty() ? 0 : persistenceService.applyClassrooms(classrooms);
+
         String summary = String.format(
                 "Импорт завершён: %d записей обработано (%d новых преподавателей, %d привязано к существующим), " +
-                        "%d ошибок в исходных данных.%s",
+                        "%d ошибок в исходных данных.%s%s",
                 result.processedLoads, result.createdTeachers,
                 parsed.validRows.size() - result.createdTeachers, parsed.errors.size(),
                 parsed.splitNotices.isEmpty() ? "" : String.format(
                         " %d строк с разбитыми по запятой/`;` группами/дисциплинами стоит перепроверить.",
-                        parsed.splitNotices.size()));
+                        parsed.splitNotices.size()),
+                createdClassrooms == 0 ? "" : String.format(" Добавлено аудиторий: %d.", createdClassrooms));
 
         return ImportReportDto.builder()
                 .success(true)
@@ -292,6 +311,7 @@ public class ImportService {
                 .createdGroups(result.createdGroups)
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
+                .createdClassrooms(createdClassrooms)
                 .errors(parsed.errors)
                 .splitNotices(parsed.splitNotices)
                 .detectedColumns(parsed.detectedColumns)
@@ -299,72 +319,194 @@ public class ImportService {
                 .build();
     }
 
-    // ---- Второй лист импорта: "Преподаватели и дисциплины" (необязателен) ----
-    // Позволяет отдельно указать, какие дисциплины ведёт каждый преподаватель — один
-    // преподаватель может вести несколько (перечисляются через запятую в одной ячейке).
-    // Используется модулем автоподбора преподавателя для строк основного листа, где
-    // ФИО не указано явно.
+    // ---- Доп. листы импорта (все необязательны, ищутся по заголовкам НЕЗАВИСИМО от
+    // порядка листов в книге — администратор может переставить/переименовать листы,
+    // добавить свои, программа всё равно найдёт нужные по содержимому шапки) ----
+    //
+    // "Преподаватели и дисциплины": какие дисциплины ведёт каждый преподаватель —
+    //   используется для автоподбора преподавателя в строках листа 1 без ФИО.
+    // "Группы": какие дисциплины изучает каждая группа — используется, чтобы завести
+    //   группу в БД, даже если она ещё не встретилась в строках основной нагрузки.
+    // "Аудитории": фонд аудиторий для автосоставления расписания — название (обязательно),
+    //   вместимость и закреплённые дисциплины (оба необязательны). Аудитория без явно
+    //   перечисленных дисциплин считается открытой для ЛЮБЫХ пар.
     private static final List<String> TEACHER_NAME_SYNONYMS = List.of(
             "фио преподавателя", "преподаватель", "фио", "педагог");
     private static final List<String> DISCIPLINES_LIST_SYNONYMS = List.of(
             "дисциплины", "ведёт дисциплины", "ведет дисциплины", "предметы", "какие дисциплины");
+    private static final List<String> GROUP_NAME_SYNONYMS = List.of(
+            "название группы", "группа", "группы", "учебная группа");
+    private static final List<String> CLASSROOM_NAME_SYNONYMS = List.of(
+            "аудитории", "аудитория", "кабинеты", "кабинет", "помещения", "помещение",
+            "название аудитории", "номер аудитории");
+    private static final List<String> CLASSROOM_CAPACITY_SYNONYMS = List.of(
+            "вместимость", "вместимость, чел", "вместимость чел", "мест", "количество мест");
+    private static final List<String> CLASSROOM_DISCIPLINES_SYNONYMS = List.of(
+            "дисциплины", "предметы", "профиль", "специализация",
+            "закреплённые дисциплины", "закрепленные дисциплины");
+
+    /** Лист книги, распознанный по заголовку: сырые строки + индексы найденных колонок. */
+    private record SheetMatch(List<List<String>> rows, int headerRow, int colA, int colB) {
+    }
 
     /**
-     * Читает второй лист книги (индекс 1), если он есть, и возвращает
-     * ФИО преподавателя -> список дисциплин через запятую. Не бросает исключений —
-     * второй лист/файл CSV, где листов нет, просто не даёт результата.
+     * Сканирует ВСЕ листы книги (в любом порядке) и возвращает первый, где в пределах
+     * первых 10 строк нашлась шапка с ОБЕИМИ колонками (по синонимам). CSV и файлы без
+     * подходящего листа — не ошибка, просто возвращается null, вызывающий код молча
+     * пропускает необязательный лист.
      */
-    private Map<String, String> parseTeacherDisciplineSheet(MultipartFile file) {
-        Map<String, String> result = new LinkedHashMap<>();
+    private SheetMatch findSheetWithColumns(MultipartFile file, List<String> colASynonyms, List<String> colBSynonyms) {
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
-        if (filename.endsWith(".csv")) return result; // CSV не поддерживает несколько листов
+        if (filename.endsWith(".csv")) return null; // CSV не поддерживает несколько листов
 
         try (InputStream is = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(is)) {
-            if (workbook.getNumberOfSheets() < 2) return result;
-            Sheet sheet = workbook.getSheetAt(1);
-            DataFormatter formatter = new DataFormatter();
-
-            List<List<String>> rows = new ArrayList<>();
-            int lastCol = 0;
-            for (Row row : sheet) lastCol = Math.max(lastCol, row.getLastCellNum());
-            for (Row row : sheet) {
-                List<String> cells = new ArrayList<>();
-                for (int c = 0; c < lastCol; c++) {
-                    Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-                    cells.add(cell == null ? "" : formatter.formatCellValue(cell).trim());
+            for (int s = 0; s < workbook.getNumberOfSheets(); s++) {
+                List<List<String>> rows = readSheetRows(workbook.getSheetAt(s));
+                if (rows.isEmpty()) continue;
+                for (int i = 0; i < Math.min(rows.size(), 10); i++) {
+                    int aCol = findColumn(rows.get(i), colASynonyms);
+                    int bCol = findColumn(rows.get(i), colBSynonyms);
+                    // aCol != bCol: если обе колонки "нашлись" в одной и той же ячейке —
+                    // это случайное совпадение слов в пояснительном тексте, а не шапка.
+                    if (aCol >= 0 && bCol >= 0 && aCol != bCol) {
+                        return new SheetMatch(rows, i, aCol, bCol);
+                    }
                 }
-                rows.add(cells);
-            }
-            if (rows.isEmpty()) return result;
-
-            int nameCol = -1, disciplinesCol = -1;
-            int headerRow = -1;
-            for (int i = 0; i < Math.min(rows.size(), 10); i++) {
-                int nc = findColumn(rows.get(i), TEACHER_NAME_SYNONYMS);
-                int dc = findColumn(rows.get(i), DISCIPLINES_LIST_SYNONYMS);
-                // nc != dc: если и "ФИО", и "дисциплины" совпали на ОДНОЙ и той же ячейке —
-                // это не настоящая шапка таблицы, а, например, строка с пояснительным
-                // текстом, где оба слова случайно встретились в одном абзаце.
-                if (nc >= 0 && dc >= 0 && nc != dc) {
-                    nameCol = nc;
-                    disciplinesCol = dc;
-                    headerRow = i;
-                    break;
-                }
-            }
-            if (headerRow < 0) return result; // нет распознаваемых заголовков — лист пропускаем
-
-            for (int i = headerRow + 1; i < rows.size(); i++) {
-                List<String> row = rows.get(i);
-                if (isRowBlank(row)) continue;
-                String name = nameCol < row.size() ? row.get(nameCol) : null;
-                String disciplines = disciplinesCol < row.size() ? row.get(disciplinesCol) : null;
-                if (isBlank(name) || isBlank(disciplines)) continue;
-                result.merge(name.trim(), disciplines.trim(), (a, b) -> a + ", " + b);
             }
         } catch (Exception e) {
-            log.debug("Второй лист (преподаватели/дисциплины) не разобран: {}", e.getMessage());
+            log.debug("Доп. листы книги не разобраны: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /** Читает лист целиком в виде текстовых ячеек (без интерпретации типов). */
+    private List<List<String>> readSheetRows(Sheet sheet) {
+        List<List<String>> rows = new ArrayList<>();
+        DataFormatter formatter = new DataFormatter();
+        int lastCol = 0;
+        for (Row row : sheet) lastCol = Math.max(lastCol, row.getLastCellNum());
+        for (Row row : sheet) {
+            List<String> cells = new ArrayList<>();
+            for (int c = 0; c < lastCol; c++) {
+                Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+                cells.add(cell == null ? "" : formatter.formatCellValue(cell).trim());
+            }
+            rows.add(cells);
+        }
+        return rows;
+    }
+
+    /**
+     * Читает лист "Преподаватели и дисциплины" (необязательный, ищется по заголовку
+     * на любом листе книги) и возвращает ФИО преподавателя -> список дисциплин через
+     * запятую. Не бросает исключений — если подходящего листа нет, результат пуст.
+     */
+    private Map<String, String> parseTeacherDisciplineSheet(MultipartFile file) {
+        Map<String, String> result = new LinkedHashMap<>();
+        SheetMatch match = findSheetWithColumns(file, TEACHER_NAME_SYNONYMS, DISCIPLINES_LIST_SYNONYMS);
+        if (match == null) return result;
+
+        for (int i = match.headerRow() + 1; i < match.rows().size(); i++) {
+            List<String> row = match.rows().get(i);
+            if (isRowBlank(row)) continue;
+            String name = match.colA() < row.size() ? row.get(match.colA()) : null;
+            String disciplines = match.colB() < row.size() ? row.get(match.colB()) : null;
+            if (isBlank(name) || isBlank(disciplines)) continue;
+            result.merge(name.trim(), disciplines.trim(), (a, b) -> a + ", " + b);
+        }
+        return result;
+    }
+
+    /**
+     * Читает лист "Группы" (необязательный): название группы -> список дисциплин
+     * (информационно, для будущей сверки; главное — сам факт существования группы).
+     * Строки без названия группы пропускаются, дисциплины могут быть пустыми.
+     */
+    private Map<String, String> parseGroupDisciplinesSheet(MultipartFile file) {
+        Map<String, String> result = new LinkedHashMap<>();
+        SheetMatch match = findSheetWithColumns(file, GROUP_NAME_SYNONYMS, DISCIPLINES_LIST_SYNONYMS);
+        if (match == null) return result;
+
+        for (int i = match.headerRow() + 1; i < match.rows().size(); i++) {
+            List<String> row = match.rows().get(i);
+            if (isRowBlank(row)) continue;
+            String name = match.colA() < row.size() ? row.get(match.colA()) : null;
+            String disciplines = match.colB() < row.size() ? row.get(match.colB()) : null;
+            if (isBlank(name)) continue;
+            String value = disciplines == null ? "" : disciplines.trim();
+            result.merge(name.trim(), value, (a, b) -> {
+                if (a.isBlank()) return b;
+                if (b.isBlank()) return a;
+                return a + ", " + b;
+            });
+        }
+        return result;
+    }
+
+    /** Разобранная строка листа "Аудитории": имя обязательно, остальное — по возможности. */
+    record ParsedClassroom(String name, Integer capacity, List<String> allowedDisciplines) {
+    }
+
+    /**
+     * Читает лист "Аудитории" (необязательный, ищется по заголовку на любом листе книги,
+     * например "Аудитории"/"Аудитория"/"Кабинет"/"Помещения"). Обязательна только колонка
+     * с названием аудитории — вместимость и закреплённые дисциплины опциональны.
+     * Аудитория без указанных дисциплин (частый случай — просто список номеров без
+     * дополнительных колонок) считается открытой для ЛЮБЫХ пар.
+     */
+    private List<ParsedClassroom> parseClassroomsSheet(MultipartFile file) {
+        List<ParsedClassroom> result = new ArrayList<>();
+        String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
+        if (filename.endsWith(".csv")) return result;
+
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = WorkbookFactory.create(is)) {
+            for (int s = 0; s < workbook.getNumberOfSheets(); s++) {
+                List<List<String>> rows = readSheetRows(workbook.getSheetAt(s));
+                if (rows.isEmpty()) continue;
+
+                int headerRow = -1, nameCol = -1, capCol = -1, discCol = -1;
+                for (int i = 0; i < Math.min(rows.size(), 10); i++) {
+                    int nc = findColumn(rows.get(i), CLASSROOM_NAME_SYNONYMS);
+                    if (nc >= 0) {
+                        headerRow = i;
+                        nameCol = nc;
+                        capCol = findColumn(rows.get(i), CLASSROOM_CAPACITY_SYNONYMS);
+                        discCol = findColumn(rows.get(i), CLASSROOM_DISCIPLINES_SYNONYMS);
+                        break;
+                    }
+                }
+                if (headerRow < 0) continue; // на этом листе аудиторий нет — пробуем следующий
+
+                for (int i = headerRow + 1; i < rows.size(); i++) {
+                    List<String> row = rows.get(i);
+                    if (isRowBlank(row)) continue;
+                    String name = nameCol < row.size() ? row.get(nameCol) : null;
+                    if (isBlank(name)) continue;
+
+                    Integer capacity = null;
+                    if (capCol >= 0 && capCol < row.size() && !isBlank(row.get(capCol))) {
+                        try {
+                            capacity = Integer.parseInt(row.get(capCol).trim());
+                        } catch (NumberFormatException ignored) {
+                            // не число — оставляем вместимость неизвестной, не блокируем импорт
+                        }
+                    }
+
+                    List<String> disciplines = List.of();
+                    if (discCol >= 0 && discCol < row.size() && !isBlank(row.get(discCol))) {
+                        disciplines = splitTokens(row.get(discCol)).stream()
+                                .filter(t -> t != null && !t.isBlank())
+                                .map(String::trim)
+                                .toList();
+                    }
+                    result.add(new ParsedClassroom(name.trim(), capacity, disciplines));
+                }
+                return result; // нашли и разобрали лист с аудиториями — остальные листы не нужны
+            }
+        } catch (Exception e) {
+            log.debug("Лист с аудиториями не разобран: {}", e.getMessage());
         }
         return result;
     }
@@ -672,25 +814,32 @@ public class ImportService {
         return readExcel(file.getInputStream());
     }
 
+    /**
+     * Читает основной лист нагрузки. Сначала пробует первый лист книги (обычный случай),
+     * и только если на нём НЕТ распознаваемой шапки (Дисциплина + Группа) — ищет её среди
+     * остальных листов книги. Так администратор может переставить листы местами или
+     * добавить дополнительные листы до основного, не сломав импорт.
+     */
     private List<List<String>> readExcel(InputStream is) throws IOException {
-        List<List<String>> rows = new ArrayList<>();
         try (Workbook workbook = WorkbookFactory.create(is)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            DataFormatter formatter = new DataFormatter();
-            int lastCol = 0;
-            for (Row row : sheet) {
-                lastCol = Math.max(lastCol, row.getLastCellNum());
+            List<List<String>> firstSheetRows = readSheetRows(workbook.getSheetAt(0));
+            if (hasRecognizableLoadHeader(firstSheetRows)) {
+                return firstSheetRows;
             }
-            for (Row row : sheet) {
-                List<String> cells = new ArrayList<>();
-                for (int c = 0; c < lastCol; c++) {
-                    Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-                    cells.add(cell == null ? "" : formatter.formatCellValue(cell).trim());
+            for (int s = 1; s < workbook.getNumberOfSheets(); s++) {
+                List<List<String>> rows = readSheetRows(workbook.getSheetAt(s));
+                if (hasRecognizableLoadHeader(rows)) {
+                    return rows;
                 }
-                rows.add(cells);
             }
+            // Ни на одном листе не нашли подходящую шапку — возвращаем первый лист как
+            // раньше, чтобы дальше сработала понятная ошибка "не удалось распознать заголовки".
+            return firstSheetRows;
         }
-        return rows;
+    }
+
+    private boolean hasRecognizableLoadHeader(List<List<String>> rows) {
+        return detectHeaderRow(rows) >= 0;
     }
 
     private List<List<String>> readCsv(InputStream is) throws IOException {

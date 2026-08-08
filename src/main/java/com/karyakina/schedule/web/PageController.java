@@ -137,6 +137,8 @@ public class PageController {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
+        model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
+        model.addAttribute("year", AcademicYearUtil.getCurrentAcademicYearStart());
         return user.getRole() == User.Role.ADMIN ? "admin-teachers" : "teachers";
     }
 

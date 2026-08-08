@@ -20,7 +20,7 @@
 
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Расчётный индекс продуктивности за <span id="yearLabel">2026</span></h2>
+            <h2 class="card-title">Расчётный индекс продуктивности за <span id="yearLabel" th:text="${year}">2025</span></h2>
             <div class="filters">
                 <label>Год: <select id="yearSelect"><option th:each="y : ${#numbers.sequence(year - 1, year + 3)}" th:value="${y}" th:text="${y}" th:selected="${y == year}"></option></select></label>
                 <button class="btn btn-sm btn-outline" onclick="loadProductivity()">🔄 Обновить</button>

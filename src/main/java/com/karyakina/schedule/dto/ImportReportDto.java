@@ -22,6 +22,7 @@ public class ImportReportDto {
     private int createdGroups;
     private int createdLoads;
     private int updatedLoads;
+    private int createdClassrooms; // аудитории, добавленные из необязательного листа "Аудитории"
     private List<ImportRowErrorDto> errors;
     // Не ошибки — строки, где несколько групп/дисциплин в одной ячейке были разбиты
     // по запятой/`;`, но программа не до конца уверена, что разбиение верное

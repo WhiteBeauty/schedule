@@ -9,6 +9,7 @@ import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.dto.MissingResourceRequest;
 import com.karyakina.schedule.dto.RescheduleResultDTO;
+import com.karyakina.schedule.repository.ClassroomRepository;
 import com.karyakina.schedule.repository.LessonInstanceRepository;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.SickLeaveRepository;
@@ -67,6 +68,7 @@ public class SickLeaveReschedulingService {
     private final TeacherRepository teacherRepository;
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
+    private final ClassroomRepository classroomRepository;
     private final LessonInstanceRepository lessonInstanceRepository;
     private final SubstitutionRequestRepository substitutionRequestRepository;
     private final LessonInstanceService lessonInstanceService;
@@ -418,9 +420,11 @@ public class SickLeaveReschedulingService {
         }
         int students = load.getGroup() != null && load.getGroup().getStudentCount() != null
                 ? load.getGroup().getStudentCount() : 0;
-        return GenerationGrid.rooms().stream()
+        String disciplineName = load.getDiscipline() != null ? load.getDiscipline().getName() : null;
+        return GenerationGrid.rooms(classroomRepository.findAll()).stream()
                 .filter(room -> !busy.contains(room.name()))
                 .filter(room -> room.capacity() <= 0 || students <= 0 || room.capacity() >= students)
+                .filter(room -> room.isOpenFor(disciplineName))
                 .min(Comparator.comparingInt(GenerationGrid.Room::capacity))
                 .map(GenerationGrid.Room::name)
                 .orElse(null);

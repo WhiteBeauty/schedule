@@ -6,6 +6,7 @@ import com.karyakina.schedule.dto.TeacherProfileDto;
 import com.karyakina.schedule.dto.TimeSyncDto;
 import com.karyakina.schedule.repository.*;
 import com.karyakina.schedule.service.*;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -37,6 +38,7 @@ public class ApiController {
     private final CuratorshipRepository curatorshipRepository;
     private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
+    private final ClassroomRepository classroomRepository;
     private final SettingsService settingsService;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
@@ -71,8 +73,9 @@ public class ApiController {
 
     @GetMapping("/loads")
     public ResponseEntity<List<TeacherLoad>> loads(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -90,8 +93,9 @@ public class ApiController {
     /** Сверка: план недели/месяца vs часы, уже поставленные в расписание (цель — разница 0). */
     @GetMapping("/loads/reconciliation")
     public ResponseEntity<List<Map<String, Object>>> loadsReconciliation(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -108,9 +112,7 @@ public class ApiController {
 
     @GetMapping("/loads/{id}")
     public ResponseEntity<TeacherLoad> loadById(@PathVariable Long id) {
-        return teacherLoadService.findByYear(2026).stream()
-                .filter(l -> l.getId().equals(id))
-                .findFirst()
+        return loadRepository.findById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -242,7 +244,8 @@ public class ApiController {
 
 @GetMapping("/teachers/{id}/profile")
     public ResponseEntity<TeacherProfileDto> teacherProfile(@PathVariable Long id,
-                                                            @RequestParam(defaultValue = "2026") Integer year) {
+                                                            @RequestParam(required = false) Integer year) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         return ResponseEntity.ok(teacherLoadService.buildProfile(id, year));
     }
 
@@ -254,6 +257,71 @@ public class ApiController {
     @GetMapping("/disciplines")
     public ResponseEntity<List<Discipline>> disciplines() {
         return ResponseEntity.ok(disciplineRepository.findAll());
+    }
+
+    // ---- Аудитории: фонд для автосоставления расписания (см. GenerationGrid.rooms) ----
+    // Заводятся импортом (лист "Аудитории"/"Аудитория"/"Кабинет" в файле нагрузки) или
+    // вручную здесь. Аудитория без списка дисциплин открыта для любых пар.
+
+    @GetMapping("/classrooms")
+    public ResponseEntity<List<Classroom>> classrooms() {
+        return ResponseEntity.ok(classroomRepository.findAll());
+    }
+
+    @PostMapping("/classrooms")
+    public ResponseEntity<?> createClassroom(@RequestBody Classroom payload, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        if (payload.getName() == null || payload.getName().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Название аудитории обязательно"));
+        }
+        String name = payload.getName().trim();
+        if (classroomRepository.findByNameIgnoreCase(name).isPresent()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Аудитория с таким названием уже существует"));
+        }
+        Classroom classroom = Classroom.builder()
+                .name(name)
+                .capacity(payload.getCapacity())
+                .allowedDisciplines(payload.getAllowedDisciplines() == null
+                        ? new ArrayList<>() : new ArrayList<>(payload.getAllowedDisciplines()))
+                .build();
+        return ResponseEntity.ok(classroomRepository.save(classroom));
+    }
+
+    @PutMapping("/classrooms/{id}")
+    public ResponseEntity<?> updateClassroom(@PathVariable Long id, @RequestBody Classroom payload,
+                                              Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        return classroomRepository.findById(id).map(classroom -> {
+            if (payload.getName() != null && !payload.getName().isBlank()) {
+                classroom.setName(payload.getName().trim());
+            }
+            classroom.setCapacity(payload.getCapacity());
+            classroom.setAllowedDisciplines(payload.getAllowedDisciplines() == null
+                    ? new ArrayList<>() : new ArrayList<>(payload.getAllowedDisciplines()));
+            return ResponseEntity.ok(classroomRepository.save(classroom));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/classrooms/{id}")
+    public ResponseEntity<Void> deleteClassroom(@PathVariable Long id, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        if (!classroomRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        classroomRepository.deleteById(id);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/curatorships")
@@ -273,7 +341,8 @@ public class ApiController {
     }
 
 @GetMapping("/productivity")
-    public ResponseEntity<List<ProductivityDto>> productivity(@RequestParam(defaultValue = "2026") Integer year) {
+    public ResponseEntity<List<ProductivityDto>> productivity(@RequestParam(required = false) Integer year) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         return ResponseEntity.ok(teacherLoadService.calculateProductivity(year));
     }
 
@@ -285,8 +354,9 @@ public class ApiController {
     /** Получить все monthly records с информацией о нагрузке */
     @GetMapping("/monthly-records")
     public ResponseEntity<List<Map<String, Object>>> getMonthlyRecords(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         try {
             User user = userRepository.findByEmail(authentication.getName())
                     .orElseThrow(() -> new RuntimeException("User not found"));
@@ -384,8 +454,9 @@ public class ApiController {
 
     @GetMapping("/monthly/export/csv")
     public ResponseEntity<byte[]> exportMonthlyCsv(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -500,8 +571,9 @@ public class ApiController {
 
     @GetMapping("/schedule")
     public ResponseEntity<List<TeacherLoad>> getSchedule(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         if (user.getRole() != User.Role.ADMIN) {
@@ -1169,8 +1241,9 @@ public class ApiController {
 
     @GetMapping("/pairs")
     public ResponseEntity<List<Schedule>> getPairs(
-            @RequestParam(defaultValue = "2026") Integer year,
+            @RequestParam(required = false) Integer year,
             Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
         try {
             User user = userRepository.findByEmail(authentication.getName())
                     .orElseThrow(() -> new RuntimeException("User not found"));
@@ -1506,7 +1579,7 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
-        scheduleService.autoDeductHours(2026);
+        scheduleService.autoDeductHours(AcademicYearUtil.getCurrentAcademicYearStart());
         return ResponseEntity.ok().build();
     }
 }

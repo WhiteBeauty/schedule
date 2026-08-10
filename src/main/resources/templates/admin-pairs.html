@@ -201,6 +201,7 @@
 <script>
 let pairsData = [];
 let loadsData = [];
+let substitutionsMap = {}; // scheduleId -> {originalTeacherName, actualTeacherName, lessonDate}
 let teachersData = [];
 let groupsData = [];
 let disciplinesData = [];
@@ -373,10 +374,13 @@ function loadPairs() {
     const year = document.getElementById('yearSelect').value;
     Promise.all([
         fetch(`/api/pairs?year=${year}`).then(r => r.json()),
-        fetch(`/api/loads?year=${year}`).then(r => r.json())
-    ]).then(([pairs, loads]) => {
+        fetch(`/api/loads?year=${year}`).then(r => r.json()),
+        fetch(`/api/pairs/substitutions?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => [])
+    ]).then(([pairs, loads, substitutions]) => {
         pairsData = pairs;
         loadsData = loads;
+        substitutionsMap = {};
+        (substitutions || []).forEach(s => { substitutionsMap[s.scheduleId] = s; });
         renderPairs();
     });
 }
@@ -395,8 +399,13 @@ function renderPairs() {
     pairsData.forEach(p => {
         const tr = document.createElement('tr');
         const loadId = p.teacherLoad ? p.teacherLoad.id : null;
+        const sub = substitutionsMap[p.id];
+        const teacherCell = sub
+            ? `${p.teacherLoad.teacher.fullName} <span class="substitute-badge" title="${sub.originalTeacherName ? 'Обычно: ' + sub.originalTeacherName : ''}">🔁 ${sub.actualTeacherName || 'замена'}</span>`
+            : p.teacherLoad.teacher.fullName;
+        if (sub) tr.classList.add('substituted-pair');
         tr.innerHTML = `
-            <td>${p.teacherLoad.teacher.fullName}</td>
+            <td>${teacherCell}</td>
             <td>${p.teacherLoad.discipline.name}</td>
             <td>${p.teacherLoad.group.name}</td>
             <td>${dayNames[p.dayOfWeek] || p.dayOfWeek}</td>

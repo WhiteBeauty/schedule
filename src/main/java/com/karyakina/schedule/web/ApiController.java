@@ -2,6 +2,7 @@ package com.karyakina.schedule.web;
 
 import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.dto.ProductivityDto;
+import com.karyakina.schedule.dto.SubstitutionInfoDto;
 import com.karyakina.schedule.dto.TeacherProfileDto;
 import com.karyakina.schedule.dto.TimeSyncDto;
 import com.karyakina.schedule.repository.*;
@@ -39,6 +40,7 @@ public class ApiController {
     private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
     private final ClassroomRepository classroomRepository;
+    private final LessonInstanceRepository lessonInstanceRepository;
     private final SettingsService settingsService;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
@@ -1270,6 +1272,33 @@ public class ApiController {
             e.printStackTrace();
             return ResponseEntity.status(500).body(new ArrayList<>());
         }
+    }
+
+    /**
+     * Актуальные замены преподавателей (недавние/предстоящие) — для подсветки пары
+     * в расписании другим цветом и показа фактического преподавателя вместо
+     * исходного. "Актуальные" = дата занятия не старше 7 дней назад и не дальше
+     * 30 дней вперёд, чтобы старые давно прошедшие замены не подсвечивались вечно.
+     */
+    @GetMapping("/pairs/substitutions")
+    public ResponseEntity<List<SubstitutionInfoDto>> getActiveSubstitutions(
+            @RequestParam(required = false) Integer year) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusDays(7);
+        LocalDate to = today.plusDays(30);
+
+        List<SubstitutionInfoDto> result = lessonInstanceRepository
+                .findActiveReplacements(LessonInstance.Status.REPLACED, year, from, to).stream()
+                .filter(li -> li.getSchedule() != null)
+                .map(li -> new SubstitutionInfoDto(
+                        li.getSchedule().getId(),
+                        li.getLessonDate(),
+                        li.getOriginalTeacher() != null ? li.getOriginalTeacher().getFullName() : null,
+                        li.getActualTeacher() != null ? li.getActualTeacher().getFullName() : null))
+                .toList();
+
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/pairs")

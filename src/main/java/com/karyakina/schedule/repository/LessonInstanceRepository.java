@@ -42,4 +42,17 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
     List<LessonInstance> findByTeacherLoadId(Long teacherLoadId);
 
     List<LessonInstance> findByOriginalTeacherIdOrActualTeacherId(Long originalTeacherId, Long actualTeacherId);
+
+    /**
+     * Замены (status = REPLACED), актуальные "сейчас" — используется для подсветки
+     * пары в расписании другим цветом и показа, что преподаватель заменён.
+     * Окно [from, to] задаёт, какие даты ещё считаются "актуальными" (недавно
+     * прошедшие/предстоящие), чтобы старые замены не подсвечивались вечно.
+     */
+    @Query("SELECT li FROM LessonInstance li WHERE li.status = :status " +
+           "AND li.academicYear = :year AND li.lessonDate BETWEEN :from AND :to")
+    @EntityGraph(attributePaths = {"schedule", "originalTeacher", "actualTeacher"})
+    List<LessonInstance> findActiveReplacements(
+            @Param("status") LessonInstance.Status status,
+            @Param("year") Integer year, @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

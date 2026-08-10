@@ -149,6 +149,7 @@ const teacherId = /*[[${teacherId}]]*/ null;
 const defaultYear = /*[[${year}]]*/ 2025;
 let currentDay = 'MONDAY';
 let pairsData = [];
+let substitutionsMap = {}; // scheduleId -> {originalTeacherName, actualTeacherName, lessonDate}
 let isAdmin = /*[[${isAdmin}]]*/ false;
 let currentMode = 'list';
 const highlightPairId = new URLSearchParams(window.location.search).get('pairId');
@@ -215,13 +216,17 @@ function initAdminModes() {
 
 function loadPairs() {
     const year = document.getElementById('yearSelect').value;
-    fetch('/api/pairs?year=' + year)
-        .then(res => {
+    Promise.all([
+        fetch('/api/pairs?year=' + year).then(res => {
             if (!res.ok) throw new Error('Ошибка сервера: ' + res.status);
             return res.json();
-        })
-        .then(data => {
+        }),
+        fetch('/api/pairs/substitutions?year=' + year).then(res => res.ok ? res.json() : []).catch(() => [])
+    ])
+        .then(([data, substitutions]) => {
             pairsData = Array.isArray(data) ? data : [];
+            substitutionsMap = {};
+            (substitutions || []).forEach(s => { substitutionsMap[s.scheduleId] = s; });
             renderPairs();
             if (currentMode === 'teacher') renderTeacherGrid();
             else if (currentMode === 'group') renderGroupGrid();
@@ -271,6 +276,15 @@ function renderPairs() {
         div.className = 'pair-card';
         div.dataset.pairId = p.id;
 
+        const sub = substitutionsMap[p.id];
+        let substituteBadge = '';
+        if (sub) {
+            div.classList.add('substituted-pair');
+            substituteBadge = '<span class="substitute-badge" title="' +
+                (sub.originalTeacherName ? 'Обычно: ' + sub.originalTeacherName : '') +
+                '">🔁 Замена' + (sub.actualTeacherName ? ': ' + sub.actualTeacherName : '') + '</span>';
+        }
+
         let actionsHtml = '';
         if (isAdmin) {
             actionsHtml = '<div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">' +
@@ -282,7 +296,7 @@ function renderPairs() {
         const teacherLine = isAdmin ? ('<span class="text-muted">Преподаватель: ' + p.teacherLoad.teacher.fullName + '</span><br>') : '';
 
         div.innerHTML =
-            '<div class="pair-time">🕐 ' + startTime + ' - ' + endTime + '</div>' +
+            '<div class="pair-time">🕐 ' + startTime + ' - ' + endTime + substituteBadge + '</div>' +
             '<div class="pair-details">' +
                 '<strong>' + p.teacherLoad.discipline.name + '</strong><br>' +
                 teacherLine +
@@ -340,11 +354,13 @@ function renderTeacherGrid() {
         return;
     }
     const pairs = pairsData.filter(p => String(p.teacherLoad.teacher.id) === String(teacherIdSel));
-    buildWeekGrid('teacherGridTable', pairs, p =>
-        '<div class="grid-pair">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
+    buildWeekGrid('teacherGridTable', pairs, p => {
+        const sub = substitutionsMap[p.id];
+        return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
             '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
-        '</div>');
+        '</div>';
+    });
 }
 
 function renderGroupGrid() {
@@ -354,11 +370,14 @@ function renderGroupGrid() {
         return;
     }
     const pairs = pairsData.filter(p => String(p.teacherLoad.group.id) === String(groupIdSel));
-    buildWeekGrid('groupGridTable', pairs, p =>
-        '<div class="grid-pair">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
-            '<div>' + p.teacherLoad.teacher.fullName + ' · ауд. ' + p.classroom + '</div>' +
-        '</div>');
+    buildWeekGrid('groupGridTable', pairs, p => {
+        const sub = substitutionsMap[p.id];
+        const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
+        return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁 замена</span>' : '') + '</div>' +
+            '<div>' + teacherLabel + ' · ауд. ' + p.classroom + '</div>' +
+        '</div>';
+    });
 }
 
 function renderRoomGrid() {
@@ -388,9 +407,11 @@ function renderRoomGrid() {
                 html += '<div class="grid-pair empty-room">свободна</div>';
             } else {
                 cellPairs.forEach(p => {
-                    html += '<div class="grid-pair">' +
-                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + '</div>' +
-                        '<div>' + p.teacherLoad.group.name + ' · ' + p.teacherLoad.teacher.fullName + '</div>' +
+                    const sub = substitutionsMap[p.id];
+                    const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
+                    html += '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
+                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
+                        '<div>' + p.teacherLoad.group.name + ' · ' + teacherLabel + '</div>' +
                         '</div>';
                 });
             }

@@ -190,18 +190,20 @@ public class TeacherLoadService {
     }
 
     private int calculateAcademicYearProgress() {
-        int[] academicYears = AcademicYearUtil.getCurrentAcademicYear();
-        int currentYear = LocalDate.now().getYear();
-        int currentMonth = LocalDate.now().getMonthValue();
+        LocalDate today = LocalDate.now();
+        int currentYear = today.getYear();
+        int currentMonth = today.getMonthValue();
 
-        // Учебный год: сентябрь (9) - май (5)
-        // Начало: сентябрь текущего или прошлого года
-        int startYear = academicYears[0];
+        // Реальные границы текущего учебного года (сентябрь — май) считаются здесь
+        // отдельно от AcademicYearUtil: там "текущий год" — это год, который показывают
+        // в интерфейсе (совпадает с календарным), а прогресс должен отражать фактическое
+        // положение в учебном цикле сентябрь-май независимо от того, какой год выбран
+        // для фильтрации данных.
+        int startYear = currentMonth >= 9 ? currentYear : currentYear - 1;
         int startMonth = 9; // Сентябрь
 
         LocalDate startDate = LocalDate.of(startYear, startMonth, 1);
         LocalDate endDate = startDate.plusMonths(9); // Май
-        LocalDate today = LocalDate.now();
 
         if (today.isBefore(startDate)) {
             return 0;

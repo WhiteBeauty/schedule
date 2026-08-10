@@ -5,6 +5,8 @@
     --success: #16a34a;
     --warning: #ca8a04;
     --danger: #dc2626;
+    --substitute: #7c3aed;
+    --substitute-bg: #f3e8ff;
     --bg: #f3f4f6;
     --card: #ffffff;
     --text: #111827;
@@ -369,6 +371,25 @@ input, select {
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 .text-danger { color: var(--danger); }
+
+/* Пара с активной заменой преподавателя (см. LessonInstance.Status.REPLACED) —
+   единый стиль для всех страниц с расписанием (schedule.html, admin-schedule.html,
+   admin-pairs.html, dashboard.html). */
+.substituted-pair {
+    background: var(--substitute-bg) !important;
+    border-left: 4px solid var(--substitute) !important;
+}
+.substitute-badge {
+    display: inline-block;
+    background: var(--substitute);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.25rem;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
 
 .sync-status {
     display: inline-flex;

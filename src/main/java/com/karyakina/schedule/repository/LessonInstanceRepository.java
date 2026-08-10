@@ -43,6 +43,11 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
 
     List<LessonInstance> findByOriginalTeacherIdOrActualTeacherId(Long originalTeacherId, Long actualTeacherId);
 
+    /** Все материализованные занятия в диапазоне дат — используется для месячного календаря. */
+    @EntityGraph(attributePaths = {"schedule", "teacherLoad", "teacherLoad.teacher", "teacherLoad.group",
+            "teacherLoad.discipline", "originalTeacher", "actualTeacher"})
+    List<LessonInstance> findByLessonDateBetween(LocalDate from, LocalDate to);
+
     /**
      * Замены (status = REPLACED), актуальные "сейчас" — используется для подсветки
      * пары в расписании другим цветом и показа, что преподаватель заменён.

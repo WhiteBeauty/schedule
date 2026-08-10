@@ -41,6 +41,7 @@ public class ApiController {
     private final StudyGroupRepository groupRepository;
     private final ClassroomRepository classroomRepository;
     private final LessonInstanceRepository lessonInstanceRepository;
+    private final com.karyakina.schedule.service.MonthScheduleService monthScheduleService;
     private final SettingsService settingsService;
     private final DisciplineRepository disciplineRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
@@ -1299,6 +1300,25 @@ public class ApiController {
                 .toList();
 
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Расписание на месяц: раскрытые по датам занятия за выбранный календарный месяц
+     * (year/month — обычный год/месяц, например 2026/8), с наложенными заменами
+     * преподавателей (см. MonthScheduleService). Опционально фильтруется по
+     * преподавателю или группе.
+     */
+    @GetMapping("/schedule/month")
+    public ResponseEntity<List<com.karyakina.schedule.dto.MonthLessonDto>> getMonthSchedule(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) Long groupId) {
+        if (month < 1 || month > 12) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(monthScheduleService.getMonth(year, month, academicYear, teacherId, groupId));
     }
 
     @PostMapping("/pairs")

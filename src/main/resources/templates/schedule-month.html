@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расписание на месяц</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .month-calendar {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .month-calendar th {
+            padding: 0.5rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .month-calendar td {
+            vertical-align: top;
+            border: 1px solid var(--border);
+            padding: 0.4rem;
+            height: 7rem;
+            width: 14.28%;
+        }
+        .month-calendar td.other-month { background: #fafbfc; color: var(--muted); }
+        .month-calendar td.today { background: #eff6ff; }
+        .cal-day-num { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem; }
+        .cal-lessons { display: flex; flex-direction: column; gap: 0.2rem; max-height: 5.5rem; overflow-y: auto; }
+        .cal-lesson {
+            font-size: 0.7rem;
+            line-height: 1.25;
+            padding: 0.15rem 0.3rem;
+            border-radius: 0.25rem;
+            background: #f3f4f6;
+            border-left: 3px solid var(--primary);
+            cursor: default;
+        }
+        .cal-lesson.substituted-pair {
+            border-left: 3px solid var(--substitute);
+            background: var(--substitute-bg);
+        }
+        .cal-lesson.status-cancelled { opacity: 0.5; text-decoration: line-through; }
+        .cal-lesson-time { font-weight: 600; }
+        .month-nav { display: flex; align-items: center; gap: 0.75rem; }
+        .month-nav h2 { margin: 0; min-width: 12rem; text-align: center; }
+        .subst-table th, .subst-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+        .subst-table tr:nth-child(even) { background: #fafbfc; }
+        .legend-dot {
+            display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%;
+            margin-right: 0.3rem; vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div class="page-header">
+        <h1 class="page-title" style="margin:0;">🗓️ Расписание на месяц</h1>
+        <p class="page-subtitle">
+            Календарь занятий за месяц. Пары с заменой преподавателя выделены
+            <span class="legend-dot" style="background: var(--substitute);"></span>фиолетовым — наведите на пару, чтобы увидеть, кто заменяет.
+        </p>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem;">
+        <div class="filters" style="align-items:flex-end;">
+            <div class="month-nav">
+                <button class="btn btn-sm btn-outline" onclick="shiftMonth(-1)">← Пред.</button>
+                <h2 id="monthTitle">—</h2>
+                <button class="btn btn-sm btn-outline" onclick="shiftMonth(1)">След. →</button>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="goToday()">Сегодня</button>
+            <label th:if="${isAdmin}">Преподаватель:
+                <select id="filterTeacher"><option value="">Все</option></select>
+            </label>
+            <label th:if="${isAdmin}">Группа:
+                <select id="filterGroup"><option value="">Все</option></select>
+            </label>
+            <button class="btn btn-sm" onclick="loadMonth()">Применить</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem;">
+        <table class="month-calendar" id="calendarTable">
+            <thead>
+            <tr>
+                <th>Пн</th><th>Вт</th><th>Ср</th><th>Чт</th><th>Пт</th><th>Сб</th><th>Вс</th>
+            </tr>
+            </thead>
+            <tbody id="calendarBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">🔁 Замены за месяц</span>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem;">
+            Все пары этого месяца, на которых преподаватель был заменён, с датами и тем, кто провёл занятие вместо него.
+        </p>
+        <table class="subst-table" style="width:100%; border-collapse:collapse;">
+            <thead>
+            <tr><th>Дата</th><th>Время</th><th>Дисциплина</th><th>Группа</th><th>Аудитория</th><th>Обычно ведёт</th><th>Заменил(а)</th></tr>
+            </thead>
+            <tbody id="substitutionsBody"><tr><td colspan="7" class="text-muted">Загрузка…</td></tr></tbody>
+        </table>
+    </div>
+</main>
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+const isAdmin = /*[[${isAdmin}]]*/ false;
+const teacherId = /*[[${teacherId}]]*/ null;
+let calendarYear = /*[[${calendarYear}]]*/ 2026;
+let calendarMonth = /*[[${calendarMonth}]]*/ 1; // 1-12
+/*]]>*/
+
+const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                      'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const DAY_LABELS = { MONDAY: 'Пн', TUESDAY: 'Вт', WEDNESDAY: 'Ср', THURSDAY: 'Чт', FRIDAY: 'Пт', SATURDAY: 'Сб', SUNDAY: 'Вс' };
+const STATUS_LABELS = {
+    PLANNED: 'запланирована', CONFIRMED: 'проведена', CANCELLED: 'отменена',
+    REPLACED: 'замена', INDEPENDENT_WORK: 'самостоятельная работа'
+};
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : s;
+    return div.innerHTML;
+}
+
+function loadFilters() {
+    if (!isAdmin) return;
+    fetch('/api/teachers').then(r => r.json()).then(list => {
+        const sel = document.getElementById('filterTeacher');
+        list.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id; opt.textContent = t.fullName;
+            sel.appendChild(opt);
+        });
+    });
+    fetch('/api/groups').then(r => r.json()).then(list => {
+        const sel = document.getElementById('filterGroup');
+        list.forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.id; opt.textContent = g.name;
+            sel.appendChild(opt);
+        });
+    });
+}
+
+function shiftMonth(delta) {
+    calendarMonth += delta;
+    if (calendarMonth < 1) { calendarMonth = 12; calendarYear--; }
+    if (calendarMonth > 12) { calendarMonth = 1; calendarYear++; }
+    loadMonth();
+}
+
+function goToday() {
+    const today = new Date();
+    calendarYear = today.getFullYear();
+    calendarMonth = today.getMonth() + 1;
+    loadMonth();
+}
+
+function buildUrl() {
+    let url = `/api/schedule/month?year=${calendarYear}&month=${calendarMonth}`;
+    if (!isAdmin && teacherId) {
+        url += `&teacherId=${teacherId}`;
+    } else if (isAdmin) {
+        const t = document.getElementById('filterTeacher') ? document.getElementById('filterTeacher').value : '';
+        const g = document.getElementById('filterGroup') ? document.getElementById('filterGroup').value : '';
+        if (t) url += `&teacherId=${t}`;
+        if (g) url += `&groupId=${g}`;
+    }
+    return url;
+}
+
+function loadMonth() {
+    document.getElementById('monthTitle').textContent = MONTH_NAMES[calendarMonth - 1] + ' ' + calendarYear;
+    fetch(buildUrl())
+        .then(r => r.ok ? r.json() : [])
+        .then(lessons => {
+            renderCalendar(lessons);
+            renderSubstitutions(lessons);
+        })
+        .catch(() => {
+            document.getElementById('calendarBody').innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить расписание</td></tr>';
+        });
+}
+
+function renderCalendar(lessons) {
+    const byDate = {};
+    lessons.forEach(l => {
+        (byDate[l.date] = byDate[l.date] || []).push(l);
+    });
+
+    const firstOfMonth = new Date(calendarYear, calendarMonth - 1, 1);
+    const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+    // ISO: понедельник = 0 ... воскресенье = 6
+    const firstWeekday = (firstOfMonth.getDay() + 6) % 7;
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const tbody = document.getElementById('calendarBody');
+    tbody.innerHTML = '';
+
+    let dayCounter = 1 - firstWeekday;
+    while (dayCounter <= daysInMonth) {
+        const tr = document.createElement('tr');
+        for (let col = 0; col < 7; col++) {
+            const td = document.createElement('td');
+            if (dayCounter < 1 || dayCounter > daysInMonth) {
+                td.className = 'other-month';
+            } else {
+                const dateStr = `${calendarYear}-${String(calendarMonth).padStart(2,'0')}-${String(dayCounter).padStart(2,'0')}`;
+                if (dateStr === todayStr) td.classList.add('today');
+
+                const dayLessons = (byDate[dateStr] || []).slice().sort((a, b) => a.startTime.localeCompare(b.startTime));
+                const lessonsHtml = dayLessons.map(l => {
+                    const cls = ['cal-lesson'];
+                    if (l.substituted) cls.push('substituted-pair');
+                    if (l.status === 'CANCELLED') cls.push('status-cancelled');
+                    const teacherLabel = l.substituted ? l.actualTeacherName : l.originalTeacherName;
+                    const title = l.substituted
+                        ? `Замена: ${l.originalTeacherName} → ${l.actualTeacherName}`
+                        : `${l.originalTeacherName}, ауд. ${l.classroom}`;
+                    return `<div class="${cls.join(' ')}" title="${escapeHtml(title)}">` +
+                        `<span class="cal-lesson-time">${l.startTime.substring(0,5)}</span> ${escapeHtml(l.disciplineName)}` +
+                        (l.substituted ? ' 🔁' : '') +
+                        `<div>${escapeHtml(l.groupName)}${isAdmin ? ' · ' + escapeHtml(teacherLabel) : ''}</div>` +
+                        `</div>`;
+                }).join('');
+
+                td.innerHTML = `<div class="cal-day-num">${dayCounter}</div><div class="cal-lessons">${lessonsHtml}</div>`;
+            }
+            tr.appendChild(td);
+            dayCounter++;
+        }
+        tbody.appendChild(tr);
+    }
+}
+
+function renderSubstitutions(lessons) {
+    const tbody = document.getElementById('substitutionsBody');
+    const substituted = lessons.filter(l => l.substituted)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+
+    if (!substituted.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-muted">В этом месяце замен не было</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    substituted.forEach(l => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${l.date}</td>
+            <td>${l.startTime.substring(0,5)} - ${l.endTime.substring(0,5)}</td>
+            <td>${escapeHtml(l.disciplineName)}</td>
+            <td>${escapeHtml(l.groupName)}</td>
+            <td>${escapeHtml(l.classroom)}</td>
+            <td>${escapeHtml(l.originalTeacherName)}</td>
+            <td><strong>${escapeHtml(l.actualTeacherName)}</strong></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+loadFilters();
+loadMonth();
+</script>
+</body>
+</html>

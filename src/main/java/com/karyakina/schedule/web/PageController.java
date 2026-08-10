@@ -14,6 +14,8 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.time.LocalDate;
+
 @Controller
 @RequiredArgsConstructor
 public class PageController {
@@ -111,6 +113,26 @@ public class PageController {
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
         return "time-sync";
+    }
+
+    @GetMapping("/schedule/month")
+    public String scheduleMonth(Model model, Authentication authentication,
+                                 @RequestParam(name = "year", required = false) Integer yearParam,
+                                 @RequestParam(name = "month", required = false) Integer monthParam) {
+        Teacher teacher = getTeacherFromAuth(authentication);
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        LocalDate today = LocalDate.now();
+        int calendarYear = yearParam != null ? yearParam : today.getYear();
+        int calendarMonth = monthParam != null ? monthParam : today.getMonthValue();
+
+        model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
+        model.addAttribute("calendarYear", calendarYear);
+        model.addAttribute("calendarMonth", calendarMonth);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        model.addAttribute("teacherId", teacher != null ? teacher.getId() : null);
+        return "schedule-month";
     }
 
     @GetMapping("/curatorship")

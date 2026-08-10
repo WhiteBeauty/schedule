@@ -149,7 +149,7 @@ const teacherId = /*[[${teacherId}]]*/ null;
 const defaultYear = /*[[${year}]]*/ 2025;
 let currentDay = 'MONDAY';
 let pairsData = [];
-let substitutionsMap = {}; // scheduleId -> {originalTeacherName, actualTeacherName, lessonDate}
+let substitutionsMap = {}; // scheduleId -> [{originalTeacherName, actualTeacherName, lessonDate}, ...]
 let isAdmin = /*[[${isAdmin}]]*/ false;
 let currentMode = 'list';
 const highlightPairId = new URLSearchParams(window.location.search).get('pairId');
@@ -159,6 +159,33 @@ const dayNames = {
     THURSDAY: 'Четверг', FRIDAY: 'Пятница', SATURDAY: 'Суббота'
 };
 const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
+/**
+ * Недельная сетка (по преподавателю/группе/аудиториям) — это шаблон БЕЗ конкретной
+ * даты: одна и та же ячейка "среда, 08:30" повторяется каждую неделю. Поэтому
+ * подсвечивать замену нужно только если она произошла ИМЕННО в текущую календарную
+ * неделю — иначе разовая замена (например, только в одну субботу) подсвечивала бы
+ * пару фиолетовым на всех неделях подряд, что и создавало расхождение с месячным
+ * календарём (там даты точные).
+ */
+function dateForDayInCurrentWeek(dayOfWeek) {
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const offset = dayOrder.indexOf(dayOfWeek);
+    if (offset < 0) return null;
+    const target = new Date(monday);
+    target.setDate(monday.getDate() + offset);
+    return target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
+}
+
+/** Замена этой пары ИМЕННО на текущую неделю (см. dateForDayInCurrentWeek), либо null. */
+function currentWeekSubstitution(pair) {
+    const list = substitutionsMap[pair.id];
+    if (!list || !list.length) return null;
+    const targetDate = dateForDayInCurrentWeek(pair.dayOfWeek);
+    return list.find(s => s.lessonDate === targetDate) || null;
+}
 
 function getCurrentDayOfWeek() {
     const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
@@ -226,7 +253,9 @@ function loadPairs() {
         .then(([data, substitutions]) => {
             pairsData = Array.isArray(data) ? data : [];
             substitutionsMap = {};
-            (substitutions || []).forEach(s => { substitutionsMap[s.scheduleId] = s; });
+            (substitutions || []).forEach(s => {
+                (substitutionsMap[s.scheduleId] = substitutionsMap[s.scheduleId] || []).push(s);
+            });
             renderPairs();
             if (currentMode === 'teacher') renderTeacherGrid();
             else if (currentMode === 'group') renderGroupGrid();
@@ -276,7 +305,7 @@ function renderPairs() {
         div.className = 'pair-card';
         div.dataset.pairId = p.id;
 
-        const sub = substitutionsMap[p.id];
+        const sub = currentWeekSubstitution(p);
         let substituteBadge = '';
         if (sub) {
             div.classList.add('substituted-pair');
@@ -355,7 +384,7 @@ function renderTeacherGrid() {
     }
     const pairs = pairsData.filter(p => String(p.teacherLoad.teacher.id) === String(teacherIdSel));
     buildWeekGrid('teacherGridTable', pairs, p => {
-        const sub = substitutionsMap[p.id];
+        const sub = currentWeekSubstitution(p);
         return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
             '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
             '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
@@ -371,7 +400,7 @@ function renderGroupGrid() {
     }
     const pairs = pairsData.filter(p => String(p.teacherLoad.group.id) === String(groupIdSel));
     buildWeekGrid('groupGridTable', pairs, p => {
-        const sub = substitutionsMap[p.id];
+        const sub = currentWeekSubstitution(p);
         const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
         return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
             '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁 замена</span>' : '') + '</div>' +
@@ -407,7 +436,7 @@ function renderRoomGrid() {
                 html += '<div class="grid-pair empty-room">свободна</div>';
             } else {
                 cellPairs.forEach(p => {
-                    const sub = substitutionsMap[p.id];
+                    const sub = currentWeekSubstitution(p);
                     const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
                     html += '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
                         '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +

@@ -201,11 +201,35 @@
 <script>
 let pairsData = [];
 let loadsData = [];
-let substitutionsMap = {}; // scheduleId -> {originalTeacherName, actualTeacherName, lessonDate}
+let substitutionsMap = {}; // scheduleId -> [{originalTeacherName, actualTeacherName, lessonDate}, ...]
 let teachersData = [];
 let groupsData = [];
 let disciplinesData = [];
 let sickLeavesData = [];
+
+/**
+ * pairsData — это шаблон расписания БЕЗ конкретной даты (одна и та же пара
+ * "среда, 08:30" повторяется каждую неделю), поэтому подсвечивать замену нужно
+ * только если она произошла ИМЕННО в текущую календарную неделю — иначе разовая
+ * замена подсвечивала бы пару фиолетовым навсегда, независимо от даты.
+ */
+const WEEK_DAY_ORDER = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+function dateForDayInCurrentWeek(dayOfWeek) {
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const offset = WEEK_DAY_ORDER.indexOf(dayOfWeek);
+    if (offset < 0) return null;
+    const target = new Date(monday);
+    target.setDate(monday.getDate() + offset);
+    return target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
+}
+function currentWeekSubstitution(pair) {
+    const list = substitutionsMap[pair.id];
+    if (!list || !list.length) return null;
+    const targetDate = dateForDayInCurrentWeek(pair.dayOfWeek);
+    return list.find(s => s.lessonDate === targetDate) || null;
+}
 
 let selectedTeacherId = null;
 let selectedGroupId = null;
@@ -380,7 +404,9 @@ function loadPairs() {
         pairsData = pairs;
         loadsData = loads;
         substitutionsMap = {};
-        (substitutions || []).forEach(s => { substitutionsMap[s.scheduleId] = s; });
+        (substitutions || []).forEach(s => {
+            (substitutionsMap[s.scheduleId] = substitutionsMap[s.scheduleId] || []).push(s);
+        });
         renderPairs();
     });
 }
@@ -399,7 +425,7 @@ function renderPairs() {
     pairsData.forEach(p => {
         const tr = document.createElement('tr');
         const loadId = p.teacherLoad ? p.teacherLoad.id : null;
-        const sub = substitutionsMap[p.id];
+        const sub = currentWeekSubstitution(p);
         const teacherCell = sub
             ? `${p.teacherLoad.teacher.fullName} <span class="substitute-badge" title="${sub.originalTeacherName ? 'Обычно: ' + sub.originalTeacherName : ''}">🔁 ${sub.actualTeacherName || 'замена'}</span>`
             : p.teacherLoad.teacher.fullName;

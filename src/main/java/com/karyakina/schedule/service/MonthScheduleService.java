@@ -65,6 +65,14 @@ public class MonthScheduleService {
             int week = lessonInstanceService.computeAcademicWeek(date, resolvedAcademicYear);
             for (Schedule s : schedules) {
                 if (s.getDayOfWeek() != date.getDayOfWeek()) continue;
+                // academicWeek = null означает "каждую неделю" (подавляющее большинство пар —
+                // и вручную заведённых, и сгенерированных автосоставлением). Непустое значение
+                // бывает только у одноразовых подменных записей, которые создаёт
+                // SickLeaveReschedulingService на время больничного — они должны показываться
+                // только на свою неделю. Раньше здесь стоял тот же фильтр, но он ошибочно
+                // выкидывал из календаря целые дни недели (см. computeAcademicWeek) — теперь,
+                // когда номер недели считается детерминированно (WeekFields.ISO, а не локаль
+                // сервера), фильтрация снова безопасна.
                 if (s.getAcademicWeek() != null && !s.getAcademicWeek().equals(week)) continue;
 
                 LessonInstance instance = instanceByKey.get(s.getId() + "_" + date);

@@ -258,9 +258,19 @@ public class LessonInstanceService {
         if (date.isBefore(start)) {
             start = LocalDate.of(academicYear - 1, 9, 1);
         }
+        // ВАЖНО: раньше здесь стоял WeekFields.of(Locale.getDefault()) — начало недели
+        // (и, соответственно, номер недели) зависело от системной локали сервера/JVM.
+        // Из-за этого номер недели, вычисленный здесь, мог не совпадать с тем, что
+        // реально записан в Schedule.academicWeek (заданным при генерации расписания
+        // в другом окружении/локали), и пары с непустым academicWeek переставали
+        // материализовываться (или пропадали из месячного календаря) — вплоть до того,
+        // что весь день недели (например, четверг) мог не появляться никогда.
+        // WeekFields.ISO фиксирует неделю с понедельника независимо от локали, поэтому
+        // номер недели теперь детерминирован и одинаков в любом окружении.
+        WeekFields iso = WeekFields.ISO;
         long weeks = ChronoUnit.WEEKS.between(
-                start.with(WeekFields.of(Locale.getDefault()).getFirstDayOfWeek()),
-                date.with(WeekFields.of(Locale.getDefault()).getFirstDayOfWeek()));
+                start.with(iso.getFirstDayOfWeek()),
+                date.with(iso.getFirstDayOfWeek()));
         return (int) weeks + 1;
     }
 }

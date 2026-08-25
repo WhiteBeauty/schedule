@@ -34,9 +34,21 @@ public class DataInitializer implements CommandLineRunner {
     @org.springframework.beans.factory.annotation.Value("${app.initial-admin-password:admin123}")
     private String initialAdminPassword;
 
+    /**
+     * Гарантированный администратор: создаётся при каждом старте приложения, если
+     * пользователь с этим email отсутствует в БД (например, после полного сноса базы).
+     * Таким образом не приходится заново регистрировать администратора вручную.
+     */
+    private static final String GUARANTEED_ADMIN_EMAIL = "elizabethrk@yandex.ru";
+    private static final String GUARANTEED_ADMIN_USERNAME = "elizabethrk";
+    private static final String GUARANTEED_ADMIN_PASSWORD = "123456";
+
     @Override
     public void run(String... args) {
         log.info("Initializing application data...");
+
+        // Гарантированный админ создаётся всегда, независимо от наличия остальных данных.
+        ensureAdminExists();
 
         // Подстраховка: гарантируем, что у ВСЕХ существующих нагрузок (независимо от того,
         // когда и как они были созданы — сид, импорт, ручное добавление) есть 12 строк
@@ -451,8 +463,36 @@ public class DataInitializer implements CommandLineRunner {
 
         log.info("Application data initialization completed");
         log.info("Admin login: admin@example.com / (см. INITIAL_ADMIN_PASSWORD)");
+        log.info("Guaranteed admin login: " + GUARANTEED_ADMIN_EMAIL + " / " + GUARANTEED_ADMIN_PASSWORD);
         log.info("Teacher 1 login: ivanov@example.com / teacher123");
         log.info("Teacher 2 login: petrova@example.com / teacher123");
         log.info("Teacher 3 login: sidorov@example.com / teacher123");
+    }
+
+    /**
+     * Гарантирует существование администратора {@link #GUARANTEED_ADMIN_EMAIL}:
+     * <ul>
+     *   <li>если пользователь отсутствует (в т.ч. после полного сноса БД) — создаёт его
+     *       с ролью ADMIN и паролем {@link #GUARANTEED_ADMIN_PASSWORD};</li>
+     *   <li>если пользователь существует, но был понижен — возвращает роль ADMIN
+     *       (пароль при этом НЕ перезаписывается, чтобы не отменять смену пароля в UI).</li>
+     * </ul>
+     */
+    private void ensureAdminExists() {
+        User admin = userRepository.findByEmail(GUARANTEED_ADMIN_EMAIL)
+                .orElseGet(() -> {
+                    log.info("Guaranteed admin {} not found, creating...", GUARANTEED_ADMIN_EMAIL);
+                    return userRepository.save(User.builder()
+                            .username(GUARANTEED_ADMIN_USERNAME)
+                            .email(GUARANTEED_ADMIN_EMAIL)
+                            .password(passwordEncoder.encode(GUARANTEED_ADMIN_PASSWORD))
+                            .role(User.Role.ADMIN)
+                            .build());
+                });
+        if (admin.getRole() != User.Role.ADMIN) {
+            log.info("Guaranteed admin {} exists but not ADMIN, promoting...", GUARANTEED_ADMIN_EMAIL);
+            admin.setRole(User.Role.ADMIN);
+            userRepository.save(admin);
+        }
     }
 }

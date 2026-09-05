@@ -349,6 +349,84 @@ public class ImportPersistenceService {
         return updated;
     }
 
+    /**
+     * Применяет записи, разобранные {@link TarificationImportService} из файла
+     * "Тарификация" (годовая сводная таблица нагрузки по преподавателям/группам).
+     *
+     * В отличие от {@link #applyRows}, группы здесь ВСЕГДА создаются из файла (а не
+     * сопоставляются с уже существующими в базе) — так решил администратор для этого
+     * формата импорта: тарификация читается в начале учебного года и описывает состав
+     * групп заново. Единственное исключение — повторный импорт того же файла: тогда
+     * группа с таким же названием уже создана этим же импортом (или предыдущим его
+     * запуском) и переиспользуется, чтобы не упасть на уникальном ограничении по имени.
+     */
+    @Transactional
+    public ImportResult applyTarificationRows(List<TarificationImportService.TarificationRow> rows, Integer academicYear) {
+        ImportResult result = new ImportResult();
+
+        for (TarificationImportService.TarificationRow row : rows) {
+            List<Teacher> existingTeachers = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
+            Teacher teacher;
+            if (!existingTeachers.isEmpty()) {
+                teacher = existingTeachers.get(0);
+            } else {
+                result.createdTeachers++;
+                teacher = teacherRepository.save(Teacher.builder().fullName(row.teacherName.trim()).build());
+            }
+
+            Discipline discipline = disciplineRepository.findByNameIgnoreCase(row.disciplineName.trim())
+                    .orElseGet(() -> {
+                        result.createdDisciplines++;
+                        return disciplineRepository.save(Discipline.builder().name(row.disciplineName.trim()).build());
+                    });
+
+            StudyGroup group = groupRepository.findByNameIgnoreCase(row.groupName.trim())
+                    .orElseGet(() -> {
+                        result.createdGroups++;
+                        return groupRepository.save(StudyGroup.builder()
+                                .name(row.groupName.trim())
+                                .specialty(row.specialty)
+                                .course(row.course)
+                                .studentCount(row.studentCount)
+                                .build());
+                    });
+
+            int hours1 = nz(row.hours1);
+            int hours2 = nz(row.hours2);
+            int totalHours = hours1 + hours2;
+
+            TeacherLoad existing = findExistingLoad(teacher.getId(), group.getId(), discipline.getId(), academicYear);
+            if (existing != null) {
+                existing.setPlannedHours(totalHours);
+                existing.setFirstSemesterHours(hours1);
+                existing.setSecondSemesterHours(hours2);
+                if (row.control1 != null) existing.setControlPointType1(row.control1);
+                if (row.control2 != null) existing.setControlPointType2(row.control2);
+                loadRepository.save(existing);
+                result.updatedLoads++;
+            } else {
+                TeacherLoad load = TeacherLoad.builder()
+                        .teacher(teacher)
+                        .group(group)
+                        .discipline(discipline)
+                        .plannedHours(totalHours)
+                        .firstSemesterHours(hours1)
+                        .secondSemesterHours(hours2)
+                        .controlPointType1(row.control1)
+                        .controlPointType2(row.control2)
+                        .readHours(0)
+                        .academicYear(academicYear)
+                        .overload(false)
+                        .build();
+                TeacherLoad savedLoad = loadRepository.save(load);
+                result.createdLoads++;
+                monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
+            }
+            result.processedLoads++;
+        }
+        return result;
+    }
+
     private TeacherLoad findExistingLoad(Long teacherId, Long groupId, Long disciplineId, Integer year) {
         return loadRepository.findByAcademicYear(year).stream()
                 .filter(l -> sameTeacher(l.getTeacher() != null ? l.getTeacher().getId() : null, teacherId)

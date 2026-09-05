@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Импорт тарификации - Администратор</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 0.75rem;
+            padding: 2.5rem;
+            text-align: center;
+            background: #fafbfc;
+            transition: .15s;
+            cursor: pointer;
+        }
+        .dropzone.dragover { border-color: var(--primary); background: #eff6ff; }
+        .warn-table th, .warn-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+        .warn-table tr:nth-child(even) { background: #fafbfc; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+        .stat-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.85rem; text-align: center; }
+        .stat-box .num { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .stat-box .label { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+    </style>
+</head>
+<body>
+<div th:replace="~{fragments/nav :: sidebar}"></div>
+
+<main class="main">
+    <div class="page-header">
+        <h1 class="page-title" style="margin:0;">📊 Импорт тарификации</h1>
+        <p class="page-subtitle">
+            Загрузите файл тарификации (Excel, лист "Часовка") — годовую сводную таблицу часов
+            по преподавателям, дисциплинам и группам с разбивкой на семестры. Преподаватели и
+            дисциплины сопоставляются с уже существующими в базе по ФИО/названию, а учебные
+            группы создаются заново из файла. После импорта используйте обычное
+            автосоставление расписания — оно рассчитает часы в неделю от плановых часов и
+            расставит пары по дням.
+        </p>
+    </div>
+
+    <div class="card" id="stepUpload">
+        <div class="card-header"><span class="card-title">Файл тарификации</span></div>
+
+        <div style="margin-bottom:1rem;">
+            <label class="text-muted" style="font-size:0.85rem;">Учебный год (начало, например <span th:text="${year}">2025</span> для <span th:text="${year + '/' + (year + 1)}">2025/2026</span>):</label><br>
+            <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
+        </div>
+
+        <div class="dropzone" id="dropzone">
+            <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
+            <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls)</div>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
+        </div>
+
+        <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+            <button class="btn" id="importBtn" disabled>📊 Импортировать тарификацию</button>
+            <button class="btn btn-outline" id="clearBtn">Очистить</button>
+        </div>
+    </div>
+
+    <div class="card" id="stepResult" style="display:none;">
+        <div class="card-header"><span class="card-title">Результат импорта</span></div>
+        <div id="resultSummary" style="font-weight:600;"></div>
+
+        <div class="stat-grid" id="statGrid"></div>
+
+        <div id="warningsBlock" style="display:none; margin-top:1.25rem;">
+            <h4 style="margin-bottom:0.5rem;">Предупреждения</h4>
+            <table class="warn-table" style="width:100%; border-collapse:collapse;">
+                <thead><tr><th>Строка</th><th>Сообщение</th><th>Контекст</th></tr></thead>
+                <tbody id="warningsBody"></tbody>
+            </table>
+        </div>
+
+        <div style="margin-top:1.25rem;">
+            <button class="btn btn-outline" id="restartBtn">Импортировать ещё файл</button>
+            <a class="btn" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    let selectedFile = null;
+
+    const dropzone = document.getElementById('dropzone');
+    const dropzoneLabel = document.getElementById('dropzoneLabel');
+    const fileInput = document.getElementById('fileInput');
+    const importBtn = document.getElementById('importBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) setFile(fileInput.files[0]);
+    });
+
+    function setFile(file) {
+        selectedFile = file;
+        dropzoneLabel.textContent = '✅ ' + file.name;
+        importBtn.disabled = false;
+    }
+
+    clearBtn.addEventListener('click', resetForm);
+    restartBtn.addEventListener('click', () => {
+        document.getElementById('stepResult').style.display = 'none';
+        document.getElementById('stepUpload').style.display = '';
+        resetForm();
+    });
+
+    function resetForm() {
+        selectedFile = null;
+        fileInput.value = '';
+        dropzoneLabel.textContent = 'Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls)';
+        importBtn.disabled = true;
+    }
+
+    importBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+        importBtn.disabled = true;
+        importBtn.textContent = 'Импортируем...';
+
+        const year = document.getElementById('academicYearInput').value;
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const res = await fetch('/api/import/tarification?academicYear=' + encodeURIComponent(year), {
+                method: 'POST',
+                body: formData
+            });
+            if (!res.ok) {
+                alert('Ошибка импорта (код ' + res.status + ')');
+                importBtn.disabled = false;
+                importBtn.textContent = '📊 Импортировать тарификацию';
+                return;
+            }
+            const report = await res.json();
+            showResult(report);
+        } catch (e) {
+            alert('Ошибка сети: ' + e.message);
+            importBtn.disabled = false;
+            importBtn.textContent = '📊 Импортировать тарификацию';
+        }
+    });
+
+    function showResult(report) {
+        document.getElementById('stepUpload').style.display = 'none';
+        document.getElementById('stepResult').style.display = '';
+
+        document.getElementById('resultSummary').textContent = report.summary
+            || (report.success ? 'Импорт выполнен успешно.' : 'Импорт завершился с ошибкой.');
+
+        const stats = [
+            ['Всего записей', report.totalRows],
+            ['Обработано', report.processedRows],
+            ['Преподавателей создано', report.createdTeachers],
+            ['Дисциплин создано', report.createdDisciplines],
+            ['Групп создано', report.createdGroups],
+            ['Нагрузок создано', report.createdLoads],
+            ['Нагрузок обновлено', report.updatedLoads]
+        ];
+        const grid = document.getElementById('statGrid');
+        grid.innerHTML = '';
+        stats.forEach(([label, num]) => {
+            const box = document.createElement('div');
+            box.className = 'stat-box';
+            box.innerHTML = '<div class="num">' + (num ?? 0) + '</div><div class="label">' + label + '</div>';
+            grid.appendChild(box);
+        });
+
+        const warnings = report.splitNotices || [];
+        const warnBlock = document.getElementById('warningsBlock');
+        const warnBody = document.getElementById('warningsBody');
+        warnBody.innerHTML = '';
+        if (warnings.length) {
+            warnBlock.style.display = '';
+            warnings.forEach(w => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + w.rowNumber + '</td><td>' + (w.message || '') + '</td><td>' + (w.rawData || '') + '</td>';
+                warnBody.appendChild(tr);
+            });
+        } else {
+            warnBlock.style.display = 'none';
+        }
+    }
+</script>
+</body>
+</html>

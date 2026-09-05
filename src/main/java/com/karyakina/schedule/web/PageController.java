@@ -279,6 +279,23 @@ public class PageController {
         return "admin-import";
     }
 
+    @GetMapping("/admin/tarification-import")
+    public String adminTarificationImport(Model model, Authentication authentication,
+                              @RequestParam(name = "year", required = false) Integer yearParam) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return "redirect:/dashboard";
+        }
+
+        Integer year = yearParam != null ? yearParam : AcademicYearUtil.getCurrentAcademicYearStart();
+
+        model.addAttribute("isAdmin", true);
+        model.addAttribute("year", year);
+        model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        return "admin-tarification-import";
+    }
+
     @GetMapping("/notifications")
     public String notifications(Model model, Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())

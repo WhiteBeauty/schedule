@@ -23,7 +23,51 @@
             <button class="btn btn-outline" id="genRunBtn" type="button">🧮 Автосоставление</button>
             <button class="btn btn-outline" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">🧹 Разбить слитные группы/дисциплины</button>
             <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
+            <button class="btn btn-outline" onclick="openExportMonthModal()">📥 Скачать за месяц</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
+        </div>
+    </div>
+
+    <!-- Модалка экспорта расписания за месяц -->
+    <div class="modal-overlay" id="exportMonthModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin:0;">Скачать расписание за месяц</h3>
+                <button class="close-btn" type="button" onclick="closeExportMonthModal()" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+                    Excel-файл в печатной форме: "УТВЕРЖДАЮ" в шапке, дни и пары по строкам,
+                    группы по столбцам — отдельный лист на каждую календарную неделю месяца.
+                </p>
+                <label style="display:block; margin-bottom:0.75rem;">
+                    Учебный год
+                    <input type="number" id="exportYear" style="width:100%; margin-top:0.25rem;">
+                </label>
+                <label style="display:block; margin-bottom:0.75rem;">
+                    Месяц
+                    <select id="exportMonth" style="width:100%; margin-top:0.25rem;">
+                        <option value="1">Январь</option><option value="2">Февраль</option>
+                        <option value="3">Март</option><option value="4">Апрель</option>
+                        <option value="5">Май</option><option value="6">Июнь</option>
+                        <option value="7">Июль</option><option value="8">Август</option>
+                        <option value="9">Сентябрь</option><option value="10">Октябрь</option>
+                        <option value="11">Ноябрь</option><option value="12">Декабрь</option>
+                    </select>
+                </label>
+                <label style="display:block; margin-bottom:0.75rem;">
+                    Наименование учебного заведения (необязательно)
+                    <input type="text" id="exportOrgName" placeholder="ГБПОУ КО «...»" style="width:100%; margin-top:0.25rem;">
+                </label>
+                <label style="display:block;">
+                    ФИО директора (необязательно)
+                    <input type="text" id="exportDirectorName" placeholder="Фамилия И.О." style="width:100%; margin-top:0.25rem;">
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" type="button" onclick="closeExportMonthModal()">Отмена</button>
+                <button class="btn" type="button" id="exportMonthConfirmBtn">📥 Скачать</button>
+            </div>
         </div>
     </div>
 
@@ -432,6 +476,41 @@ async function executeWipe() {
         alert('Ошибка: ' + e.message);
     }
 }
+
+// ---- Экспорт расписания за месяц в Excel ----
+function openExportMonthModal() {
+    const yearInput = document.getElementById('exportYear');
+    if (!yearInput.value) {
+        yearInput.value = window.DEFAULT_ACADEMIC_YEAR;
+    }
+    const monthSelect = document.getElementById('exportMonth');
+    if (!monthSelect.value) {
+        monthSelect.value = String(new Date().getMonth() + 1);
+    }
+    document.getElementById('exportMonthModal').classList.add('active');
+}
+
+function closeExportMonthModal() {
+    document.getElementById('exportMonthModal').classList.remove('active');
+}
+
+document.getElementById('exportMonthConfirmBtn').addEventListener('click', () => {
+    const year = document.getElementById('exportYear').value;
+    const month = document.getElementById('exportMonth').value;
+    const orgName = document.getElementById('exportOrgName').value.trim();
+    const directorName = document.getElementById('exportDirectorName').value.trim();
+    if (!year || !month) {
+        alert('Укажите год и месяц');
+        return;
+    }
+    const params = new URLSearchParams({ year, month });
+    if (orgName) params.set('orgName', orgName);
+    if (directorName) params.set('directorName', directorName);
+    // Обычная навигация (не fetch): так браузер сам сохраняет файл, а сессионная
+    // авторизация (cookie) уже приложится, как при любом обычном переходе по ссылке.
+    window.location.href = '/api/schedule/export/month?' + params.toString();
+    closeExportMonthModal();
+});
 
 async function generateSchedule(persist) {
     const year = document.getElementById('yearSelect').value;

@@ -53,6 +53,7 @@ public class ApiController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
+    private final ScheduleExportService scheduleExportService;
     private final SubstitutionService substitutionService;
     private final NotificationService notificationService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
@@ -509,6 +510,39 @@ public class ApiController {
             .header("Content-Type", "text/csv;charset=UTF-8")
             .header("Content-Disposition", "attachment;filename=monthly_hours_" + year + ".csv")
             .body(bytes);
+    }
+
+    /**
+     * Печатная форма расписания за календарный месяц (Excel), в формате, привычном учебной
+     * части: "УТВЕРЖДАЮ" в шапке, таблица день/пара по строкам, группы по столбцам, один
+     * лист на календарную неделю месяца. См. {@link ScheduleExportService}.
+     */
+    @GetMapping("/schedule/export/month")
+    public ResponseEntity<byte[]> exportMonthSchedule(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) String orgName,
+            @RequestParam(required = false) String directorName,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        if (month < 1 || month > 12) {
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            byte[] bytes = scheduleExportService.exportMonth(year, month, orgName, directorName);
+            String filename = "raspisanie_" + year + "_" + (month < 10 ? "0" + month : month) + ".xlsx";
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    .header("Content-Disposition", "attachment;filename=" + filename)
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(("Не удалось сформировать файл: " + e.getMessage()).getBytes(StandardCharsets.UTF_8));
+        }
     }
 
     @PostMapping("/admin/teachers")

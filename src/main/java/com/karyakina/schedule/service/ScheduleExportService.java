@@ -229,10 +229,40 @@ public class ScheduleExportService {
         sheet.setColumnWidth(0, 14 * 256);
         sheet.setColumnWidth(1, 8 * 256);
         for (int g = 0; g < groups.size(); g++) {
-            sheet.setColumnWidth(2 + g * 2, 22 * 256);
-            sheet.setColumnWidth(3 + g * 2, 10 * 256);
+            sheet.setColumnWidth(2 + g * 2, 20 * 256);
+            sheet.setColumnWidth(3 + g * 2, 9 * 256);
         }
         sheet.createFreezePane(2, headerBottom + 1);
+
+        // ---- Настройки печати: без этого лист на 14+ групп (30 колонок) при печати/экспорте
+        // в PDF режется на десятки мелких фрагментов — по ширине и по высоте отдельно
+        // (обычный размер листа/масштаб 100% просто не вмещает столько столбцов). Прижимаем
+        // всю ширину таблицы к одной странице (альбомная ориентация, минимальные поля),
+        // а по высоте даём расписанию течь на сколько угодно страниц вниз — это нормально
+        // для целой недели.
+        sheet.setFitToPage(true);
+        PrintSetup printSetup = sheet.getPrintSetup();
+        printSetup.setLandscape(true);
+        printSetup.setFitWidth((short) 1);
+        printSetup.setFitHeight((short) 0);
+        printSetup.setPaperSize(PrintSetup.A3_PAPERSIZE); // 14+ столбцов на A4 нечитаемо мелко
+        sheet.setMargin(Sheet.LeftMargin, 0.3);
+        sheet.setMargin(Sheet.RightMargin, 0.3);
+        sheet.setMargin(Sheet.TopMargin, 0.4);
+        sheet.setMargin(Sheet.BottomMargin, 0.4);
+        sheet.setRepeatingRows(new CellRangeAddress(headerTop, headerBottom, -1, -1));
+
+        // Высота строк с переносом текста — без явной высоты Excel показывает такие ячейки
+        // обрезанными (например, гриф "УТВЕРЖДАЮ" в 4 строки или длинные названия дисциплин).
+        approveRow.setHeightInPoints(60);
+        for (int r = headerTop; r <= headerBottom; r++) {
+            Row headerRowRef = sheet.getRow(r);
+            if (headerRowRef != null) headerRowRef.setHeightInPoints(28);
+        }
+        for (int r = headerBottom + 1; r < sheet.getLastRowNum() + 1; r++) {
+            Row dataRowRef = sheet.getRow(r);
+            if (dataRowRef != null) dataRowRef.setHeightInPoints(42);
+        }
     }
 
     /** Выбирает подходящую запись: сперва — привязанную именно к этой учебной неделе, иначе — "на каждую неделю". */
@@ -327,10 +357,12 @@ public class ScheduleExportService {
             setBorders(dateCell);
 
             dataCell = wb.createCellStyle();
+            dataCell.setFont(plain9);
             dataCell.setWrapText(true);
             setBorders(dataCell);
 
             dataCellCenter = wb.createCellStyle();
+            dataCellCenter.setFont(plain9);
             dataCellCenter.setAlignment(HorizontalAlignment.CENTER);
             setBorders(dataCellCenter);
         }

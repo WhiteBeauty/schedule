@@ -30,7 +30,11 @@
         <li><a th:href="@{/curatorship}" id="nav-curatorship">👥 Кураторство</a></li>
         <li><a th:href="@{/monthly}" id="nav-monthly">📆 Помесячный учёт</a></li>
         <li><a th:href="@{/productivity}" id="nav-productivity">📈 Продуктивность</a></li>
-        <li><a th:href="@{/teachers}" id="nav-teachers" th:style="${isAdmin} ? 'display:block' : 'display:none'">🎓 Преподаватели</a></li>
+        <!-- Для администратора /teachers отдаёт тот же шаблон, что и /admin/teachers
+             (см. PageController.teachers()) — показывать оба пункта меню одному и тому же
+             человеку было бы дублированием одной и той же страницы. Обычным преподавателям
+             показываем: у них /teachers — отдельная, более простая read-only страница. -->
+        <li th:unless="${isAdmin}"><a th:href="@{/teachers}" id="nav-teachers">🎓 Преподаватели</a></li>
     </ul>
     <div class="nav-logout">
         <a th:href="@{/logout}" id="nav-logout">🚪 Выйти</a>

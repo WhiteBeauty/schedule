@@ -9,6 +9,13 @@ package com.karyakina.schedule.service.generator;
  * @param maxSameSubjectInRow   максимум одинаковых пар подряд у группы (2 => три подряд запрещены)
  * @param maxSameSubjectPerDay  максимум пар одной дисциплины у группы за день
  * @param maxPairsPerDayGroup   максимум пар в день у группы
+ * @param maxWeeklyHoursPerSubjectPerGroup максимум часов ОДНОГО предмета в неделю у ОДНОЙ
+ *        группы (независимо от суммарной недельной нагрузки преподавателя — это отдельное,
+ *        более узкое ограничение: даже если у препода в целом часов в пределах нормы, не
+ *        должно быть так, что одна группа получает, например, 20 ч одного и того же предмета
+ *        в неделю). Не применяется, если часы утверждены администратором вручную как
+ *        сознательный "интенсив"/практика блоками — тогда выдаётся только предупреждение,
+ *        которое можно принять как есть.
  * @param restarts              рестартов рандомизированного поиска (побеждает лучший)
  * @param localSearchIterations итераций локального улучшения на каждый рестарт
  */
@@ -19,6 +26,7 @@ public record SolverConfig(
         int maxSameSubjectInRow,
         int maxSameSubjectPerDay,
         int maxPairsPerDayGroup,
+        int maxWeeklyHoursPerSubjectPerGroup,
         int restarts,
         int localSearchIterations,
         long randomSeed,
@@ -48,6 +56,7 @@ public record SolverConfig(
         maxSameSubjectInRow = clamp(maxSameSubjectInRow, 1, GenerationGrid.pairsPerDay());
         maxSameSubjectPerDay = clamp(maxSameSubjectPerDay, 1, GenerationGrid.pairsPerDay());
         maxPairsPerDayGroup = clamp(maxPairsPerDayGroup, 1, GenerationGrid.pairsPerDay());
+        maxWeeklyHoursPerSubjectPerGroup = clamp(maxWeeklyHoursPerSubjectPerGroup, 2, 200);
         restarts = clamp(restarts, 1, 100);
         localSearchIterations = clamp(localSearchIterations, 0, 200_000);
         if (weights == null) {
@@ -56,7 +65,7 @@ public record SolverConfig(
     }
 
     public static SolverConfig defaults() {
-        return new SolverConfig(2, 36, 4, 2, 2, 5, 10, 5000, 20260501L, Weights.defaults());
+        return new SolverConfig(2, 36, 4, 2, 2, 5, 8, 10, 5000, 20260501L, Weights.defaults());
     }
 
     /** 36 часов / 2 часа в паре = 18 пар в неделю. */
@@ -75,15 +84,16 @@ public record SolverConfig(
 
     public SolverConfig withSeed(long seed) {
         return new SolverConfig(academicHoursPerPair, teacherMaxWeeklyHours, teacherDefaultMaxPairsPerDay,
-                maxSameSubjectInRow, maxSameSubjectPerDay, maxPairsPerDayGroup, restarts, localSearchIterations,
-                seed, weights);
+                maxSameSubjectInRow, maxSameSubjectPerDay, maxPairsPerDayGroup, maxWeeklyHoursPerSubjectPerGroup,
+                restarts, localSearchIterations, seed, weights);
     }
 
     public SolverConfig with(Integer maxPairsPerDayGroupOverride,
                              Integer teacherMaxWeeklyHoursOverride,
                              Integer maxSameSubjectInRowOverride,
                              Integer maxSameSubjectPerDayOverride,
-                             Integer restartsOverride) {
+                             Integer restartsOverride,
+                             Integer maxWeeklyHoursPerSubjectPerGroupOverride) {
         return new SolverConfig(
                 academicHoursPerPair,
                 teacherMaxWeeklyHoursOverride == null ? teacherMaxWeeklyHours : teacherMaxWeeklyHoursOverride,
@@ -91,6 +101,8 @@ public record SolverConfig(
                 maxSameSubjectInRowOverride == null ? maxSameSubjectInRow : maxSameSubjectInRowOverride,
                 maxSameSubjectPerDayOverride == null ? maxSameSubjectPerDay : maxSameSubjectPerDayOverride,
                 maxPairsPerDayGroupOverride == null ? maxPairsPerDayGroup : maxPairsPerDayGroupOverride,
+                maxWeeklyHoursPerSubjectPerGroupOverride == null
+                        ? maxWeeklyHoursPerSubjectPerGroup : maxWeeklyHoursPerSubjectPerGroupOverride,
                 restartsOverride == null ? restarts : restartsOverride,
                 localSearchIterations, randomSeed, weights);
     }

@@ -41,6 +41,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.karyakina.schedule.util.AcademicYearUtil;
+
 /**
  * МОДУЛЬ АВТОМАТИЧЕСКОГО СОСТАВЛЕНИЯ РАСПИСАНИЯ.
  *
@@ -80,6 +82,16 @@ public class ScheduleGeneratorService {
     private final GenerationSessionStore sessionStore;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
+    // Часы в неделю по дисциплине считаются от часов ИМЕННО текущего/выбранного семестра
+    // (TeacherLoad.firstSemesterHours/secondSemesterHours), делённых на WEEKS_PER_SEMESTER,
+    // а не от суммы часов за год делённой на APPROX_WEEKS_PER_YEAR — см. resolveSemester()/
+    // semesterHours() и комментарий в AcademicYearUtil.getCurrentSemester(). Раньше это было
+    // не так, из-за чего у преподавателей с разными по семестрам нагрузками (разные группы,
+    // разные часы в 1 и 2 семестре) недельная нагрузка считалась как фиктивное "среднее за
+    // год" — не соответствующее ни одной реальной неделе — и после независимого округления
+    // каждой отдельной нагрузки до целых пар суммарно давало заметно завышенный (или,
+    // наоборот, заниженный для другого семестра) результат.
+    private static final int WEEKS_PER_SEMESTER = AcademicYearUtil.WEEKS_PER_SEMESTER;
     private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
 
@@ -259,8 +271,11 @@ public class ScheduleGeneratorService {
             Map<Long, ResolvedHours> hoursByLoad = reconcileHours(candidates, session, config, issues);
             Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, assignment, session, allTeachers, issues);
 
+            int semester = resolveSemester(session);
+
             List<SolverInput.Demand> demands = new ArrayList<>();
             Map<Long, TeacherLoad> loadById = new HashMap<>();
+            Map<Long, Double> exactWeeklyHoursByTeacher = new HashMap<>();
             for (TeacherLoad load : candidates) {
                 Teacher teacher = teacherByLoad.get(load.getId());
                 if (teacher == null) {
@@ -269,18 +284,28 @@ public class ScheduleGeneratorService {
                 loadById.put(load.getId(), load);
                 ResolvedHours hours = hoursByLoad.getOrDefault(load.getId(),
                         new ResolvedHours(plannedHours(load), false));
-                int pairs = weeklyPairs(load, hours.annualHours(), config, hours.overridden());
+                // Утверждённые вручную часы трактуем как годовые (администратор явно
+                // подтвердил именно это число) — делим на весь год. Часы из файла нагрузки
+                // (обычный случай) трактуем как часы ИМЕННО текущего семестра.
+                int weeksBasis = hours.overridden() ? APPROX_WEEKS_PER_YEAR : WEEKS_PER_SEMESTER;
+                int hoursForPeriod = hours.overridden() ? hours.annualHours() : semesterHours(load, semester);
+                int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, hours.overridden());
                 if (pairs <= 0) {
-                    warnings.add("Нагрузка «" + describe(load) + "» пропущена: в ней 0 часов.");
+                    if (plannedHours(load) == 0) {
+                        warnings.add("Нагрузка «" + describe(load) + "» пропущена: в ней 0 часов.");
+                    }
+                    // иначе — дисциплина просто не идёт в этом семестре, это норма, не варнинг
                     continue;
                 }
+                exactWeeklyHoursByTeacher.merge(teacher.getId(),
+                        exactWeeklyHours(load, hoursForPeriod, weeksBasis, hours.overridden()), Double::sum);
                 demands.add(new SolverInput.Demand(load.getId(), load.getGroup().getId(),
                         load.getDiscipline().getId(), load.getDiscipline().getName(), teacher.getId(),
                         pairs, hours.annualHours(), preferredDayIndexes(load), preferredPairIndexes(load),
                         session.getMaxSameSubjectPerDay()));
             }
 
-            checkTeacherWeeklyLimits(demands, teacherByLoad, loadById, session, config, issues);
+            checkTeacherWeeklyLimits(exactWeeklyHoursByTeacher, teacherByLoad, session, config, issues);
 
             SolverInput input = new SolverInput(
                     buildGroups(candidates, config, session),
@@ -356,6 +381,7 @@ public class ScheduleGeneratorService {
             }
         }
 
+        int semester = resolveSemester(session);
         Map<Long, ResolvedHours> result = new HashMap<>();
         for (TeacherLoad load : loads) {
             int fileHours = plannedHours(load);
@@ -407,7 +433,11 @@ public class ScheduleGeneratorService {
             result.put(load.getId(), new ResolvedHours(hours, overridden));
 
             // Явно нереалистичные часы: 50 ч/нед на одну дисциплину не влезут ни в какую сетку.
-            int pairs = weeklyPairs(load, hours, config, overridden);
+            // Часы из файла — это часы ТЕКУЩЕГО семестра, а не годовая сумма (см. комментарий
+            // у WEEKS_PER_SEMESTER); утверждённые вручную часы по-прежнему годовые.
+            int weeksBasis = overridden ? APPROX_WEEKS_PER_YEAR : WEEKS_PER_SEMESTER;
+            int hoursForPeriod = overridden ? hours : semesterHours(load, semester);
+            int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, overridden);
             int maxPairs = GenerationGrid.slotCount();
             if (pairs > config.teacherMaxWeeklyPairs() || pairs > maxPairs) {
                 int fitHours = config.pairsToHours(Math.min(config.teacherMaxWeeklyPairs(), maxPairs))
@@ -436,6 +466,51 @@ public class ScheduleGeneratorService {
                                 "Пропустить эту нагрузку",
                                 Map.of("loadId", load.getId())))
                         .build());
+            } else {
+                // Отдельная, независимая от лимита преподавателя проверка: сколько часов ОДНОГО
+                // предмета выходит в неделю у ОДНОЙ группы. Даже если суммарно у преподавателя
+                // всё в пределах нормы (см. checkTeacherWeeklyLimits — та проверка суммирует ВСЕ
+                // предметы и группы этого преподавателя), сама по себе цифра "20 ч обществознания
+                // в неделю у одной группы" — почти наверняка ошибка в данных, а не физическая
+                // реальность. Порог настраиваемый (SolverConfig.maxWeeklyHoursPerSubjectPerGroup,
+                // по умолчанию 8 ч/нед = 4 пары) и это только ПРЕДУПРЕЖДЕНИЕ (WARNING) — не
+                // блокирует генерацию, так как учебная/производственная практика блоками
+                // (см. например "Вождение", "УП.01" в тарификации) законно идёт куда интенсивнее.
+                double exactHours = exactWeeklyHours(load, hoursForPeriod, weeksBasis, overridden);
+                int limitPerSubject = config.maxWeeklyHoursPerSubjectPerGroup();
+                if (exactHours > limitPerSubject) {
+                    int roundedHours = (int) Math.round(exactHours);
+                    // "Одобренные часы" (session.getApprovedHours()) везде в этом классе трактуются
+                    // как ГОДОВЫЕ (см. ResolvedHours/overridden выше) — поэтому подсказка тоже в
+                    // годовых часах, даже если сам предел задан в часах/неделю.
+                    int fitHoursAnnual = limitPerSubject * APPROX_WEEKS_PER_YEAR;
+                    issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.SUBJECT_GROUP_OVERLOAD,
+                                    "Много часов одного предмета у группы: " + describe(load))
+                            .severity(MissingResourceRequest.Severity.WARNING)
+                            .message(String.format(
+                                    "У группы %s по предмету «%s» выходит %d ч/нед — больше настроенного "
+                                            + "предела %d ч/нед на один предмет у одной группы (это отдельная "
+                                            + "проверка, не связанная с общей недельной нагрузкой преподавателя). "
+                                            + "Если это учебная/производственная практика блоками — можно "
+                                            + "оставить как есть.",
+                                    load.getGroup().getName(), load.getDiscipline().getName(), roundedHours,
+                                    limitPerSubject))
+                            .context("loadId", load.getId())
+                            .context("hours", hours)
+                            .option(MissingResourceRequest.ResolutionOption.of(
+                                    MissingResourceRequest.Actions.KEEP_AS_IS,
+                                    "Оставить как есть (это практика/интенсив)"))
+                            .option(MissingResourceRequest.ResolutionOption.of(
+                                    MissingResourceRequest.Actions.REDUCE_HOURS_TO_FIT,
+                                    "Обрезать до предела (" + fitHoursAnnual + " ч/год)",
+                                    Map.of("hours", fitHoursAnnual)))
+                            .option(MissingResourceRequest.ResolutionOption.withInput(
+                                    MissingResourceRequest.Actions.USE_CUSTOM_HOURS,
+                                    "Указать своё количество часов",
+                                    MissingResourceRequest.InputSpec.number(
+                                            "Часов за год", "hours", 0, 2000, fitHoursAnnual)))
+                            .build());
+                }
             }
         }
         return result;
@@ -536,21 +611,28 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /** Недельная нагрузка преподавателя не должна превышать лимит (по умолчанию 36 ч). */
-    private void checkTeacherWeeklyLimits(List<SolverInput.Demand> demands,
+    /**
+     * Недельная нагрузка преподавателя не должна превышать лимит (по умолчанию 36 ч).
+     *
+     * <p>Считаем по ТОЧНЫМ (не округлённым до целой пары) часам каждой нагрузки за текущий
+     * семестр, а не по сумме уже округлённых до пар часов — иначе независимое округление
+     * каждой отдельной нагрузки (группы) вверх/вниз до ближайшей целой пары накапливает
+     * ошибку при суммировании по преподавателю с большим числом мелких нагрузок и завышает
+     * (или занижает) реальный перегруз.
+     */
+    private void checkTeacherWeeklyLimits(Map<Long, Double> exactWeeklyHoursByTeacher,
                                           Map<Long, Teacher> teacherByLoad,
-                                          Map<Long, TeacherLoad> loadById,
                                           GenerationSessionStore.Session session,
                                           SolverConfig config,
                                           List<MissingResourceRequest> issues) {
-        Map<Long, Integer> pairsByTeacher = new HashMap<>();
-        demands.forEach(d -> pairsByTeacher.merge(d.teacherId(), d.pairsPerWeek(), Integer::sum));
-
-        for (Map.Entry<Long, Integer> entry : pairsByTeacher.entrySet()) {
+        for (Map.Entry<Long, Double> entry : exactWeeklyHoursByTeacher.entrySet()) {
             Long teacherId = entry.getKey();
+            if (session.getAcknowledgedTeacherOverloads().contains(teacherId)) {
+                continue; // администратор уже осознанно принял перегруз — не спрашиваем повторно
+            }
             int limitHours = session.getTeacherHourLimits()
                     .getOrDefault(teacherId, config.teacherMaxWeeklyHours());
-            int hours = config.pairsToHours(entry.getValue());
+            int hours = (int) Math.round(entry.getValue());
             if (hours <= limitHours) {
                 continue;
             }
@@ -724,8 +806,15 @@ public class ScheduleGeneratorService {
                         session.getApprovedHours().put(loadId, hours);
                     }
                 } else if (teacherId != null) {
-                    // «Ставить в пределах лимита» — лимит остаётся, остаток уйдёт в предупреждения.
-                    session.getTeacherHourLimits().remove(teacherId);
+                    // TEACHER_OVERLOAD, «Ставить в пределах лимита, остаток — в предупреждения».
+                    // Раньше здесь только снимался лимит, которого и не было (no-op) — из-за
+                    // этого один и тот же блокирующий вопрос возникал заново на каждом прогоне
+                    // и сохранить расписание было невозможно, что бы ни выбрал администратор.
+                    // Теперь запоминаем осознанное решение: при следующем прогоне
+                    // checkTeacherWeeklyLimits для этого преподавателя вопрос не поднимает,
+                    // а то, что часть часов не влезает, по-прежнему видно в предупреждениях
+                    // (см. remainingHoursWarnings).
+                    session.getAcknowledgedTeacherOverloads().add(teacherId);
                 }
             }
             case MissingResourceRequest.Actions.SUM_DUPLICATES -> {
@@ -812,7 +901,8 @@ public class ScheduleGeneratorService {
                 session.getMaxSameSubjectPerDay() != null
                         ? session.getMaxSameSubjectPerDay()
                         : (grid == null ? null : grid.maxSameSubjectPerDay()),
-                grid == null ? null : grid.restarts());
+                grid == null ? null : grid.restarts(),
+                grid == null ? null : grid.maxWeeklyHoursPerSubjectPerGroup());
     }
 
     private List<SolverInput.GroupRef> buildGroups(List<TeacherLoad> loads, SolverConfig config,
@@ -1021,25 +1111,57 @@ public class ScheduleGeneratorService {
     }
 
     /**
+     * Какой семестр (1 или 2) считать "текущим" для расчёта часов в неделю: явно указанный
+     * в запросе на генерацию или, если не указан, определяемый по сегодняшней дате.
+     */
+    private int resolveSemester(GenerationSessionStore.Session session) {
+        Integer requested = session.getRequest() == null ? null : session.getRequest().semester();
+        if (requested != null && requested == 2) return 2;
+        if (requested != null) return 1;
+        return AcademicYearUtil.getCurrentSemester();
+    }
+
+    /** Часы ИМЕННО указанного семестра (а не сумма за год) — 0, если в этом семестре дисциплина не идёт. */
+    private int semesterHours(TeacherLoad load, int semester) {
+        Integer h = semester == 2 ? load.getSecondSemesterHours() : load.getFirstSemesterHours();
+        return h == null ? 0 : Math.max(0, h);
+    }
+
+    /**
+     * Точные (не округлённые до целой пары) часы в неделю — используется как для расчёта
+     * числа пар, так и отдельно для проверки недельного лимита преподавателя, чтобы
+     * независимое округление каждой отдельной нагрузки не накапливало ошибку при суммировании
+     * (пример: пять нагрузок по 1.4 пары каждая — это 7 пар/14 ч суммарно, а не 5×2=10 пар,
+     * если округлять каждую по отдельности до ближайшей целой пары).
+     */
+    private double exactWeeklyHours(TeacherLoad load, int hoursForPeriod, int weeksBasis, boolean overridden) {
+        if (!overridden && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
+            return load.getHoursPerWeek();
+        }
+        return hoursForPeriod / (double) weeksBasis;
+    }
+
+    /**
      * Часы -> пары в неделю.
      *
      * <p>Обычно приоритет у явного {@code hoursPerWeek} из файла нагрузки. Но если часы
      * утвердил администратор (ответ на расхождение) или они пришли ручным вводом, то считаем
      * именно от них: иначе ответ администратора не влиял бы ни на что, пока в записи
      * заполнено поле «часов в неделю».
+     *
+     * <p>{@code hoursForPeriod}/{@code weeksBasis} — часы и число недель ЗА ОДИН И ТОТ ЖЕ
+     * период: для обычной (не утверждённой вручную) нагрузки это часы текущего семестра и
+     * {@link #WEEKS_PER_SEMESTER}, для утверждённой вручную — годовые часы и
+     * {@link #APPROX_WEEKS_PER_YEAR} (см. вызывающий код).
      */
-    private int weeklyPairs(TeacherLoad load, int annualHours, SolverConfig config, boolean overridden) {
-        double hoursPerWeek;
-        if (!overridden && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
-            hoursPerWeek = load.getHoursPerWeek();
-        } else {
-            hoursPerWeek = annualHours / (double) APPROX_WEEKS_PER_YEAR;
-        }
+    private int weeklyPairs(TeacherLoad load, int hoursForPeriod, int weeksBasis, SolverConfig config,
+                             boolean overridden) {
+        double hoursPerWeek = exactWeeklyHours(load, hoursForPeriod, weeksBasis, overridden);
         int pairs = (int) Math.round(hoursPerWeek / config.academicHoursPerPair());
         if (pairs <= 0) {
             // 0 часов -> 0 пар. Раньше здесь стояло Math.max(1, ...), из-за чего пустая
             // строка нагрузки всё равно порождала пару в расписании.
-            return annualHours > 0 ? 1 : 0;
+            return hoursForPeriod > 0 ? 1 : 0;
         }
         return Math.min(pairs, GenerationGrid.slotCount());
     }

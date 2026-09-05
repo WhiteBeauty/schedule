@@ -2,6 +2,7 @@ package com.karyakina.schedule.service;
 
 import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.dto.WipeScheduleResultDto;
+import com.karyakina.schedule.dto.WipeDatabaseResultDto;
 import com.karyakina.schedule.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,11 @@ public class AdminDeletionService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final MonthlyRecordService monthlyRecordService;
+    private final ClassroomRepository classroomRepository;
+    private final AppSettingRepository appSettingRepository;
+    private final AuditLogRepository auditLogRepository;
+    private final ControlPointRepository controlPointRepository;
+    private final MonthlyRecordRepository monthlyRecordRepository;
 
     @Transactional
     public void deleteTeacherCompletely(Long teacherId) {
@@ -325,5 +331,106 @@ public class AdminDeletionService {
                 log.warn("Не удалось отправить уведомление преподавателю {}: {}", t.getId(), e.getMessage());
             }
         }
+    }
+
+    /**
+     * ПОЛНЫЙ СНОС БАЗЫ ДАННЫХ, КРОМЕ ВХОДА АДМИНИСТРАТОРОВ. Только для тестирования —
+     * позволяет откатить базу в чистое состояние и заново прогнать импорт/автосоставление,
+     * не пересоздавая учётку(и) с ролью ADMIN (чтобы не потерять возможность зайти в систему).
+     *
+     * Удаляет ВСЁ остальное: преподавателей, дисциплины, группы, нагрузку, расписание
+     * (шаблоны и фактические занятия), заявки на замену, больничные, кураторства,
+     * уведомления, аудитории, настройки приложения, журнал аудита и пользователей с ролью
+     * TEACHER (в т.ч. их логины — по условию сохраняется вход только для ADMIN).
+     *
+     * Порядок удаления соблюдает цепочку внешних ключей (см. комментарий в начале класса):
+     * SubstitutionRequest -> LessonInstance -> Schedule -> TeacherLoad (после явного сноса
+     * его дочерних ControlPoint/MonthlyRecord) -> сами преподаватели/группы/дисциплины.
+     * Пользователи-преподаватели удаляются ДО удаления Teacher, так как именно User хранит
+     * внешний ключ на Teacher (users.teacher_id), а не наоборот.
+     *
+     * deleteAllInBatch() используется вместо deleteAll(), так как здесь порядок уже вручную
+     * гарантирует отсутствие висячих ссылок — это быстрее (один DELETE-запрос на таблицу
+     * вместо построчного удаления через persistence context).
+     */
+    @Transactional
+    public WipeDatabaseResultDto wipeAllExceptAdmins() {
+        int substitutionRequests = (int) substitutionRequestRepository.count();
+        substitutionRequestRepository.deleteAllInBatch();
+
+        int lessonInstances = (int) lessonInstanceRepository.count();
+        lessonInstanceRepository.deleteAllInBatch();
+
+        int schedules = (int) scheduleRepository.count();
+        scheduleRepository.deleteAllInBatch();
+
+        int controlPoints = (int) controlPointRepository.count();
+        controlPointRepository.deleteAllInBatch();
+
+        int monthlyRecords = (int) monthlyRecordRepository.count();
+        monthlyRecordRepository.deleteAllInBatch();
+
+        int teacherLoads = (int) loadRepository.count();
+        loadRepository.deleteAllInBatch();
+
+        int sickLeaves = (int) sickLeaveRepository.count();
+        sickLeaveRepository.deleteAllInBatch();
+
+        int curatorships = (int) curatorshipRepository.count();
+        curatorshipRepository.deleteAllInBatch();
+
+        int notifications = (int) notificationRepository.count();
+        notificationRepository.deleteAllInBatch();
+
+        // Пользователей-преподавателей удаляем ДО Teacher (users.teacher_id — внешний ключ
+        // именно у User). Администраторов не трогаем — в этом весь смысл операции.
+        List<User> nonAdminUsers = userRepository.findAll().stream()
+                .filter(u -> u.getRole() != User.Role.ADMIN)
+                .collect(Collectors.toList());
+        int deletedUsers = nonAdminUsers.size();
+        userRepository.deleteAll(nonAdminUsers);
+
+        int teachers = (int) teacherRepository.count();
+        teacherRepository.deleteAllInBatch();
+
+        int groups = (int) groupRepository.count();
+        groupRepository.deleteAllInBatch();
+
+        int disciplines = (int) disciplineRepository.count();
+        disciplineRepository.deleteAllInBatch();
+
+        int classrooms = (int) classroomRepository.count();
+        classroomRepository.deleteAllInBatch();
+
+        int appSettings = (int) appSettingRepository.count();
+        appSettingRepository.deleteAllInBatch();
+
+        int auditLogs = (int) auditLogRepository.count();
+        auditLogRepository.deleteAllInBatch();
+
+        int remainingAdmins = (int) userRepository.count();
+
+        log.warn("ПОЛНЫЙ СНОС БД (кроме входа администраторов) выполнен. Осталось учёток-админов: {}",
+                remainingAdmins);
+
+        return WipeDatabaseResultDto.builder()
+                .deletedTeachers(teachers)
+                .deletedDisciplines(disciplines)
+                .deletedGroups(groups)
+                .deletedTeacherLoads(teacherLoads)
+                .deletedSchedules(schedules)
+                .deletedLessonInstances(lessonInstances)
+                .deletedSubstitutionRequests(substitutionRequests)
+                .deletedSickLeaves(sickLeaves)
+                .deletedCuratorships(curatorships)
+                .deletedNotifications(notifications)
+                .deletedNonAdminUsers(deletedUsers)
+                .deletedClassrooms(classrooms)
+                .deletedControlPoints(controlPoints)
+                .deletedMonthlyRecords(monthlyRecords)
+                .deletedAppSettings(appSettings)
+                .deletedAuditLogs(auditLogs)
+                .remainingAdmins(remainingAdmins)
+                .build();
     }
 }

@@ -746,6 +746,33 @@ public class ApiController {
     }
 
     /**
+     * ПОЛНЫЙ СНОС БД, КРОМЕ ВХОДА АДМИНИСТРАТОРОВ — только для тестирования (тестового цикла
+     * "снести всё -> заново импортировать -> заново сгенерировать расписание", не теряя
+     * возможность зайти в систему). Требует явного подтверждения параметром
+     * {@code confirm=WIPE}, чтобы случайный вызов не мог снести боевые данные.
+     */
+    @PostMapping("/admin/wipe-all-except-admins")
+    public ResponseEntity<?> wipeAllExceptAdmins(
+            @RequestParam(name = "confirm", required = false) String confirm,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        if (!"WIPE".equals(confirm)) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Требуется подтверждение: передайте параметр confirm=WIPE. "
+                            + "Это удалит ВСЁ, кроме входа администраторов, без возможности отмены."));
+        }
+        try {
+            return ResponseEntity.ok(adminDeletionService.wipeAllExceptAdmins());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * Одноразовая очистка нагрузок, у которых группа и/или дисциплина — слитное
      * название нескольких значений через запятую/`;` (данные, оставшиеся с импорта
      * до появления автоматического разбиения таких ячеек). Безопасно вызывать

@@ -50,6 +50,13 @@ public class GenerationSessionStore {
         private final Set<Long> skippedLoads = new HashSet<>();
         /** teacherId -> поднятый вручную недельный лимит часов. */
         private final Map<Long, Integer> teacherHourLimits = new HashMap<>();
+        /**
+         * Преподаватели, чей перегруз администратор осознанно принял («Ставить в пределах
+         * лимита, остаток — в предупреждения»). Без этого TEACHER_OVERLOAD поднимался бы
+         * заново на каждом прогоне (лимит и реальные часы не менялись), и расписание было
+         * бы невозможно сохранить — ни один ответ администратора не "гасил" вопрос.
+         */
+        private final Set<Long> acknowledgedTeacherOverloads = new HashSet<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
@@ -103,6 +110,10 @@ public class GenerationSessionStore {
 
         public Map<Long, Integer> getTeacherHourLimits() {
             return teacherHourLimits;
+        }
+
+        public Set<Long> getAcknowledgedTeacherOverloads() {
+            return acknowledgedTeacherOverloads;
         }
 
         public Integer getMaxPairsPerDayGroup() {

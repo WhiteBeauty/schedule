@@ -37,6 +37,8 @@ public record MissingResourceRequest(
         NO_TEACHER_FOR_DISCIPLINE,
         /** Недельная нагрузка преподавателя выше лимита (36 ч). */
         TEACHER_OVERLOAD,
+        /** У одной группы по одному предмету больше настроенного часового предела в неделю. */
+        SUBJECT_GROUP_OVERLOAD,
         /** Не хватает свободных аудиторий. */
         NO_ROOM_AVAILABLE,
         /** Не хватает слотов в сетке у группы или преподавателя. */

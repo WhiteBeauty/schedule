@@ -57,8 +57,16 @@ public class DataInitializer implements CommandLineRunner {
         // до появления этого вызова.
         monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
-        // Проверяем, есть ли уже данные
-        if (teacherRepository.count() > 0) {
+        // Проверяем, есть ли уже данные. Раньше проверялось только количество преподавателей —
+        // но после "снести всё, кроме входа админов" (AdminDeletionService.wipeAllExceptAdmins,
+        // предназначено для тестового цикла) teacherRepository.count() снова становится 0, хотя
+        // администратор(ы) сознательно сохранены. Без доп. проверки код решал, что это "первый
+        // запуск на пустой базе", и пытался заново создать демо-админа admin@example.com —
+        // тот уже существовал (был сохранён при сносе), вставка падала с нарушением уникального
+        // ограничения по email, и всё приложение не поднималось. Проверка на существование
+        // admin@example.com (он же переживает снос — это ADMIN) отличает "правда фреш инсталл"
+        // от "снесли данные, но админа оставили".
+        if (teacherRepository.count() > 0 || userRepository.findByEmail("admin@example.com").isPresent()) {
             log.info("Data already exists, skipping initialization");
             return;
         }

@@ -116,8 +116,17 @@
         }
         renderResult(result);
         const issues = result.missingData || [];
-        if (issues.length > 0) {
-            state.issues = issues;
+        // В модальное окно "стопкой" выводим ТОЛЬКО блокирующие вопросы — без ответа на них
+        // сохранить нельзя (см. renderResult/commitBtn.disabled). Непринципиальные
+        // предупреждения (не встала пара из-за нехватки аудиторий и т.п.) не блокируют
+        // сохранение вообще, и если гонять администратора по ним кликами при КАЖДОМ повторном
+        // прогоне (а причина — реальная нехватка ресурса — никуда не денется, пока он не
+        // добавит аудитории/изменит данные, так что предупреждение возникает заново) — это
+        // именно то самое "по тысяче раз одно и то же". Такие предупреждения по-прежнему
+        // видны в фоновой панели (renderWarnings/renderIssueList) — просто не прерывают работу.
+        const blockingIssues = issues.filter(function (issue) { return issue.severity === 'BLOCKING'; });
+        if (blockingIssues.length > 0) {
+            state.issues = blockingIssues;
             state.index = 0;
             state.answers = [];
             showIssue();
@@ -441,10 +450,13 @@
         output.innerHTML = html;
 
         if ((result.missingData || []).length) {
-            state.issues = result.missingData;
-            state.index = 0;
-            state.answers = [];
-            showIssue();
+            const blockingIssues = (result.missingData || []).filter(function (i) { return i.severity === 'BLOCKING'; });
+            if (blockingIssues.length > 0) {
+                state.issues = blockingIssues;
+                state.index = 0;
+                state.answers = [];
+                showIssue();
+            }
         }
     }
 

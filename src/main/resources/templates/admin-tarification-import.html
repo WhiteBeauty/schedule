@@ -79,7 +79,51 @@
             <a class="btn" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
         </div>
     </div>
-</main>
+
+    <div class="card" id="dangerZone" style="margin-top:1.5rem; border-color:#fecaca;">
+        <div class="card-header"><span class="card-title" style="color:var(--danger, #dc2626);">⚠️ Опасная зона</span></div>
+        <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+            Удаляет ВСЁ — преподавателей, дисциплины, группы, нагрузку, расписание, заявки на
+            замену, больничные, кураторства, уведомления, аудитории, настройки и пользователей
+            с ролью «Преподаватель» — но <b>не трогает вход администраторов</b>. Нужно для
+            тестового цикла: снести всё → заново импортировать тарификацию → заново собрать
+            расписание. Действие необратимо.
+        </p>
+        <button class="btn btn-danger" id="wipeAllBtn" style="background:var(--danger, #dc2626); color:#fff;">
+            🧨 Удалить все данные (кроме входа админа)
+        </button>
+        <div id="wipeAllResult" style="margin-top:1rem;"></div>
+    </div>
+
+    <!-- Модалка подтверждения сноса всей БД -->
+    <div class="modal-overlay" id="wipeAllModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin:0;">Точно удалить все данные?</h3>
+                <button class="close-btn" type="button" onclick="closeWipeAllModal()" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.9rem; line-height:1.5;">
+                    Это необратимо удалит преподавателей, дисциплины, группы, всю нагрузку и
+                    расписание, заявки на замену, больничные, кураторства, уведомления, аудитории
+                    и настройки, а также учётки с ролью «Преподаватель». <b>Останется только вход
+                    администраторов.</b>
+                </p>
+                <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.9rem; margin-top:0.75rem;">
+                    <input type="checkbox" id="wipeAllConfirmCheckbox">
+                    Я понимаю, что это необратимо, и хочу удалить всё
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" type="button" onclick="closeWipeAllModal()">Отмена</button>
+                <button class="btn btn-danger" type="button" id="wipeAllConfirmBtn"
+                        style="background:var(--danger, #dc2626); color:#fff;" disabled>
+                    🧨 Удалить всё
+                </button>
+            </div>
+        </div>
+    </div>
+    </main>
 
 <script th:inline="javascript">
     let selectedFile = null;
@@ -192,6 +236,67 @@
             warnBlock.style.display = 'none';
         }
     }
+
+    // ---- Опасная зона: снос всей БД, кроме входа админов ----
+    const wipeAllBtn = document.getElementById('wipeAllBtn');
+    const wipeAllModal = document.getElementById('wipeAllModal');
+    const wipeAllConfirmCheckbox = document.getElementById('wipeAllConfirmCheckbox');
+    const wipeAllConfirmBtn = document.getElementById('wipeAllConfirmBtn');
+    const wipeAllResult = document.getElementById('wipeAllResult');
+
+    wipeAllBtn.addEventListener('click', () => {
+        wipeAllConfirmCheckbox.checked = false;
+        wipeAllConfirmBtn.disabled = true;
+        wipeAllResult.innerHTML = '';
+        wipeAllModal.classList.add('active');
+    });
+
+    function closeWipeAllModal() {
+        wipeAllModal.classList.remove('active');
+    }
+    window.closeWipeAllModal = closeWipeAllModal;
+
+    wipeAllConfirmCheckbox.addEventListener('change', () => {
+        wipeAllConfirmBtn.disabled = !wipeAllConfirmCheckbox.checked;
+    });
+
+    wipeAllConfirmBtn.addEventListener('click', async () => {
+        wipeAllConfirmBtn.disabled = true;
+        wipeAllConfirmBtn.textContent = 'Удаляем...';
+        try {
+            const res = await fetch('/api/admin/wipe-all-except-admins?confirm=WIPE', {method: 'POST'});
+            const body = await res.json().catch(() => ({}));
+            closeWipeAllModal();
+            if (!res.ok) {
+                wipeAllResult.innerHTML = '<div class="text-danger">Ошибка: '
+                    + (body.error || ('код ' + res.status)) + '</div>';
+                return;
+            }
+            const rows = [
+                ['Преподавателей', body.deletedTeachers],
+                ['Дисциплин', body.deletedDisciplines],
+                ['Групп', body.deletedGroups],
+                ['Нагрузок', body.deletedTeacherLoads],
+                ['Пар в расписании', body.deletedSchedules],
+                ['Фактических занятий', body.deletedLessonInstances],
+                ['Заявок на замену', body.deletedSubstitutionRequests],
+                ['Больничных', body.deletedSickLeaves],
+                ['Кураторств', body.deletedCuratorships],
+                ['Уведомлений', body.deletedNotifications],
+                ['Аудиторий', body.deletedClassrooms],
+                ['Пользователей-преподавателей', body.deletedNonAdminUsers],
+                ['Осталось админов', body.remainingAdmins]
+            ];
+            wipeAllResult.innerHTML = '<div class="stat-grid">' + rows.map(([label, num]) =>
+                '<div class="stat-box"><div class="num">' + (num ?? 0) + '</div><div class="label">' + label + '</div></div>'
+            ).join('') + '</div><p style="margin-top:0.75rem; font-weight:600;">Готово — база чистая, можно импортировать тарификацию заново.</p>';
+        } catch (e) {
+            closeWipeAllModal();
+            wipeAllResult.innerHTML = '<div class="text-danger">Ошибка сети: ' + e.message + '</div>';
+        } finally {
+            wipeAllConfirmBtn.textContent = '🧨 Удалить всё';
+        }
+    });
 </script>
 </body>
 </html>

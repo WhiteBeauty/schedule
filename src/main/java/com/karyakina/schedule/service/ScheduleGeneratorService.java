@@ -266,6 +266,27 @@ public class ScheduleGeneratorService {
                     .toList();
             metrics.put("loadsConsidered", candidates.size());
 
+            // ТЗ п.7-9: практика (ПП/УП) и вождение НЕ учитываются автосоставлением из файла
+            // тарификации — их размещает администратор вручную (блоками, к концу семестра).
+            // Раньше этого исключения не было, и "Вождение (СМ) кат В/Е" по 300ч у каждого —
+            // это ОДИН предмет, но с огромным объёмом часов, рассчитанным на несколько
+            // интенсивных недель практики, а не на равномерное распределение по всему
+            // семестру — генератор честно делил 300ч/17недель ≈ 17.6ч/нед и требовал под
+            // это 9 ПАР В НЕДЕЛЮ на КАЖДОЕ вождение, что само по себе почти выбирало весь
+            // недельный лимit группы (18 пар) ещё до учёта обычной программы — отсюда и
+            // "37 пар в неделю нужно, а влезает только 30".
+            List<TeacherLoad> practiceOrDriving = candidates.stream()
+                    .filter(l -> isPracticeOrDriving(l.getDiscipline().getName()))
+                    .toList();
+            if (!practiceOrDriving.isEmpty()) {
+                Set<String> distinctGroups = new java.util.TreeSet<>();
+                practiceOrDriving.forEach(l -> distinctGroups.add(l.getGroup().getName()));
+                warnings.add("Практика и вождение (" + practiceOrDriving.size() + " записей нагрузки, группы: "
+                        + String.join(", ", distinctGroups) + ") не учтены в автосоставлении — "
+                        + "по правилам их размещает администратор вручную, блоками.");
+                candidates = candidates.stream().filter(l -> !isPracticeOrDriving(l.getDiscipline().getName())).toList();
+            }
+
             SolverConfig config = buildConfig(session);
 
             detectDuplicates(candidates, session, issues);
@@ -276,7 +297,6 @@ public class ScheduleGeneratorService {
 
             List<SolverInput.Demand> demands = new ArrayList<>();
             Map<Long, TeacherLoad> loadById = new HashMap<>();
-            Map<Long, Double> exactWeeklyHoursByTeacher = new HashMap<>();
             for (TeacherLoad load : candidates) {
                 Teacher teacher = teacherByLoad.get(load.getId());
                 if (teacher == null) {
@@ -299,15 +319,19 @@ public class ScheduleGeneratorService {
                     // иначе — дисциплина просто не идёт в этом семестре, это норма, не варнинг
                     continue;
                 }
-                exactWeeklyHoursByTeacher.merge(teacher.getId(),
-                        exactWeeklyHours(load, hoursForPeriod, weeksBasis, hours.overridden()), Double::sum);
                 demands.add(new SolverInput.Demand(load.getId(), load.getGroup().getId(),
                         load.getDiscipline().getId(), load.getDiscipline().getName(), teacher.getId(),
                         pairs, hours.annualHours(), preferredDayIndexes(load), preferredPairIndexes(load),
                         session.getMaxSameSubjectPerDay()));
             }
 
-            checkTeacherWeeklyLimits(exactWeeklyHoursByTeacher, teacherByLoad, session, config, issues);
+            // Проверка недельного лимита ЧАСОВ ПРЕПОДАВАТЕЛЯ убрана по требованию — лимит
+            // относится к ГРУППЕ (18 пар/нед = 36 ч), а не к преподавателю: один человек
+            // может вести много групп, и раньше это давало ложные "перегрузы" вида
+            // "у Иванова 41ч при лимите 36", хотя по факту это просто сумма его нагрузки
+            // по разным группам, каждая из которых сама по себе в пределах своего лимита.
+            // Групповой лимит уже обеспечен жёстко в солвере (см. GROUP_MAX_WEEKLY_PAIRS/
+            // OccupancyIndex.Violation.GROUP_WEEK_LIMIT) — отдельная проверка не нужна.
 
             SolverInput input = new SolverInput(
                     buildGroups(candidates, config, session),
@@ -470,12 +494,8 @@ public class ScheduleGeneratorService {
                                 Map.of("loadId", load.getId())))
                         .build());
             } else {
-                // Отдельная, независимая от лимита преподавателя проверка: сколько часов ОДНОГО
-                // предмета выходит в неделю у ОДНОЙ группы. Даже если суммарно у преподавателя
-                // всё в пределах нормы (см. checkTeacherWeeklyLimits — та проверка суммирует ВСЕ
-                // предметы и группы этого преподавателя), сама по себе цифра "20 ч обществознания
-                // в неделю у одной группы" — почти наверняка ошибка в данных, а не физическая
-                // реальность. Порог настраиваемый (SolverConfig.maxWeeklyHoursPerSubjectPerGroup,
+                // Отдельная проверка: сколько часов ОДНОГО предмета выходит в неделю у ОДНОЙ
+                // группы. Порог настраиваемый (SolverConfig.maxWeeklyHoursPerSubjectPerGroup,
                 // по умолчанию 8 ч/нед = 4 пары) и это только ПРЕДУПРЕЖДЕНИЕ (WARNING) — не
                 // блокирует генерацию, так как учебная/производственная практика блоками
                 // (см. например "Вождение", "УП.01" в тарификации) законно идёт куда интенсивнее.
@@ -615,53 +635,20 @@ public class ScheduleGeneratorService {
     }
 
     /**
-     * Недельная нагрузка преподавателя не должна превышать лимит (по умолчанию 36 ч).
+     * Практика (производственная — "ПП", учебная — "УП") и вождение — по ТЗ размещаются
+     * администратором вручную блоками (см. п.7-9), а не автосоставлением из тарификации:
+     * их часы в файле — это блок из нескольких интенсивных недель, а не равномерная
+     * еженедельная нагрузка, и деление на число недель семестра даёт абсурдные "9 пар
+     * в неделю на один предмет".
      *
-     * <p>Считаем по ТОЧНЫМ (не округлённым до целой пары) часам каждой нагрузки за текущий
-     * семестр, а не по сумме уже округлённых до пар часов — иначе независимое округление
-     * каждой отдельной нагрузки (группы) вверх/вниз до ближайшей целой пары накапливает
-     * ошибку при суммировании по преподавателю с большим числом мелких нагрузок и завышает
-     * (или занижает) реальный перегруз.
+     * Названия в тарификации: "ПП.01", "ПП. 02", "УП.01", "УП 02" (буквы в начале, дальше
+     * точка/пробел/цифры) и "Вождение (СМ) кат В/Е" (слово "вождение" где угодно в названии).
      */
-    private void checkTeacherWeeklyLimits(Map<Long, Double> exactWeeklyHoursByTeacher,
-                                          Map<Long, Teacher> teacherByLoad,
-                                          GenerationSessionStore.Session session,
-                                          SolverConfig config,
-                                          List<MissingResourceRequest> issues) {
-        for (Map.Entry<Long, Double> entry : exactWeeklyHoursByTeacher.entrySet()) {
-            Long teacherId = entry.getKey();
-            if (session.getAcknowledgedTeacherOverloads().contains(teacherId)) {
-                continue; // администратор уже осознанно принял перегруз — не спрашиваем повторно
-            }
-            int limitHours = session.getTeacherHourLimits()
-                    .getOrDefault(teacherId, config.teacherMaxWeeklyHours());
-            int hours = (int) Math.round(entry.getValue());
-            if (hours <= limitHours) {
-                continue;
-            }
-            Teacher teacher = teacherByLoad.values().stream()
-                    .filter(t -> teacherId.equals(t.getId())).findFirst().orElse(null);
-            String name = teacher == null ? "преподаватель #" + teacherId : teacher.getFullName();
-
-            issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.TEACHER_OVERLOAD,
-                            "Перегруз преподавателя: " + name)
-                    .severity(MissingResourceRequest.Severity.BLOCKING)
-                    .message(String.format(
-                            "По плану у преподавателя %s выходит %d ч в неделю при лимите %d ч. "
-                                    + "Часть пар физически не встанет.",
-                            name, hours, limitHours))
-                    .context("teacherId", teacherId)
-                    .context("hours", hours)
-                    .option(MissingResourceRequest.ResolutionOption.of(
-                            MissingResourceRequest.Actions.REDUCE_HOURS_TO_FIT,
-                            "Ставить в пределах лимита, остаток оставить нераспределённым"))
-                    .option(MissingResourceRequest.ResolutionOption.withInput(
-                            MissingResourceRequest.Actions.RAISE_TEACHER_LIMIT,
-                            "Поднять лимит для этого преподавателя",
-                            MissingResourceRequest.InputSpec.number("Часов в неделю", "hours",
-                                    limitHours, 60, hours)))
-                    .build());
-        }
+    private boolean isPracticeOrDriving(String disciplineName) {
+        if (disciplineName == null) return false;
+        String normalized = disciplineName.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
+        if (normalized.contains("вождение")) return true;
+        return normalized.matches("^(пп|уп)[\\s.].*") || normalized.matches("^(пп|уп)\\d.*");
     }
 
     /** Хватит ли в сетке слотов группе на всю её недельную нагрузку. */
@@ -809,14 +796,11 @@ public class ScheduleGeneratorService {
                         session.getApprovedHours().put(loadId, hours);
                     }
                 } else if (teacherId != null) {
-                    // TEACHER_OVERLOAD, «Ставить в пределах лимита, остаток — в предупреждения».
-                    // Раньше здесь только снимался лимит, которого и не было (no-op) — из-за
-                    // этого один и тот же блокирующий вопрос возникал заново на каждом прогоне
-                    // и сохранить расписание было невозможно, что бы ни выбрал администратор.
-                    // Теперь запоминаем осознанное решение: при следующем прогоне
-                    // checkTeacherWeeklyLimits для этого преподавателя вопрос не поднимает,
-                    // а то, что часть часов не влезает, по-прежнему видно в предупреждениях
-                    // (см. remainingHoursWarnings).
+                    // Легаси: раньше здесь обрабатывалось решение по TEACHER_OVERLOAD
+                    // ("перегруз преподавателя"). Эта проверка убрана по требованию — лимит
+                    // относится к ГРУППЕ (18 пар/нед), а не к преподавателю, поэтому
+                    // TEACHER_OVERLOAD больше не поднимается и сюда попасть не должно;
+                    // оставлено на случай, если где-то ещё остался старый открытый вопрос.
                     session.getAcknowledgedTeacherOverloads().add(teacherId);
                 }
             }
@@ -940,9 +924,14 @@ public class ScheduleGeneratorService {
 
         List<SolverInput.TeacherRef> result = new ArrayList<>();
         for (Teacher teacher : unique.values()) {
-            int limitHours = session.getTeacherHourLimits()
-                    .getOrDefault(teacher.getId(), config.teacherMaxWeeklyHours());
-            int maxWeeklyPairs = Math.max(1, limitHours / config.academicHoursPerPair());
+            // Недельный ЛИМИТ ЧАСОВ у преподавателя убран по требованию — лимит относится к
+            // ГРУППЕ (18 пар/нед = 36 ч, см. GROUP_MAX_WEEKLY_PAIRS/checkTeacherWeeklyLimits
+            // больше не вызывается), а не к преподавателю: один человек может вести много
+            // групп, и раньше это ошибочно считалось "перегрузом" самого преподавателя.
+            // GenerationGrid.slotCount() как maxWeeklyPairs — практически "без ограничения"
+            // (больше, чем физически может набраться пар за неделю), при этом не трогаем
+            // структуру TeacherRef/OccupancyIndex ради одной этой правки.
+            int maxWeeklyPairs = GenerationGrid.slotCount();
             int maxPerDay = teacher.getMaxPairsPerDay() != null && teacher.getMaxPairsPerDay() > 0
                     ? teacher.getMaxPairsPerDay() : DEFAULT_TEACHER_MAX_PAIRS_PER_DAY;
             result.add(new SolverInput.TeacherRef(teacher.getId(), teacher.getFullName(),

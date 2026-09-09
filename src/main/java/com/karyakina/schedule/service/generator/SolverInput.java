@@ -22,9 +22,11 @@ public record SolverInput(
     /**
      * Учебная группа (монолит — пары ставятся на группу целиком).
      *
+     * @param maxWeeklyPairs жёсткий лимит пар в неделю у группы (по ТЗ — 18)
      * @param blockedSlots плоские индексы слотов, недоступных группе (обед, практика)
      */
-    public record GroupRef(long id, String name, int studentCount, int maxPairsPerDay, Set<Integer> blockedSlots) {
+    public record GroupRef(long id, String name, int studentCount, int maxPairsPerDay, int maxWeeklyPairs,
+                           Set<Integer> blockedSlots) {
         public GroupRef {
             blockedSlots = blockedSlots == null ? Set.of() : Set.copyOf(blockedSlots);
         }

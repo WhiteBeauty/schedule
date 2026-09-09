@@ -120,6 +120,7 @@
                 </label>
             </div>
         </div>
+        <div id="groupGridTitle" class="text-muted" style="margin-bottom:0.5rem; font-weight:600;"></div>
         <div style="overflow-x:auto;"><table class="week-grid" id="groupGridTable"></table></div>
     </div>
 
@@ -236,8 +237,13 @@ function initAdminModes() {
     }).catch(() => {});
 
     fetch('/api/groups').then(r => r.json()).then(list => {
+        window.allGroupsData = list || [];
         const sel = document.getElementById('groupSelect');
-        (list || []).forEach(g => sel.add(new Option(g.name, g.id)));
+        // Раньше в выпадающем списке был только "№4 ТО" без курса — при нескольких
+        // группах с похожими названиями непонятно, какая именно это группа. Курс
+        // (StudyGroup.course) уже приходит в ответе /api/groups, просто не выводился.
+        (list || []).forEach(g => sel.add(new Option(
+            g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
     }).catch(() => {});
 }
 
@@ -394,9 +400,15 @@ function renderTeacherGrid() {
 
 function renderGroupGrid() {
     const groupIdSel = document.getElementById('groupSelect').value;
+    const titleEl = document.getElementById('groupGridTitle');
     if (!groupIdSel) {
         document.getElementById('groupGridTable').innerHTML = '<tr><td class="text-muted" style="padding:1.5rem;text-align:center;">Выберите группу</td></tr>';
+        if (titleEl) titleEl.textContent = '';
         return;
+    }
+    if (titleEl) {
+        const g = (window.allGroupsData || []).find(x => String(x.id) === String(groupIdSel));
+        titleEl.textContent = g ? (g.name + (g.course ? ' — ' + g.course + ' курс' : '')) : '';
     }
     const pairs = pairsData.filter(p => String(p.teacherLoad.group.id) === String(groupIdSel));
     buildWeekGrid('groupGridTable', pairs, p => {

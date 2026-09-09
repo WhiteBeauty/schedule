@@ -58,11 +58,38 @@ public class ScheduleService {
         return result;
     }
 
+    /** ТЗ: максимум 18 пар в неделю у одной группы — жёсткое ограничение при ручном добавлении/переносе. */
+    private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
+
+    /**
+     * Считает, сколько пар в неделю (эту конкретную или "на каждую неделю") уже стоит у
+     * группы, и бросает исключение, если добавление ещё одной превысит лимит из ТЗ.
+     * Учитываются записи с {@code academicWeek == null} (действуют каждую неделю) и записи
+     * именно с тем номером недели, что и у добавляемой/переносимой пары — так же, как это
+     * уже трактуется при показе расписания на конкретную дату (см. ScheduleExportService).
+     */
+    private void validateGroupWeeklyLimit(Long groupId, Integer academicWeek, Integer academicYear,
+                                          Long excludeScheduleId) {
+        long count = scheduleRepository.findByAcademicYear(academicYear).stream()
+                .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
+                        && s.getTeacherLoad().getGroup().getId().equals(groupId))
+                .filter(s -> excludeScheduleId == null || !excludeScheduleId.equals(s.getId()))
+                .filter(s -> s.getAcademicWeek() == null || academicWeek == null
+                        || academicWeek.equals(s.getAcademicWeek()))
+                .count();
+        if (count >= GROUP_MAX_WEEKLY_PAIRS) {
+            throw new IllegalStateException("У группы уже " + GROUP_MAX_WEEKLY_PAIRS
+                    + " пар в неделю — это максимум по правилам, добавить ещё одну нельзя.");
+        }
+    }
+
     @Transactional
     public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime, 
                                    LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
+
+        validateGroupWeeklyLimit(load.getGroup().getId(), academicWeek, academicYear, null);
 
         // Если плановых часов в неделю ещё нет — выводим из годового плана
         if (load.getHoursPerWeek() == null || load.getHoursPerWeek() <= 0) {
@@ -97,6 +124,12 @@ public class ScheduleService {
                                    LocalTime endTime, String classroom, Integer academicWeek) {
         Schedule schedule = scheduleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Schedule not found: " + id));
+
+        // Перенос пары на другой день/неделю — тоже "добавление" с точки зрения лимита
+        // группы на НОВОЙ неделе (сама пара при этом исключается из подсчёта, иначе она
+        // считала бы сама себя и лимит срабатывал бы на пустом месте).
+        validateGroupWeeklyLimit(schedule.getTeacherLoad().getGroup().getId(), academicWeek,
+                schedule.getAcademicYear(), schedule.getId());
 
         schedule.setDayOfWeek(dayOfWeek);
         schedule.setStartTime(startTime);

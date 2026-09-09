@@ -54,6 +54,7 @@ public class ApiController {
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
     private final ScheduleExportService scheduleExportService;
+    private final HourAccountingService hourAccountingService;
     private final SubstitutionService substitutionService;
     private final NotificationService notificationService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
@@ -543,6 +544,29 @@ public class ApiController {
             return ResponseEntity.internalServerError()
                     .body(("Не удалось сформировать файл: " + e.getMessage()).getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Сверка часов (ТЗ п.6): запланировано/проведено/осталось от начала ТЕКУЩЕГО семестра
+     * до сегодня. См. {@link HourAccountingService}. Преподаватель видит только свои
+     * нагрузки, админ — по параметру teacherId либо все.
+     */
+    @GetMapping("/hours/sverka")
+    public ResponseEntity<List<HourAccountingService.LoadHoursSummary>> hoursSverka(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Integer semester,
+            @RequestParam(required = false) Long teacherId,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Long effectiveTeacherId = teacherId;
+        if (user.getRole() != User.Role.ADMIN) {
+            if (user.getTeacher() == null) {
+                return ResponseEntity.ok(List.of());
+            }
+            effectiveTeacherId = user.getTeacher().getId(); // не-админ не может смотреть чужие часы
+        }
+        return ResponseEntity.ok(hourAccountingService.getSummary(academicYear, semester, effectiveTeacherId));
     }
 
     @PostMapping("/admin/teachers")
@@ -1383,7 +1407,7 @@ public class ApiController {
     }
 
     @PostMapping("/pairs")
-    public ResponseEntity<Schedule> createPair(
+    public ResponseEntity<?> createPair(
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -1467,6 +1491,11 @@ public class ApiController {
                 syncEx.printStackTrace();
             }
             return ResponseEntity.ok(created);
+        } catch (IllegalStateException validationError) {
+            // Осознанное бизнес-ограничение (например, лимит 18 пар/нед у группы) —
+            // это не поломка, а отказ по правилам; сообщение должно дойти до администратора,
+            // а не тихо превратиться в пустой 400 без объяснения.
+            return ResponseEntity.badRequest().body(Map.of("error", validationError.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();

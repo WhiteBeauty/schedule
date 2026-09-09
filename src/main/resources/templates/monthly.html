@@ -22,6 +22,31 @@
 
     <div class="card">
         <div class="card-header">
+            <h2 class="card-title">📐 Сверка часов текущего семестра</h2>
+            <span class="text-muted" style="font-size:0.85rem;" id="sverkaSemesterLabel"></span>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+            Запланировано/проведено/осталось — от начала текущего семестра по сегодняшний день
+            (динамически). "Проведено" — по факту (подтверждённые занятия), а не просто по
+            шаблону расписания.
+        </p>
+        <table id="sverkaTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th>
+                <th>Дисциплина</th>
+                <th>Группа</th>
+                <th>Запланировано, ч</th>
+                <th>Проведено, ч</th>
+                <th>Осталось, ч</th>
+            </tr>
+            </thead>
+            <tbody id="sverkaBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
             <h2 class="card-title">Фильтры</h2>
         </div>
         <div class="filters">
@@ -108,6 +133,37 @@ async function init() {
     }
 
     await loadData();
+    loadSverka();
+}
+
+async function loadSverka() {
+    const year = document.getElementById('yearSelect').value;
+    try {
+        const rows = await fetch('/api/hours/sverka?academicYear=' + encodeURIComponent(year))
+            .then(r => r.json());
+        const body = document.getElementById('sverkaBody');
+        const label = document.getElementById('sverkaSemesterLabel');
+        body.innerHTML = '';
+        if (rows.length) {
+            label.textContent = rows[0].semester + ' семестр';
+        }
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + r.teacherName + '</td>' +
+                '<td>' + r.disciplineName + '</td>' +
+                '<td>' + r.groupName + '</td>' +
+                '<td>' + r.plannedHours + '</td>' +
+                '<td>' + r.conductedHours + '</td>' +
+                '<td>' + r.remainingHours + '</td>';
+            body.appendChild(tr);
+        });
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:1rem;">Нет данных</td></tr>';
+        }
+    } catch (e) {
+        // Сверка — дополнительная информация, не должна ронять остальную страницу при ошибке.
+        console.error('sverka load failed', e);
+    }
 }
 
 async function loadData() {

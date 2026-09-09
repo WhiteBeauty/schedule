@@ -457,6 +457,7 @@ public class ScheduleSolver {
             case GROUP_BUSY -> SolverResult.Reason.GROUP_BUSY;
             case GROUP_SLOT_BLOCKED -> SolverResult.Reason.LUNCH;
             case GROUP_DAY_LIMIT -> SolverResult.Reason.GROUP_DAY_LIMIT;
+            case GROUP_WEEK_LIMIT -> SolverResult.Reason.GROUP_WEEK_LIMIT;
             case TEACHER_BUSY -> SolverResult.Reason.TEACHER_BUSY;
             case TEACHER_DAY_LIMIT -> SolverResult.Reason.TEACHER_DAY_LIMIT;
             case TEACHER_WEEK_LIMIT -> SolverResult.Reason.TEACHER_WEEK_LIMIT;

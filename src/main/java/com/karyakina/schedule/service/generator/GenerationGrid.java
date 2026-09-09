@@ -32,13 +32,23 @@ public final class GenerationGrid {
             "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"
     };
 
+    // Расписание звонков зафиксировано ТЗ — 10 пар, конкретные времена ниже. Раньше здесь
+    // было 6 условных пар по 1.5 часа — если где-то в БД уже есть Schedule/LessonInstance,
+    // сохранённые под старую сетку (старые времена начала пар), они перестанут совпадать ни
+    // с одним индексом новой сетки (GenerationGrid.pairIndex вернёт -1) и будут просто не
+    // видны как "пара №N" — по сути, старое расписание, сохранённое до этого изменения,
+    // нужно пересобрать автосоставлением заново под новую сетку звонков.
     public static final LocalTime[][] TIME_SLOTS = {
-            {LocalTime.of(8, 30), LocalTime.of(10, 0)},
-            {LocalTime.of(10, 10), LocalTime.of(11, 40)},
-            {LocalTime.of(11, 50), LocalTime.of(13, 20)},
-            {LocalTime.of(13, 50), LocalTime.of(15, 20)},
-            {LocalTime.of(15, 30), LocalTime.of(17, 0)},
-            {LocalTime.of(17, 10), LocalTime.of(18, 40)},
+            {LocalTime.of(8, 0), LocalTime.of(8, 45)},
+            {LocalTime.of(8, 50), LocalTime.of(9, 35)},
+            {LocalTime.of(9, 40), LocalTime.of(10, 25)},
+            {LocalTime.of(10, 40), LocalTime.of(11, 25)},
+            {LocalTime.of(11, 40), LocalTime.of(12, 25)},
+            {LocalTime.of(12, 40), LocalTime.of(13, 25)},
+            {LocalTime.of(13, 35), LocalTime.of(14, 20)},
+            {LocalTime.of(14, 25), LocalTime.of(15, 10)},
+            {LocalTime.of(15, 15), LocalTime.of(16, 0)},
+            {LocalTime.of(16, 5), LocalTime.of(16, 50)},
     };
 
     private static final String[][] CLASSROOMS = {

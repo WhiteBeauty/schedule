@@ -13,6 +13,7 @@ import java.util.Map;
  *   <li>группа не находится на двух парах одновременно;</li>
  *   <li>аудитория не занята двумя группами в одном слоте;</li>
  *   <li>недельная нагрузка преподавателя ≤ лимита (36 ч = 18 пар);</li>
+ *   <li>пар в неделю у группы ≤ лимита (по ТЗ — 18);</li>
  *   <li>пар в день ≤ лимита у преподавателя и у группы;</li>
  *   <li>не более {@code maxSameSubjectInRow} одинаковых пар подряд (по умолчанию 3+ запрещены);</li>
  *   <li>не более {@code maxSameSubjectPerDay} пар одной дисциплины в день;</li>
@@ -29,6 +30,7 @@ public final class OccupancyIndex {
         ROOM_BUSY,
         GROUP_SLOT_BLOCKED,
         GROUP_DAY_LIMIT,
+        GROUP_WEEK_LIMIT,
         TEACHER_DAY_LIMIT,
         TEACHER_WEEK_LIMIT,
         ROOM_CAPACITY,
@@ -49,6 +51,7 @@ public final class OccupancyIndex {
     private final Map<Long, int[]> groupDayCount = new HashMap<>();
     private final Map<Long, int[]> teacherDayCount = new HashMap<>();
     private final Map<Long, Integer> teacherWeekPairs = new HashMap<>();
+    private final Map<Long, Integer> groupWeekPairs = new HashMap<>();
     private final Map<Long, SolverResult.PlacedPair[]> groupPairAt = new HashMap<>();
 
     public OccupancyIndex(SolverConfig config) {
@@ -84,6 +87,9 @@ public final class OccupancyIndex {
         }
         if (dayCount(groupDayCount, group.id(), dayIdx) >= group.maxPairsPerDay()) {
             return Violation.GROUP_DAY_LIMIT;
+        }
+        if (group.maxWeeklyPairs() > 0 && weekPairsGroup(group.id()) >= group.maxWeeklyPairs()) {
+            return Violation.GROUP_WEEK_LIMIT;
         }
         if (teacher != null && dayCount(teacherDayCount, teacher.id(), dayIdx) >= teacher.maxPairsPerDay()) {
             return Violation.TEACHER_DAY_LIMIT;
@@ -151,6 +157,7 @@ public final class OccupancyIndex {
         intArray(groupDayCount, pair.groupId())[pair.dayIndex()]++;
         intArray(teacherDayCount, pair.teacherId())[pair.dayIndex()]++;
         teacherWeekPairs.merge(pair.teacherId(), 1, Integer::sum);
+        groupWeekPairs.merge(pair.groupId(), 1, Integer::sum);
         pairArray(pair.groupId())[flat] = pair;
     }
 
@@ -167,6 +174,7 @@ public final class OccupancyIndex {
         int[] teacherDays = intArray(teacherDayCount, pair.teacherId());
         teacherDays[pair.dayIndex()] = Math.max(0, teacherDays[pair.dayIndex()] - 1);
         teacherWeekPairs.merge(pair.teacherId(), -1, (a, b) -> Math.max(0, a + b));
+        groupWeekPairs.merge(pair.groupId(), -1, (a, b) -> Math.max(0, a + b));
         pairArray(pair.groupId())[flat] = null;
     }
 
@@ -182,6 +190,7 @@ public final class OccupancyIndex {
         if (groupId != null) {
             array(groupBusy, groupId)[flat] = true;
             intArray(groupDayCount, groupId)[dayIdx]++;
+            groupWeekPairs.merge(groupId, 1, Integer::sum);
         }
         if (teacherId != null) {
             array(teacherBusy, teacherId)[flat] = true;
@@ -234,6 +243,10 @@ public final class OccupancyIndex {
 
     public int weekPairs(long teacherId) {
         return teacherWeekPairs.getOrDefault(teacherId, 0);
+    }
+
+    public int weekPairsGroup(long groupId) {
+        return groupWeekPairs.getOrDefault(groupId, 0);
     }
 
     /** Пара, занимающая слот у группы — нужна для «выталкивания» при перестановках. */

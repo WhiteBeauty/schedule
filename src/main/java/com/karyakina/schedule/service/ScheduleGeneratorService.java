@@ -83,17 +83,18 @@ public class ScheduleGeneratorService {
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     // Часы в неделю по дисциплине считаются от часов ИМЕННО текущего/выбранного семестра
-    // (TeacherLoad.firstSemesterHours/secondSemesterHours), делённых на WEEKS_PER_SEMESTER,
-    // а не от суммы часов за год делённой на APPROX_WEEKS_PER_YEAR — см. resolveSemester()/
-    // semesterHours() и комментарий в AcademicYearUtil.getCurrentSemester(). Раньше это было
-    // не так, из-за чего у преподавателей с разными по семестрам нагрузками (разные группы,
-    // разные часы в 1 и 2 семестре) недельная нагрузка считалась как фиктивное "среднее за
-    // год" — не соответствующее ни одной реальной неделе — и после независимого округления
-    // каждой отдельной нагрузки до целых пар суммарно давало заметно завышенный (или,
-    // наоборот, заниженный для другого семестра) результат.
-    private static final int WEEKS_PER_SEMESTER = AcademicYearUtil.WEEKS_PER_SEMESTER;
+    // (TeacherLoad.firstSemesterHours/secondSemesterHours), делённых на ТОЧНОЕ число недель
+    // ЭТОГО семестра (AcademicYearUtil.getSemesterWeeks — семестры по ТЗ разной длины: 1й
+    // ~17 недель, 2й ~24), а не от суммы часов за год делённой на APPROX_WEEKS_PER_YEAR —
+    // см. resolveSemester()/semesterHours(). Раньше делили на общую для обоих семестров
+    // константу 18, из-за чего у преподавателей с разными по семестрам нагрузками недельная
+    // нагрузка считалась как фиктивное "среднее" — не соответствующее ни одной реальной
+    // неделе — и после независимого округления каждой отдельной нагрузки до целых пар
+    // суммарно давало заметно завышенный (или, наоборот, заниженный) результат.
     private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
+    /** ТЗ: максимум 18 пар в неделю для одной группы — жёсткий лимит, не настраивается через UI. */
+    private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
 
     // =================================================================== публичное API
 
@@ -287,7 +288,8 @@ public class ScheduleGeneratorService {
                 // Утверждённые вручную часы трактуем как годовые (администратор явно
                 // подтвердил именно это число) — делим на весь год. Часы из файла нагрузки
                 // (обычный случай) трактуем как часы ИМЕННО текущего семестра.
-                int weeksBasis = hours.overridden() ? APPROX_WEEKS_PER_YEAR : WEEKS_PER_SEMESTER;
+                int weeksBasis = hours.overridden() ? APPROX_WEEKS_PER_YEAR
+                        : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
                 int hoursForPeriod = hours.overridden() ? hours.annualHours() : semesterHours(load, semester);
                 int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, hours.overridden());
                 if (pairs <= 0) {
@@ -434,8 +436,9 @@ public class ScheduleGeneratorService {
 
             // Явно нереалистичные часы: 50 ч/нед на одну дисциплину не влезут ни в какую сетку.
             // Часы из файла — это часы ТЕКУЩЕГО семестра, а не годовая сумма (см. комментарий
-            // у WEEKS_PER_SEMESTER); утверждённые вручную часы по-прежнему годовые.
-            int weeksBasis = overridden ? APPROX_WEEKS_PER_YEAR : WEEKS_PER_SEMESTER;
+            // у AcademicYearUtil.getSemesterWeeks); утверждённые вручную часы по-прежнему годовые.
+            int weeksBasis = overridden ? APPROX_WEEKS_PER_YEAR
+                    : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
             int hoursForPeriod = overridden ? hours : semesterHours(load, semester);
             int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, overridden);
             int maxPairs = GenerationGrid.slotCount();
@@ -925,7 +928,7 @@ public class ScheduleGeneratorService {
             }
             result.add(new SolverInput.GroupRef(group.getId(), group.getName(),
                     group.getStudentCount() == null ? 0 : group.getStudentCount(),
-                    config.maxPairsPerDayGroup(), blocked));
+                    config.maxPairsPerDayGroup(), GROUP_MAX_WEEKLY_PAIRS, blocked));
         }
         return result;
     }
@@ -1151,7 +1154,7 @@ public class ScheduleGeneratorService {
      *
      * <p>{@code hoursForPeriod}/{@code weeksBasis} — часы и число недель ЗА ОДИН И ТОТ ЖЕ
      * период: для обычной (не утверждённой вручную) нагрузки это часы текущего семестра и
-     * {@link #WEEKS_PER_SEMESTER}, для утверждённой вручную — годовые часы и
+     * {@link AcademicYearUtil#getSemesterWeeks}, для утверждённой вручную — годовые часы и
      * {@link #APPROX_WEEKS_PER_YEAR} (см. вызывающий код).
      */
     private int weeklyPairs(TeacherLoad load, int hoursForPeriod, int weeksBasis, SolverConfig config,

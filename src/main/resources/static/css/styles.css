@@ -391,6 +391,24 @@ input, select {
     white-space: nowrap;
 }
 
+/* Пара, перенесённая из-за экзамена/практики/вождения (Schedule.rescheduledFromDate) —
+   жёлтая подсветка по ТЗ (см. schedule.html, admin-pairs.html). */
+.rescheduled-pair {
+    background: #fef9c3 !important;
+    border-left: 4px solid #ca8a04 !important;
+}
+.rescheduled-badge {
+    display: inline-block;
+    background: #ca8a04;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.25rem;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+
 .sync-status {
     display: inline-flex;
     align-items: center;

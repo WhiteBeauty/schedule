@@ -414,8 +414,12 @@ function renderGroupGrid() {
     buildWeekGrid('groupGridTable', pairs, p => {
         const sub = currentWeekSubstitution(p);
         const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
-        return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁 замена</span>' : '') + '</div>' +
+        const rescheduled = !!p.rescheduledFromDate;
+        const cls = (sub ? ' substituted-pair' : '') + (rescheduled ? ' rescheduled-pair' : '');
+        const badge = sub ? ' <span class="substitute-badge">🔁 замена</span>'
+            : (rescheduled ? ' <span class="rescheduled-badge" title="Перенесено с ' + p.rescheduledFromDate + '">↪ перенесено</span>' : '');
+        return '<div class="grid-pair' + cls + '">' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + badge + '</div>' +
             '<div>' + teacherLabel + ' · ауд. ' + p.classroom + '</div>' +
         '</div>';
     });

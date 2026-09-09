@@ -24,7 +24,62 @@
             <button class="btn btn-outline" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">🧹 Разбить слитные группы/дисциплины</button>
             <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
             <button class="btn btn-outline" onclick="openExportMonthModal()">📥 Скачать за месяц</button>
+            <button class="btn btn-outline" onclick="openSpecialEventModal()">🎓 Экзамен/практика/вождение</button>
             <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
+        </div>
+    </div>
+
+    <!-- Модалка назначения экзамена/практики/вождения (ТЗ п.4-9) -->
+    <div class="modal-overlay" id="specialEventModal">
+        <div class="modal" style="max-width:640px;">
+            <div class="modal-header">
+                <h3 style="margin:0;">🎓 Назначить экзамен / практику / вождение</h3>
+                <button class="close-btn" type="button" onclick="closeSpecialEventModal()" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+                    В указанный период у группы блокируются обычные пары — система сама
+                    попробует перенести их на ближайшие свободные слоты в будущем (с учётом
+                    занятости преподавателей/аудиторий и лимита 18 пар/нед у группы). То, что
+                    перенести не удалось, покажется списком — перенесёте вручную.
+                </p>
+                <label style="display:block; margin-bottom:0.75rem;">
+                    Тип
+                    <select id="seType" style="width:100%; margin-top:0.25rem;" onchange="onSeTypeChange()">
+                        <option value="EXAM">Экзамен (один день)</option>
+                        <option value="STUDY_PRACTICE">Учебная практика</option>
+                        <option value="PRODUCTION_PRACTICE">Производственная практика</option>
+                        <option value="DRIVING">Вождение</option>
+                    </select>
+                </label>
+                <label style="display:block; margin-bottom:0.75rem;">
+                    Группа
+                    <select id="seGroup" style="width:100%; margin-top:0.25rem;"></select>
+                </label>
+                <label id="seDisciplineWrap" style="display:block; margin-bottom:0.75rem;">
+                    Предмет (для экзамена)
+                    <select id="seDiscipline" style="width:100%; margin-top:0.25rem;"><option value="">—</option></select>
+                </label>
+                <label id="seLoadWrap" style="display:none; margin-bottom:0.75rem;">
+                    Нагрузка практики/вождения из тарификации (необязательно)
+                    <select id="seLoad" style="width:100%; margin-top:0.25rem;"><option value="">—</option></select>
+                </label>
+                <div style="display:flex; gap:0.75rem;">
+                    <label style="flex:1;">
+                        <span id="seStartLabel">Дата</span>
+                        <input type="date" id="seStartDate" style="width:100%; margin-top:0.25rem;">
+                    </label>
+                    <label id="seEndWrap" style="flex:1; display:none;">
+                        Дата окончания
+                        <input type="date" id="seEndDate" style="width:100%; margin-top:0.25rem;">
+                    </label>
+                </div>
+                <div id="seResult" style="margin-top:1rem;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" type="button" onclick="closeSpecialEventModal()">Закрыть</button>
+                <button class="btn btn-primary" type="button" id="seSubmitBtn" onclick="submitSpecialEvent()">Назначить и перенести</button>
+            </div>
         </div>
     </div>
 
@@ -511,6 +566,125 @@ document.getElementById('exportMonthConfirmBtn').addEventListener('click', () =>
     window.location.href = '/api/schedule/export/month?' + params.toString();
     closeExportMonthModal();
 });
+
+// ---- Экзамен / практика / вождение (ТЗ п.4-9) ----
+let seGroupsLoaded = false;
+
+function openSpecialEventModal() {
+    document.getElementById('seResult').innerHTML = '';
+    if (!seGroupsLoaded) {
+        Promise.all([
+            fetch('/api/groups').then(r => r.json()),
+            fetch('/api/disciplines').then(r => r.json())
+        ]).then(([groups, disciplines]) => {
+            const gSel = document.getElementById('seGroup');
+            gSel.innerHTML = '';
+            (groups || []).forEach(g => gSel.add(new Option(
+                g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
+            const dSel = document.getElementById('seDiscipline');
+            dSel.innerHTML = '<option value="">—</option>';
+            (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
+            seGroupsLoaded = true;
+        }).catch(() => {});
+    }
+    onSeTypeChange();
+    document.getElementById('specialEventModal').classList.add('active');
+}
+
+function closeSpecialEventModal() {
+    document.getElementById('specialEventModal').classList.remove('active');
+}
+
+function onSeTypeChange() {
+    const type = document.getElementById('seType').value;
+    const isExam = type === 'EXAM';
+    document.getElementById('seDisciplineWrap').style.display = isExam ? 'block' : 'none';
+    document.getElementById('seLoadWrap').style.display = isExam ? 'none' : 'block';
+    document.getElementById('seEndWrap').style.display = isExam ? 'none' : 'block';
+    document.getElementById('seStartLabel').textContent = isExam ? 'Дата экзамена' : 'Дата начала';
+}
+
+async function submitSpecialEvent() {
+    const type = document.getElementById('seType').value;
+    const groupId = document.getElementById('seGroup').value;
+    const disciplineId = document.getElementById('seDiscipline').value || null;
+    const startDate = document.getElementById('seStartDate').value;
+    const endDate = document.getElementById('seEndDate').value || startDate;
+    const resultEl = document.getElementById('seResult');
+
+    if (!groupId || !startDate) {
+        alert('Укажите группу и дату');
+        return;
+    }
+    if (type === 'EXAM' && !disciplineId) {
+        alert('Для экзамена укажите предмет');
+        return;
+    }
+
+    const btn = document.getElementById('seSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Переносим...';
+    resultEl.innerHTML = '';
+
+    try {
+        const res = await fetch('/api/special-events', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                type, groupId: Number(groupId),
+                disciplineId: disciplineId ? Number(disciplineId) : null,
+                startDate, endDate,
+                academicYear: window.DEFAULT_ACADEMIC_YEAR
+            })
+        });
+        const body = await res.json();
+        if (!res.ok) {
+            resultEl.innerHTML = '<div class="text-danger">Ошибка: ' + (body.error || res.status) + '</div>';
+            return;
+        }
+        renderSeResult(body);
+        loadSchedule();
+    } catch (e) {
+        resultEl.innerHTML = '<div class="text-danger">Ошибка сети: ' + e.message + '</div>';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Назначить и перенести';
+    }
+}
+
+function renderSeResult(result) {
+    const el = document.getElementById('seResult');
+    let html = '<p style="font-weight:600;">Готово: ' + result.groupName + ', '
+        + result.startDate + (result.endDate !== result.startDate ? ' — ' + result.endDate : '') + '</p>';
+
+    if (result.moved && result.moved.length) {
+        html += '<p style="font-weight:600; color:#16a34a;">Перенесено автоматически (' + result.moved.length + '):</p>';
+        html += '<table style="width:100%; font-size:0.85rem;"><tbody>';
+        result.moved.forEach(m => {
+            html += '<tr><td>' + m.disciplineName + ' (' + m.teacherName + ')</td>' +
+                '<td>' + m.fromDayOfWeek + ' ' + m.fromDate + ' ' + m.fromStartTime + '</td>' +
+                '<td>→</td>' +
+                '<td>' + m.toDayOfWeek + ' ' + m.toDate + ' ' + m.toStartTime + '-' + m.toEndTime + ', ауд. ' + m.classroom + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+
+    if (result.unresolved && result.unresolved.length) {
+        html += '<p style="font-weight:600; color:#dc2626; margin-top:0.75rem;">Не удалось перенести автоматически (' + result.unresolved.length + ') — перенесите вручную через "✏️ Изменить" на самой паре:</p>';
+        html += '<ul style="font-size:0.85rem;">';
+        result.unresolved.forEach(u => {
+            html += '<li>' + u.disciplineName + ' (' + u.teacherName + '), было ' + u.originalDayOfWeek + ' ' + u.originalDate
+                + ' ' + u.originalStartTime + ' — ' + u.reason + '</li>';
+        });
+        html += '</ul>';
+    }
+
+    if ((!result.moved || !result.moved.length) && (!result.unresolved || !result.unresolved.length)) {
+        html += '<p class="text-muted">В этот период у группы других пар не было — переносить нечего.</p>';
+    }
+
+    el.innerHTML = html;
+}
 
 async function generateSchedule(persist) {
     const year = document.getElementById('yearSelect').value;

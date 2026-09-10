@@ -26,7 +26,9 @@
             width: 14.28%;
         }
         .month-calendar td.other-month { background: #fafbfc; color: var(--muted); }
-        .month-calendar td.today { background: #eff6ff; }
+        /* Задача 1: текущий день подсвечивается ЗЕЛЁНЫМ (было светло-синим). */
+        .month-calendar td.today { background: #dcfce7; border: 2px solid #16a34a; }
+        .month-calendar td.today .cal-day-num { color: #15803d; }
         .cal-day-num { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem; }
         .cal-lessons { display: flex; flex-direction: column; gap: 0.2rem; max-height: 5.5rem; overflow-y: auto; }
         .cal-lesson {

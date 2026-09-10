@@ -409,6 +409,23 @@ input, select {
     white-space: nowrap;
 }
 
+/* Заголовок дня в сетке "по группе", кликабельный для быстрого назначения
+   экзамена/практики/вождения на этот день (см. schedule.html onDayHeaderClick). */
+.day-header-clickable {
+    cursor: pointer;
+    transition: background-color .12s;
+}
+.day-header-clickable:hover {
+    background: #eff6ff;
+}
+
+/* Задача 3: число месяца рядом с названием дня недели ("Среда 9"). */
+.day-number {
+    font-weight: 400;
+    opacity: 0.75;
+    font-size: 0.85em;
+}
+
 .sync-status {
     display: inline-flex;
     align-items: center;

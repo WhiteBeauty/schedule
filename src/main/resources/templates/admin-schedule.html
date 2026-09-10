@@ -533,14 +533,23 @@ async function executeWipe() {
 }
 
 // ---- Экспорт расписания за месяц в Excel ----
+let exportMonthDefaulted = false;
+
 function openExportMonthModal() {
     const yearInput = document.getElementById('exportYear');
-    if (!yearInput.value) {
-        yearInput.value = window.DEFAULT_ACADEMIC_YEAR;
-    }
     const monthSelect = document.getElementById('exportMonth');
-    if (!monthSelect.value) {
-        monthSelect.value = String(new Date().getMonth() + 1);
+    // Задача 2: по умолчанию — текущий месяц, но только один раз (дальше пользователь
+    // мог сам что-то выбрать, и это не должно сбрасываться при повторном открытии
+    // модалки). Раньше проверялось `!monthSelect.value`, но у <select> без явного
+    // выбора value всегда равно значению первой option ("1" — Январь), а не пусто —
+    // поэтому автоподстановка текущего месяца фактически никогда не срабатывала.
+    if (!exportMonthDefaulted) {
+        const now = new Date();
+        if (!yearInput.value) {
+            yearInput.value = window.DEFAULT_ACADEMIC_YEAR;
+        }
+        monthSelect.value = String(now.getMonth() + 1);
+        exportMonthDefaulted = true;
     }
     document.getElementById('exportMonthModal').classList.add('active');
 }
@@ -654,7 +663,8 @@ async function submitSpecialEvent() {
 
 function renderSeResult(result) {
     const el = document.getElementById('seResult');
-    let html = '<p style="font-weight:600;">Готово: ' + result.groupName + ', '
+    let html = '<p style="font-weight:600;">Готово: <span style="color:#2563eb;">' + result.typeLabel + '</span>'
+        + (result.disciplineName ? ' — ' + result.disciplineName : '') + ', группа ' + result.groupName + ', '
         + result.startDate + (result.endDate !== result.startDate ? ' — ' + result.endDate : '') + '</p>';
 
     if (result.moved && result.moved.length) {

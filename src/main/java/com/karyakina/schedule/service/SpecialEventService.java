@@ -61,7 +61,9 @@ public class SpecialEventService {
         Discipline discipline = disciplineId != null ? disciplineRepository.findById(disciplineId).orElse(null) : null;
         TeacherLoad ownLoad = teacherLoadId != null ? loadRepository.findById(teacherLoadId).orElse(null) : null;
 
-        SpecialEvent event = SpecialEvent.builder()
+        // Одно присваивание делает переменную effectively final — её захватывает
+        // лямбда ниже (cancelInstance в ifPresent).
+        SpecialEvent event = specialEventRepository.save(SpecialEvent.builder()
                 .group(group)
                 .type(type)
                 .discipline(discipline)
@@ -71,9 +73,7 @@ public class SpecialEventService {
                 .academicYear(academicYear)
                 .createdBy(adminName)
                 .note(buildNote(type, discipline))
-                .build();
-        event = specialEventRepository.save(event);
-        final String eventNote = event.getNote();
+                .build());
 
         List<Schedule> allSchedules = scheduleRepository.findByAcademicYear(academicYear);
         List<SpecialEvent> groupEvents = specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
@@ -89,8 +89,10 @@ public class SpecialEventService {
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
             if (GenerationGrid.dayIndex(date.getDayOfWeek()) < 0) continue; // воскресенье
             int week = lessonInstanceService.computeAcademicWeek(date, academicYear);
-            final LocalDate day = date; // effectively final копия для использования в лямбдах
 
+            // `date` — счётчик цикла, он не effectively final; для лямбд стрима
+            // ниже нужна локальная неизменяемая копия.
+            LocalDate day = date;
             List<Schedule> dayConflicts = allSchedules.stream()
                     .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
                             && s.getTeacherLoad().getGroup().getId().equals(groupId))
@@ -105,7 +107,7 @@ public class SpecialEventService {
                 // Блокируем исходное занятие именно на эту дату (шаблон на другие недели/годы не трогаем).
                 lessonInstanceService.generateInstancesForDate(date, academicYear);
                 lessonInstanceRepository.findByScheduleIdAndLessonDate(s.getId(), date).ifPresent(li ->
-                        lessonInstanceService.cancelInstance(li.getId(), eventNote, adminName));
+                        lessonInstanceService.cancelInstance(li.getId(), event.getNote(), adminName));
 
                 Slot slot = tracker.findFreeSlot(s, date, group);
                 if (slot == null) {
@@ -158,7 +160,9 @@ public class SpecialEventService {
         return SpecialEventDtos.Result.builder()
                 .eventId(event.getId())
                 .type(type.name())
+                .typeLabel(typeLabel(type))
                 .groupName(group.getName())
+                .disciplineName(discipline != null ? discipline.getName() : null)
                 .startDate(startDate)
                 .endDate(endDate)
                 .moved(moved)
@@ -202,6 +206,15 @@ public class SpecialEventService {
     private String buildNote(SpecialEvent.Type type, Discipline discipline) {
         return switch (type) {
             case EXAM -> "Экзамен" + (discipline != null ? ": " + discipline.getName() : "");
+            case PRODUCTION_PRACTICE -> "Производственная практика";
+            case STUDY_PRACTICE -> "Учебная практика";
+            case DRIVING -> "Вождение";
+        };
+    }
+
+    private String typeLabel(SpecialEvent.Type type) {
+        return switch (type) {
+            case EXAM -> "Экзамен";
             case PRODUCTION_PRACTICE -> "Производственная практика";
             case STUDY_PRACTICE -> "Учебная практика";
             case DRIVING -> "Вождение";

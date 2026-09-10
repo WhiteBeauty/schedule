@@ -44,7 +44,9 @@ public class SpecialEventDtos {
     public static class Result {
         private Long eventId;
         private String type;
+        private String typeLabel;
         private String groupName;
+        private String disciplineName; // только для EXAM — чтобы в UI сразу было видно, что именно назначено
         private LocalDate startDate;
         private LocalDate endDate;
         private List<MovedPair> moved;

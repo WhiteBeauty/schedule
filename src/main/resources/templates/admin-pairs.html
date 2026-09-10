@@ -85,7 +85,6 @@
                     <option value="WEDNESDAY">Среда</option>
                     <option value="THURSDAY">Четверг</option>
                     <option value="FRIDAY">Пятница</option>
-                    <option value="SATURDAY">Суббота</option>
                 </select>
             </div>
             <div style="margin-bottom:1rem">
@@ -146,7 +145,6 @@
                     <option value="WEDNESDAY">Среда</option>
                     <option value="THURSDAY">Четверг</option>
                     <option value="FRIDAY">Пятница</option>
-                    <option value="SATURDAY">Суббота</option>
                 </select>
             </div>
             <div style="margin-bottom:1rem">
@@ -213,7 +211,7 @@ let sickLeavesData = [];
  * только если она произошла ИМЕННО в текущую календарную неделю — иначе разовая
  * замена подсвечивала бы пару фиолетовым навсегда, независимо от даты.
  */
-const WEEK_DAY_ORDER = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const WEEK_DAY_ORDER = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
 function dateForDayInCurrentWeek(dayOfWeek) {
     const today = new Date();
     const monday = new Date(today);
@@ -420,7 +418,7 @@ function renderPairs() {
         return;
     }
 
-    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт','SATURDAY':'Сб'};
+    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт'};
 
     pairsData.forEach(p => {
         const tr = document.createElement('tr');

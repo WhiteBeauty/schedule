@@ -119,8 +119,8 @@ public class SpecialEventService {
                     lessonInstanceRepository.save(cancelled);
                 });
 
-                Slot slot = tracker.findFreeSlot(s, date, group);
-                if (slot == null) {
+                SearchOutcome outcome = tracker.search(s, date, group);
+                if (!outcome.found()) {
                     unresolved.add(SpecialEventDtos.UnresolvedConflict.builder()
                             .teacherLoadId(s.getTeacherLoad().getId())
                             .disciplineName(s.getTeacherLoad().getDiscipline().getName())
@@ -129,11 +129,11 @@ public class SpecialEventService {
                             .originalDate(date)
                             .originalDayOfWeek(GenerationGrid.dayName(GenerationGrid.dayIndex(date.getDayOfWeek())))
                             .originalStartTime(s.getStartTime())
-                            .reason("Не нашлось свободного слота в пределах " + SEARCH_HORIZON_DAYS
-                                    + " дней с учётом занятости преподавателя/аудитории и лимита 18 пар/нед у группы")
+                            .reason(diagnosisMessage(outcome))
                             .build());
                     continue;
                 }
+                Slot slot = outcome.slot();
 
                 Schedule movedRow = Schedule.builder()
                         .teacherLoad(s.getTeacherLoad())
@@ -260,7 +260,46 @@ public class SpecialEventService {
         };
     }
 
+    /**
+     * Человекочитаемая причина неудачи поиска слота — по счётчикам из {@link SearchOutcome}.
+     * Раньше здесь было общее "не нашлось свободного слота", по которому нельзя было понять,
+     * реально ли слотов физически нет, или где-то в логике поиска ошибка.
+     */
+    private String diagnosisMessage(SearchOutcome outcome) {
+        StringBuilder sb = new StringBuilder("Не нашлось свободного слота в пределах "
+                + SEARCH_HORIZON_DAYS + " дней. Причины отказа: ");
+        List<String> parts = new ArrayList<>();
+        if (outcome.slotsTeacherBusy() > 0) {
+            parts.add("преподаватель занят (" + outcome.slotsTeacherBusy() + " раз)");
+        }
+        if (outcome.slotsGroupBusy() > 0) {
+            parts.add("у группы уже пара в это время (" + outcome.slotsGroupBusy() + " раз)");
+        }
+        if (outcome.slotsNoRoom() > 0) {
+            parts.add("нет подходящей свободной аудитории (" + outcome.slotsNoRoom() + " раз)");
+        }
+        if (outcome.datesSkippedWeekCap() > 0) {
+            parts.add("у группы лимит 18 пар/нед уже выбран (" + outcome.datesSkippedWeekCap() + " недель)");
+        }
+        if (outcome.datesSkippedBlocked() > 0) {
+            parts.add("день занят другим экзаменом/практикой (" + outcome.datesSkippedBlocked() + " дней)");
+        }
+        if (parts.isEmpty()) {
+            return sb.append("не нашлось ни одного рабочего дня в периоде поиска "
+                    + "(возможно, конец семестра слишком близко к этой дате).").toString();
+        }
+        return sb.append(String.join("; ", parts)).append(".").toString();
+    }
+
     private record Slot(LocalDate date, int pairIdx, String room, int week) {
+    }
+
+    /** Результат поиска: либо слот, либо счётчики причин отказа (для диагностики администратору). */
+    private record SearchOutcome(Slot slot, int datesSkippedBlocked, int datesSkippedWeekCap,
+                                 int slotsTeacherBusy, int slotsGroupBusy, int slotsNoRoom) {
+        boolean found() {
+            return slot != null;
+        }
     }
 
     /** Учёт занятости на время одного прогона переноса — линейный поиск по небольшому набору данных. */
@@ -279,8 +318,14 @@ public class SpecialEventService {
             active.add(s);
         }
 
-        /** Ищет первый подходящий свободный слот НАЧИНАЯ СО СЛЕДУЮЩЕГО ДНЯ после исходной даты, и не раньше сегодня. */
-        Slot findFreeSlot(Schedule original, LocalDate originalDate, StudyGroup group) {
+        /**
+         * Ищет первый подходящий свободный слот НАЧИНАЯ СО СЛЕДУЮЩЕГО ДНЯ после исходной
+         * даты, и не раньше сегодня. Если не нашёл — считает, СКОЛЬКО РАЗ и по какой именно
+         * причине отклонил кандидатов, чтобы администратор видел не просто "не нашлось",
+         * а что именно мешает (например: "преподаватель занят в 32 из 35 проверенных пар" —
+         * это явный сигнал, что у него в принципе почти нет окон, а не что где-то есть баг).
+         */
+        SearchOutcome search(Schedule original, LocalDate originalDate, StudyGroup group) {
             long teacherId = original.getTeacherLoad().getTeacher() != null
                     ? original.getTeacherLoad().getTeacher().getId() : -1;
             long groupId = group.getId();
@@ -303,27 +348,32 @@ public class SpecialEventService {
                 searchTo = semesterEnd;
             }
 
+            int datesSkippedBlocked = 0, datesSkippedWeekCap = 0;
+            int slotsTeacherBusy = 0, slotsGroupBusy = 0, slotsNoRoom = 0;
+
             for (LocalDate d = searchFrom; !d.isAfter(searchTo); d = d.plusDays(1)) {
                 if (GenerationGrid.dayIndex(d.getDayOfWeek()) < 0) continue;
                 if (AcademicYearUtil.isVacation(d)) continue;
-                if (isGroupBlocked(groupId, d)) continue; // другой экзамен/практика в этот день
+                if (isGroupBlocked(groupId, d)) { datesSkippedBlocked++; continue; }
                 int week = weekOf(d, academicYear);
-                if (groupWeekCount(groupId, week) >= GROUP_MAX_WEEKLY_PAIRS) continue;
+                if (groupWeekCount(groupId, week) >= GROUP_MAX_WEEKLY_PAIRS) { datesSkippedWeekCap++; continue; }
 
                 for (int pairIdx = 0; pairIdx < GenerationGrid.pairsPerDay(); pairIdx++) {
-                    if (isTeacherBusy(teacherId, d.getDayOfWeek(), pairIdx, week)) continue;
-                    if (isGroupBusy(groupId, d.getDayOfWeek(), pairIdx, week)) continue;
+                    if (isTeacherBusy(teacherId, d.getDayOfWeek(), pairIdx, week)) { slotsTeacherBusy++; continue; }
+                    if (isGroupBusy(groupId, d.getDayOfWeek(), pairIdx, week)) { slotsGroupBusy++; continue; }
 
                     String room = original.getClassroom();
                     if (room == null || isRoomBusy(room, d.getDayOfWeek(), pairIdx, week)) {
                         room = findFreeRoom(d.getDayOfWeek(), pairIdx, week, studentCount, disciplineName);
                     }
-                    if (room == null) continue;
+                    if (room == null) { slotsNoRoom++; continue; }
 
-                    return new Slot(d, pairIdx, room, week);
+                    return new SearchOutcome(new Slot(d, pairIdx, room, week), datesSkippedBlocked,
+                            datesSkippedWeekCap, slotsTeacherBusy, slotsGroupBusy, slotsNoRoom);
                 }
             }
-            return null;
+            return new SearchOutcome(null, datesSkippedBlocked, datesSkippedWeekCap,
+                    slotsTeacherBusy, slotsGroupBusy, slotsNoRoom);
         }
 
         private int weekOf(LocalDate date, int academicYear) {

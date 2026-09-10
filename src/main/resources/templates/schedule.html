@@ -72,7 +72,6 @@
                 <li data-day="WEDNESDAY">Среда</li>
                 <li data-day="THURSDAY">Четверг</li>
                 <li data-day="FRIDAY">Пятница</li>
-                <li data-day="SATURDAY">Суббота</li>
             </ul>
         </div>
 
@@ -141,7 +140,6 @@
                         <option value="WEDNESDAY">Среда</option>
                         <option value="THURSDAY">Четверг</option>
                         <option value="FRIDAY">Пятница</option>
-                        <option value="SATURDAY">Суббота</option>
                     </select>
                 </label>
             </div>
@@ -211,9 +209,9 @@ const highlightPairId = new URLSearchParams(window.location.search).get('pairId'
 
 const dayNames = {
     MONDAY: 'Понедельник', TUESDAY: 'Вторник', WEDNESDAY: 'Среда',
-    THURSDAY: 'Четверг', FRIDAY: 'Пятница', SATURDAY: 'Суббота'
+    THURSDAY: 'Четверг', FRIDAY: 'Пятница'
 };
-const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
 
 /**
  * Недельная сетка (по преподавателю/группе/аудиториям) — это шаблон БЕЗ конкретной
@@ -268,10 +266,10 @@ function currentWeekSubstitution(pair) {
 }
 
 function getCurrentDayOfWeek() {
-    const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
-    const today = new Date().getDay();
-    const index = today === 0 ? 6 : today - 1;
-    return days[index] || 'MONDAY';
+    // Суббота и воскресенье — не учебные дни, вкладок для них больше нет; если сегодня
+    // один из них, по умолчанию открываем понедельник.
+    const days = {1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY', 5: 'FRIDAY'};
+    return days[new Date().getDay()] || 'MONDAY';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -793,7 +791,6 @@ async function submitSeModal() {
                 <option value="WEDNESDAY">Среда</option>
                 <option value="THURSDAY">Четверг</option>
                 <option value="FRIDAY">Пятница</option>
-                <option value="SATURDAY">Суббота</option>
             </select>
 
             <label>Время начала:</label>

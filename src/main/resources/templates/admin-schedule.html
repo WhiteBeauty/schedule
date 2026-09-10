@@ -330,7 +330,6 @@
                 <option value="WEDNESDAY">Среда</option>
                 <option value="THURSDAY">Четверг</option>
                 <option value="FRIDAY">Пятница</option>
-                <option value="SATURDAY">Суббота</option>
             </select>
 
             <label style="display:block;margin-bottom:0.5rem;">Учебная неделя (необязательно):</label>
@@ -780,7 +779,7 @@ function renderGenerationResult(result, wasApplied) {
     // Сам черновик/результат — конкретные пары, а не только сводные цифры. Раньше
     // администратор не мог посмотреть, ЧТО именно будет создано, до нажатия
     // "Применить" — теперь это видно сразу после "Автосоставление (черновик)".
-    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт','SATURDAY':'Сб'};
+    const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт'};
     const lessonsBody = document.getElementById('generationLessonsBody');
     lessonsBody.innerHTML = '';
     const lessons = result.createdSchedules || [];
@@ -791,7 +790,7 @@ function renderGenerationResult(result, wasApplied) {
     } else {
         // Сортируем для удобства просмотра: день -> время -> группа
         const sorted = [...lessons].sort((a, b) => {
-            const dayOrder = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+            const dayOrder = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY'];
             const da = dayOrder.indexOf(a.dayOfWeek), db = dayOrder.indexOf(b.dayOfWeek);
             if (da !== db) return da - db;
             if (a.startTime !== b.startTime) return (a.startTime || '').localeCompare(b.startTime || '');

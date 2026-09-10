@@ -23,13 +23,17 @@ import java.util.stream.Collectors;
  */
 public final class GenerationGrid {
 
+    // Учебная неделя — понедельник-пятница (было ошибочно включено ещё и воскресенье... то
+    // есть суббота — администратор подтвердил, что суббота НЕ учебный день. Раньше она
+    // была в WORK_DAYS, из-за чего и автосоставление, и месячный календарь, и перенос
+    // пар при экзамене/практике/вождении могли ставить занятия по субботам.
     public static final DayOfWeek[] WORK_DAYS = {
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
-            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY
+            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
     };
 
     public static final String[] DAY_NAMES = {
-            "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"
+            "Понедельник", "Вторник", "Среда", "Четверг", "Пятница"
     };
 
     // Расписание звонков зафиксировано ТЗ — 10 академических часов по 45 мин, которые

@@ -43,6 +43,9 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
 
     List<LessonInstance> findByOriginalTeacherIdOrActualTeacherId(Long originalTeacherId, Long actualTeacherId);
 
+    /** Занятия, отменённые конкретным SpecialEvent (экзамен/практика/вождение) — для отката при его удалении. */
+    List<LessonInstance> findByCancelledBySpecialEventId(Long specialEventId);
+
     /** Все материализованные занятия в диапазоне дат — используется для месячного календаря. */
     @EntityGraph(attributePaths = {"schedule", "teacherLoad", "teacherLoad.teacher", "teacherLoad.group",
             "teacherLoad.discipline", "originalTeacher", "actualTeacher"})

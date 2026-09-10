@@ -61,9 +61,7 @@ public class SpecialEventService {
         Discipline discipline = disciplineId != null ? disciplineRepository.findById(disciplineId).orElse(null) : null;
         TeacherLoad ownLoad = teacherLoadId != null ? loadRepository.findById(teacherLoadId).orElse(null) : null;
 
-        // Одно присваивание делает переменную effectively final — её захватывает
-        // лямбда ниже (cancelInstance в ifPresent).
-        SpecialEvent event = specialEventRepository.save(SpecialEvent.builder()
+        SpecialEvent event = SpecialEvent.builder()
                 .group(group)
                 .type(type)
                 .discipline(discipline)
@@ -73,7 +71,13 @@ public class SpecialEventService {
                 .academicYear(academicYear)
                 .createdBy(adminName)
                 .note(buildNote(type, discipline))
-                .build());
+                .build();
+        // final — переменная используется внутри лямбд ниже (ifPresent), а лямбды в Java
+        // требуют, чтобы захваченная переменная не переприсваивалась НИГДЕ в её области
+        // видимости. Раньше здесь стояло `event = specialEventRepository.save(event)`
+        // (переприсваивание той же переменной) — компилятор совершенно справедливо не дал
+        // собраться ("must be final or effectively final").
+        final SpecialEvent savedEvent = specialEventRepository.save(event);
 
         List<Schedule> allSchedules = scheduleRepository.findByAcademicYear(academicYear);
         List<SpecialEvent> groupEvents = specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
@@ -88,15 +92,17 @@ public class SpecialEventService {
 
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
             if (GenerationGrid.dayIndex(date.getDayOfWeek()) < 0) continue; // воскресенье
+            // final — тот же самый повод, что и с savedEvent: `date` переприсваивается в
+            // заголовке цикла (date = date.plusDays(1)), поэтому саму переменную date нельзя
+            // захватывать в лямбде (см. фильтр ниже) — только независимую final-копию на
+            // каждую итерацию.
+            final LocalDate currentDate = date;
             int week = lessonInstanceService.computeAcademicWeek(date, academicYear);
 
-            // `date` — счётчик цикла, он не effectively final; для лямбд стрима
-            // ниже нужна локальная неизменяемая копия.
-            LocalDate day = date;
             List<Schedule> dayConflicts = allSchedules.stream()
                     .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
                             && s.getTeacherLoad().getGroup().getId().equals(groupId))
-                    .filter(s -> s.getDayOfWeek() == day.getDayOfWeek())
+                    .filter(s -> s.getDayOfWeek() == currentDate.getDayOfWeek())
                     .filter(s -> s.getAcademicWeek() == null || s.getAcademicWeek().equals(week))
                     .filter(s -> !(ownLoadId != null && s.getTeacherLoad().getId().equals(ownLoadId)))
                     .filter(s -> !(ownDisciplineId != null && s.getTeacherLoad().getDiscipline() != null
@@ -106,8 +112,11 @@ public class SpecialEventService {
             for (Schedule s : dayConflicts) {
                 // Блокируем исходное занятие именно на эту дату (шаблон на другие недели/годы не трогаем).
                 lessonInstanceService.generateInstancesForDate(date, academicYear);
-                lessonInstanceRepository.findByScheduleIdAndLessonDate(s.getId(), date).ifPresent(li ->
-                        lessonInstanceService.cancelInstance(li.getId(), event.getNote(), adminName));
+                lessonInstanceRepository.findByScheduleIdAndLessonDate(s.getId(), date).ifPresent(li -> {
+                    LessonInstance cancelled = lessonInstanceService.cancelInstance(li.getId(), savedEvent.getNote(), adminName);
+                    cancelled.setCancelledBySpecialEventId(savedEvent.getId());
+                    lessonInstanceRepository.save(cancelled);
+                });
 
                 Slot slot = tracker.findFreeSlot(s, date, group);
                 if (slot == null) {
@@ -134,7 +143,8 @@ public class SpecialEventService {
                         .academicWeek(slot.week())
                         .academicYear(academicYear)
                         .rescheduledFromDate(date)
-                        .rescheduledReason(event.getNote())
+                        .rescheduledReason(savedEvent.getNote())
+                        .specialEventId(savedEvent.getId())
                         .build();
                 movedRow = scheduleRepository.save(movedRow);
                 tracker.occupy(movedRow);
@@ -158,7 +168,7 @@ public class SpecialEventService {
         }
 
         return SpecialEventDtos.Result.builder()
-                .eventId(event.getId())
+                .eventId(savedEvent.getId())
                 .type(type.name())
                 .typeLabel(typeLabel(type))
                 .groupName(group.getName())
@@ -201,6 +211,33 @@ public class SpecialEventService {
 
     public List<SpecialEvent> findForGroup(Long groupId, Integer academicYear) {
         return specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
+    }
+
+    /**
+     * Удаляет экзамен/практику/вождение и полностью откатывает его последствия:
+     * — отменённые из-за него занятия (LessonInstance.CANCELLED) возвращаются в PLANNED;
+     * — созданные им перенесённые копии пар (Schedule.specialEventId) удаляются.
+     * Оригинальный недельный шаблон пары при этом не трогался изначально (см. комментарий
+     * класса) — так что после отката расписание возвращается ровно к состоянию "как было".
+     */
+    @Transactional
+    public void deleteEvent(Long eventId) {
+        SpecialEvent event = specialEventRepository.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Событие не найдено: " + eventId));
+
+        List<LessonInstance> cancelledByThis = lessonInstanceRepository.findByCancelledBySpecialEventId(eventId);
+        for (LessonInstance li : cancelledByThis) {
+            li.setStatus(LessonInstance.Status.PLANNED);
+            li.setCancelledAt(null);
+            li.setNote(null);
+            li.setCancelledBySpecialEventId(null);
+            lessonInstanceRepository.save(li);
+        }
+
+        List<Schedule> movedByThis = scheduleRepository.findBySpecialEventId(eventId);
+        scheduleRepository.deleteAll(movedByThis);
+
+        specialEventRepository.delete(event);
     }
 
     private String buildNote(SpecialEvent.Type type, Discipline discipline) {

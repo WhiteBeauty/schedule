@@ -28,4 +28,7 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
     List<Schedule> findByAcademicYearAndDayOfWeek(Integer academicYear, java.time.DayOfWeek dayOfWeek);
 
     List<Schedule> findByAcademicYearAndAcademicWeek(Integer academicYear, Integer academicWeek);
+
+    /** Перенесённые копии, созданные конкретным SpecialEvent (экзамен/практика/вождение) — для его удаления. */
+    List<Schedule> findBySpecialEventId(Long specialEventId);
 }

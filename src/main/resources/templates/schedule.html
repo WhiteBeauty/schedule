@@ -160,9 +160,8 @@
         </div>
         <div class="modal-body">
             <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
-                Группа уже выбрана как на вкладке "По группе". Обычные пары группы на
-                указанный период (или день — для экзамена) автоматически переносятся на
-                ближайшие свободные слоты в будущем.
+                Обычные пары выбранной группы на указанный период (или день — для экзамена)
+                автоматически переносятся на ближайшие свободные слоты в будущем.
             </p>
             <label style="display:block; margin-bottom:0.75rem;">
                 Тип
@@ -172,6 +171,10 @@
                     <option value="PRODUCTION_PRACTICE">Производственная практика</option>
                     <option value="DRIVING">Вождение</option>
                 </select>
+            </label>
+            <label style="display:block; margin-bottom:0.75rem;">
+                Группа
+                <select id="seModalGroup" style="width:100%; margin-top:0.25rem;"></select>
             </label>
             <label id="seModalDisciplineWrap" style="display:block; margin-bottom:0.75rem;">
                 Предмет (для экзамена)
@@ -231,8 +234,16 @@ function dateForDayInCurrentWeek(dayOfWeek) {
     return target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
 }
 
+/** "Среда 9 сентября 2026" — для заголовка вкладки "Список по дням" (задача 3, распространено и сюда). */
 const monthNamesRu = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
     'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+function dayTitleText(dayOfWeek) {
+    const iso = dateForDayInCurrentWeek(dayOfWeek);
+    if (!iso) return dayNames[dayOfWeek];
+    const d = new Date(iso + 'T00:00:00');
+    return dayNames[dayOfWeek] + ' ' + d.getDate() + ' ' + monthNamesRu[d.getMonth()].toLowerCase() + ' ' + d.getFullYear();
+}
 
 /** Число месяца для дня недели ТЕКУЩЕЙ календарной недели — для подписи "Среда 9". */
 function dayNumberInCurrentWeek(dayOfWeek) {
@@ -269,14 +280,14 @@ document.addEventListener('DOMContentLoaded', () => {
         li.classList.remove('active');
         if (li.dataset.day === currentDay) li.classList.add('active');
     });
-    document.getElementById('dayTitle').textContent = dayNames[currentDay];
+    document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
 
     document.querySelectorAll('.day-list li').forEach(li => {
         li.addEventListener('click', () => {
             document.querySelectorAll('.day-list li').forEach(l => l.classList.remove('active'));
             li.classList.add('active');
             currentDay = li.dataset.day;
-            document.getElementById('dayTitle').textContent = dayNames[currentDay];
+            document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
             renderPairs();
         });
     });
@@ -347,7 +358,7 @@ function jumpToPair(pairId) {
     if (!pair) return;
     currentDay = pair.dayOfWeek;
     document.querySelectorAll('.day-list li').forEach(l => l.classList.toggle('active', l.dataset.day === currentDay));
-    document.getElementById('dayTitle').textContent = dayNames[currentDay];
+    document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
     switchMode('list');
     renderPairs();
     setTimeout(() => {
@@ -473,7 +484,7 @@ function renderTeacherGrid() {
             '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
             '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
         '</div>';
-    });
+    }, isAdmin ? onDayHeaderClick : null);
 }
 
 function renderGroupGrid() {
@@ -609,37 +620,73 @@ function loadGroupEventsBanner(groupId) {
             el.innerHTML = events.map(e => {
                 const range = e.startDate === e.endDate ? e.startDate : (e.startDate + ' — ' + e.endDate);
                 const disc = e.discipline ? ': ' + e.discipline.name : '';
+                const delBtn = isAdmin ? ' <span onclick="deleteSpecialEvent(' + e.id + ',\'' + groupId + '\')" ' +
+                    'title="Удалить и вернуть перенесённые пары обратно" style="cursor:pointer; margin-left:0.3rem;">🗑</span>' : '';
                 return '<span style="display:inline-block; background:#fef9c3; border:1px solid #ca8a04; ' +
                     'border-radius:0.4rem; padding:0.2rem 0.6rem; margin:0 0.4rem 0.4rem 0; font-size:0.8rem;">' +
-                    (labels[e.type] || e.type) + disc + ' · ' + range + '</span>';
+                    (labels[e.type] || e.type) + disc + ' · ' + range + delBtn + '</span>';
             }).join('');
         })
         .catch(() => { el.innerHTML = ''; });
 }
 
-// ---- Назначение экзамена/практики/вождения прямо со вкладки "По группе" ----
-let seModalGroupsReady = false;
-
-/** Клик по заголовку дня в сетке группы — сразу открывает модалку с этой датой (текущая неделя). */
-function onDayHeaderClick(dayOfWeek) {
-    const date = dateForDayInCurrentWeek(dayOfWeek);
-    openSeModalForCurrentGroup(date);
+async function deleteSpecialEvent(eventId, groupId) {
+    if (!confirm('Удалить это событие? Перенесённые из-за него пары удалятся, а отменённые вернутся на место.')) return;
+    try {
+        const res = await fetch('/api/special-events/' + eventId, {method: 'DELETE'});
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (body.error || res.status));
+            return;
+        }
+        loadGroupEventsBanner(groupId);
+        loadPairs();
+    } catch (e) {
+        alert('Ошибка сети: ' + e.message);
+    }
 }
 
-function openSeModalForCurrentGroup(presetDate) {
-    const groupId = document.getElementById('groupSelect').value;
-    if (!groupId) {
-        alert('Сначала выберите группу');
-        return;
-    }
+// ---- Назначение экзамена/практики/вождения прямо со вкладки "По группе"/"По преподавателю" ----
+let seModalDataReady = false;
+
+/** Клик по заголовку дня в сетке — сразу открывает модалку с этой датой (текущая неделя). */
+function onDayHeaderClick(dayOfWeek) {
+    const date = dateForDayInCurrentWeek(dayOfWeek);
+    // Со вкладки "По группе" группа уже выбрана в groupSelect — подставляем её.
+    // Со вкладки "По преподавателю" такого контекста нет — администратор выбирает группу
+    // в самой модалке (там уже есть выпадающий список).
+    const groupSelectEl = document.getElementById('groupSelect');
+    const presetGroupId = (groupSelectEl && groupSelectEl.value) ? groupSelectEl.value : null;
+    openSeModal(date, presetGroupId);
+}
+
+function openSeModalForCurrentGroup() {
+    const groupSelectEl = document.getElementById('groupSelect');
+    openSeModal(null, groupSelectEl ? groupSelectEl.value : null);
+}
+
+function openSeModal(presetDate, presetGroupId) {
     document.getElementById('seModalResult').innerHTML = '';
-    if (!seModalGroupsReady) {
-        fetch('/api/disciplines').then(r => r.json()).then(disciplines => {
+    const applyPresetGroup = () => {
+        if (presetGroupId) document.getElementById('seModalGroup').value = presetGroupId;
+    };
+    if (!seModalDataReady) {
+        Promise.all([
+            fetch('/api/groups').then(r => r.json()),
+            fetch('/api/disciplines').then(r => r.json())
+        ]).then(([groups, disciplines]) => {
+            const gSel = document.getElementById('seModalGroup');
+            gSel.innerHTML = '<option value="">Выберите группу</option>';
+            (groups || []).forEach(g => gSel.add(new Option(
+                g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
             const dSel = document.getElementById('seModalDiscipline');
             dSel.innerHTML = '<option value="">—</option>';
             (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
-            seModalGroupsReady = true;
+            seModalDataReady = true;
+            applyPresetGroup();
         }).catch(() => {});
+    } else {
+        applyPresetGroup();
     }
     onSeModalTypeChange();
     if (presetDate) {
@@ -658,16 +705,22 @@ function onSeModalTypeChange() {
     document.getElementById('seModalDisciplineWrap').style.display = isExam ? 'block' : 'none';
     document.getElementById('seModalEndWrap').style.display = isExam ? 'none' : 'block';
     document.getElementById('seModalStartLabel').textContent = isExam ? 'Дата экзамена' : 'Дата начала';
+    if (isExam) {
+        // См. тот же комментарий в admin-schedule.html/onSeTypeChange — скрытое, но не
+        // очищенное поле "Дата окончания" могло уйти на сервер как конец экзамена.
+        document.getElementById('seModalEndDate').value = '';
+    }
 }
 
 async function submitSeModal() {
-    const groupId = document.getElementById('groupSelect').value;
+    const groupId = document.getElementById('seModalGroup').value;
     const type = document.getElementById('seModalType').value;
     const disciplineId = document.getElementById('seModalDiscipline').value || null;
     const startDate = document.getElementById('seModalStartDate').value;
     const endDate = document.getElementById('seModalEndDate').value || startDate;
     const resultEl = document.getElementById('seModalResult');
 
+    if (!groupId) { alert('Выберите группу'); return; }
     if (!startDate) { alert('Укажите дату'); return; }
     if (type === 'EXAM' && !disciplineId) { alert('Для экзамена укажите предмет'); return; }
 

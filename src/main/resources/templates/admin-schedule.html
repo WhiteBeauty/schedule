@@ -611,6 +611,14 @@ function onSeTypeChange() {
     document.getElementById('seLoadWrap').style.display = isExam ? 'none' : 'block';
     document.getElementById('seEndWrap').style.display = isExam ? 'none' : 'block';
     document.getElementById('seStartLabel').textContent = isExam ? 'Дата экзамена' : 'Дата начала';
+    if (isExam) {
+        // Баг: поле "Дата окончания" раньше просто пряталось, но не очищалось — если до
+        // этого оно уже было заполнено (например, сначала выбрали практику), старое
+        // значение всё равно уходило на сервер как дата окончания ЭКЗАМЕНА, растягивая
+        // блокируемый период на недели вперёд и не оставляя системе свободных слотов
+        // для переноса. Экзамен — всегда один день, поле обязано быть пустым.
+        document.getElementById('seEndDate').value = '';
+    }
 }
 
 async function submitSpecialEvent() {

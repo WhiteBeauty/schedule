@@ -79,6 +79,13 @@ public class LessonInstance {
     @CreationTimestamp
     private LocalDateTime createdAt;
 
+    /**
+     * Если это занятие было отменено из-за экзамена/практики/вождения — id соответствующего
+     * {@code SpecialEvent}. Позволяет при удалении события надёжно найти и вернуть в
+     * PLANNED именно те занятия, которые он отменил (см. SpecialEventService.deleteEvent).
+     */
+    private Long cancelledBySpecialEventId;
+
     public enum Status {
         PLANNED, CONFIRMED, CANCELLED, REPLACED, INDEPENDENT_WORK
     }

@@ -54,7 +54,11 @@ public class SpecialEventController {
 
         try {
             SpecialEvent.Type type = SpecialEvent.Type.valueOf(request.type());
-            LocalDate end = request.endDate() != null ? request.endDate() : request.startDate();
+            // Экзамен — всегда один день. Даже если с фронтенда по ошибке придёт другая
+            // endDate (см. баг с незачищенным полем даты окончания в модалке), здесь это
+            // перестраховано: для EXAM конец периода всегда равен началу.
+            LocalDate end = type == SpecialEvent.Type.EXAM ? request.startDate()
+                    : (request.endDate() != null ? request.endDate() : request.startDate());
             Integer year = request.academicYear() != null
                     ? request.academicYear() : AcademicYearUtil.getCurrentAcademicYearStart();
             SpecialEventDtos.Result result = specialEventService.assignEvent(type, request.groupId(),
@@ -92,6 +96,22 @@ public class SpecialEventController {
             @RequestParam(required = false) Integer academicYear) {
         Integer year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         return ResponseEntity.ok(specialEventService.findForGroup(groupId, year));
+    }
+
+    @DeleteMapping("/{eventId}")
+    public ResponseEntity<?> delete(@PathVariable Long eventId, Authentication authentication) {
+        User user = requireAdmin(authentication);
+        if (user == null) return ResponseEntity.status(403).build();
+
+        try {
+            specialEventService.deleteEvent(eventId);
+            return ResponseEntity.ok(Map.of("deleted", true));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(Map.of("error", "Не удалось удалить: " + e.getMessage()));
+        }
     }
 
     private User requireAdmin(Authentication authentication) {

@@ -4,6 +4,7 @@ import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.dto.SpecialEventDtos;
 import com.karyakina.schedule.repository.*;
 import com.karyakina.schedule.service.generator.GenerationGrid;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -142,6 +143,7 @@ public class SpecialEventService {
                         .classroom(slot.room())
                         .academicWeek(slot.week())
                         .academicYear(academicYear)
+                        .semester(s.getSemester())
                         .rescheduledFromDate(date)
                         .rescheduledReason(savedEvent.getNote())
                         .specialEventId(savedEvent.getId())
@@ -291,10 +293,19 @@ public class SpecialEventService {
             if (searchFrom.isBefore(today)) {
                 searchFrom = today; // "назад" не переносим — минимум с сегодня
             }
+            // Не уходим за пределы ТОГО ЖЕ семестра, что и у исходной пары (ТЗ п.1) — искать
+            // слот в других каникулах/следующем семестре бессмысленно, туда пара переехать не должна.
+            int originalSemester = original.getSemester() != null
+                    ? original.getSemester() : AcademicYearUtil.semesterOfDate(originalDate);
+            LocalDate semesterEnd = AcademicYearUtil.semesterEnd(originalSemester, academicYear);
             LocalDate searchTo = originalDate.plusDays(SEARCH_HORIZON_DAYS);
+            if (semesterEnd.isBefore(searchTo)) {
+                searchTo = semesterEnd;
+            }
 
             for (LocalDate d = searchFrom; !d.isAfter(searchTo); d = d.plusDays(1)) {
                 if (GenerationGrid.dayIndex(d.getDayOfWeek()) < 0) continue;
+                if (AcademicYearUtil.isVacation(d)) continue;
                 if (isGroupBlocked(groupId, d)) continue; // другой экзамен/практика в этот день
                 int week = weekOf(d, academicYear);
                 if (groupWeekCount(groupId, week) >= GROUP_MAX_WEEKLY_PAIRS) continue;

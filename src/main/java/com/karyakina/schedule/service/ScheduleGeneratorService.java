@@ -171,6 +171,7 @@ public class ScheduleGeneratorService {
                         .classroom(pair.room())
                         .academicWeek(null)
                         .academicYear(load.getAcademicYear())
+                        .semester(resolveSemester(session))
                         .build());
             }
             scheduleRepository.saveAll(created);

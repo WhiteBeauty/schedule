@@ -5,6 +5,7 @@ import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.dto.MonthLessonDto;
 import com.karyakina.schedule.repository.LessonInstanceRepository;
 import com.karyakina.schedule.repository.ScheduleRepository;
+import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -62,9 +63,21 @@ public class MonthScheduleService {
 
         List<MonthLessonDto> result = new ArrayList<>();
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            // ТЗ п.1: расписание строго привязано к семестру. Без этой проверки шаблон
+            // (Schedule без конкретной даты — только день недели) "бесконечно" проецировался
+            // бы вперёд в календаре: на зимние каникулы (31 дек — 13 янв) и даже в СЛЕДУЮЩИЙ
+            // семестр, который ещё не сгенерирован. isVacation блокирует каникулы целиком;
+            // сравнение семестра ниже блокирует случай "это пара семестра 1, а дата уже
+            // в семестре 2" (и наоборот) — даже если оба в пределах одного academicYear.
+            if (AcademicYearUtil.isVacation(date)) continue;
+            int dateSemester = AcademicYearUtil.semesterOfDate(date);
+
             int week = lessonInstanceService.computeAcademicWeek(date, resolvedAcademicYear);
             for (Schedule s : schedules) {
                 if (s.getDayOfWeek() != date.getDayOfWeek()) continue;
+                // semester == null — записи, созданные до появления этого поля (легаси);
+                // показываем их как раньше, без фильтрации по семестру, ради совместимости.
+                if (s.getSemester() != null && !s.getSemester().equals(dateSemester)) continue;
                 // academicWeek = null означает "каждую неделю" (подавляющее большинство пар —
                 // и вручную заведённых, и сгенерированных автосоставлением). Непустое значение
                 // бывает только у одноразовых подменных записей, которые создаёт

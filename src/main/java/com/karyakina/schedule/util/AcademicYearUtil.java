@@ -116,4 +116,9 @@ public class AcademicYearUtil {
      */
     public static final int WEEKS_PER_SEMESTER = 18;
 
+    /** Публичная обёртка над semesterOf для внешних проверок ("к какому семестру относится дата") — 0, если каникулы. */
+    public static int semesterOfDate(LocalDate date) {
+        return semesterOf(date, false);
+    }
+
 }

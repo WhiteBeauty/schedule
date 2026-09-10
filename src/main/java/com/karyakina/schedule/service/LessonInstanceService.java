@@ -57,12 +57,21 @@ public class LessonInstanceService {
      */
     @Transactional
     public List<LessonInstance> generateInstancesForDate(LocalDate date, Integer academicYear) {
+        // ТЗ п.1: расписание строго привязано к семестру — на каникулах занятий не бывает
+        // вообще, и шаблон одного семестра не должен материализовываться в другом (см. тот
+        // же комментарий в MonthScheduleService).
+        if (com.karyakina.schedule.util.AcademicYearUtil.isVacation(date)) {
+            return instanceRepository.findByLessonDate(date);
+        }
+        int dateSemester = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(date);
+
         List<Schedule> schedules = scheduleRepository.findByAcademicYear(academicYear);
         int currentWeek = computeAcademicWeek(date, academicYear);
 
         for (Schedule schedule : schedules) {
             if (schedule.getDayOfWeek() != date.getDayOfWeek()) continue;
             if (schedule.getAcademicWeek() != null && !schedule.getAcademicWeek().equals(currentWeek)) continue;
+            if (schedule.getSemester() != null && !schedule.getSemester().equals(dateSemester)) continue;
 
             instanceRepository.findByScheduleIdAndLessonDate(schedule.getId(), date)
                     .orElseGet(() -> {

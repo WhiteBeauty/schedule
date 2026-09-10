@@ -494,48 +494,8 @@ public class ScheduleGeneratorService {
                                 "Пропустить эту нагрузку",
                                 Map.of("loadId", load.getId())))
                         .build());
-            } else {
-                // Отдельная проверка: сколько часов ОДНОГО предмета выходит в неделю у ОДНОЙ
-                // группы. Порог настраиваемый (SolverConfig.maxWeeklyHoursPerSubjectPerGroup,
-                // по умолчанию 8 ч/нед = 4 пары) и это только ПРЕДУПРЕЖДЕНИЕ (WARNING) — не
-                // блокирует генерацию, так как учебная/производственная практика блоками
-                // (см. например "Вождение", "УП.01" в тарификации) законно идёт куда интенсивнее.
-                double exactHours = exactWeeklyHours(load, hoursForPeriod, weeksBasis, overridden);
-                int limitPerSubject = config.maxWeeklyHoursPerSubjectPerGroup();
-                if (exactHours > limitPerSubject) {
-                    int roundedHours = (int) Math.round(exactHours);
-                    // "Одобренные часы" (session.getApprovedHours()) везде в этом классе трактуются
-                    // как ГОДОВЫЕ (см. ResolvedHours/overridden выше) — поэтому подсказка тоже в
-                    // годовых часах, даже если сам предел задан в часах/неделю.
-                    int fitHoursAnnual = limitPerSubject * APPROX_WEEKS_PER_YEAR;
-                    issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.SUBJECT_GROUP_OVERLOAD,
-                                    "Много часов одного предмета у группы: " + describe(load))
-                            .severity(MissingResourceRequest.Severity.WARNING)
-                            .message(String.format(
-                                    "У группы %s по предмету «%s» выходит %d ч/нед — больше настроенного "
-                                            + "предела %d ч/нед на один предмет у одной группы (это отдельная "
-                                            + "проверка, не связанная с общей недельной нагрузкой преподавателя). "
-                                            + "Если это учебная/производственная практика блоками — можно "
-                                            + "оставить как есть.",
-                                    load.getGroup().getName(), load.getDiscipline().getName(), roundedHours,
-                                    limitPerSubject))
-                            .context("loadId", load.getId())
-                            .context("hours", hours)
-                            .option(MissingResourceRequest.ResolutionOption.of(
-                                    MissingResourceRequest.Actions.KEEP_AS_IS,
-                                    "Оставить как есть (это практика/интенсив)"))
-                            .option(MissingResourceRequest.ResolutionOption.of(
-                                    MissingResourceRequest.Actions.REDUCE_HOURS_TO_FIT,
-                                    "Обрезать до предела (" + fitHoursAnnual + " ч/год)",
-                                    Map.of("hours", fitHoursAnnual)))
-                            .option(MissingResourceRequest.ResolutionOption.withInput(
-                                    MissingResourceRequest.Actions.USE_CUSTOM_HOURS,
-                                    "Указать своё количество часов",
-                                    MissingResourceRequest.InputSpec.number(
-                                            "Часов за год", "hours", 0, 2000, fitHoursAnnual)))
-                            .build());
-                }
             }
+            // Проверка "много часов одного предмета у одной группы" убрана по требованию.
         }
         return result;
     }

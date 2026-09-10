@@ -444,7 +444,14 @@ public class ScheduleSolver {
 
     private SolverResult.Reason dominantReason(Map<OccupancyIndex.Violation, Integer> stats, boolean noRooms) {
         if (noRooms) {
-            return SolverResult.Reason.NO_ROOM;
+            // Различаем два разных случая, которые раньше показывали один и тот же текст:
+            // "аудиторий вообще нет ни одной подходящей" (проблема с данными — маленькая
+            // вместимость/не тот допуск у аудиторий) — и "аудитории есть, но заняты во все
+            // проверенные окна" (это уже не про нехватку аудиторий, а про то, что у
+            // преподавателя/группы почти нет общих свободных слотов вообще). Раньше оба
+            // случая писали "нет свободной аудитории", что сбивало с толку, если аудиторий
+            // на самом деле много.
+            return SolverResult.Reason.NO_SUITABLE_ROOM_AT_ALL;
         }
         OccupancyIndex.Violation top = stats.entrySet().stream()
                 .max(Map.Entry.comparingByValue())

@@ -197,6 +197,34 @@ public class SpecialEventService {
                 .orElseThrow(() -> new IllegalArgumentException("Нагрузка не найдена: " + teacherLoadId));
         int week = lessonInstanceService.computeAcademicWeek(toDate, event.getAcademicYear());
 
+        // Та же проверка накладок, что и при обычном ручном добавлении/переносе пары
+        // (ScheduleService.validateNoConflict) — раньше её тут не было вовсе, и ручное
+        // разрешение конфликта могло создать НОВЫЙ конфликт незаметно для администратора.
+        DayOfWeek targetDay = toDate.getDayOfWeek();
+        java.time.LocalTime targetStart = GenerationGrid.start(pairIdx);
+        Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
+        Long groupId = load.getGroup() != null ? load.getGroup().getId() : null;
+        List<Schedule> sameSlot = scheduleRepository.findByAcademicYear(event.getAcademicYear()).stream()
+                .filter(s -> s.getDayOfWeek() == targetDay && s.getStartTime().equals(targetStart))
+                .filter(s -> s.getAcademicWeek() == null || s.getAcademicWeek().equals(week))
+                .toList();
+        for (Schedule other : sameSlot) {
+            if (teacherId != null && other.getTeacherLoad() != null && other.getTeacherLoad().getTeacher() != null
+                    && teacherId.equals(other.getTeacherLoad().getTeacher().getId())) {
+                throw new IllegalStateException("Преподаватель " + other.getTeacherLoad().getTeacher().getFullName()
+                        + " уже занят в это время (" + targetDay + ", " + targetStart + ").");
+            }
+            if (groupId != null && other.getTeacherLoad() != null && other.getTeacherLoad().getGroup() != null
+                    && groupId.equals(other.getTeacherLoad().getGroup().getId())) {
+                throw new IllegalStateException("У группы " + other.getTeacherLoad().getGroup().getName()
+                        + " уже есть пара в это время (" + targetDay + ", " + targetStart + ").");
+            }
+            if (classroom != null && !classroom.isBlank() && classroom.equals(other.getClassroom())) {
+                throw new IllegalStateException("Аудитория " + classroom
+                        + " уже занята в это время (" + targetDay + ", " + targetStart + ").");
+            }
+        }
+
         Schedule schedule = Schedule.builder()
                 .teacherLoad(load)
                 .dayOfWeek(toDate.getDayOfWeek())

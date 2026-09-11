@@ -83,6 +83,57 @@ public class ScheduleService {
         }
     }
 
+    /**
+     * Проверка накладок: преподаватель/группа/аудитория не могут одновременно быть заняты
+     * другой парой. Раньше здесь проверялся ТОЛЬКО недельный лимит группы (18 пар) — саму
+     * возможность настоящей накладки (тот же преподаватель уже ведёт другую пару в это же
+     * время, или аудитория уже занята другой группой) при РУЧНОМ добавлении/переносе никто
+     * не проверял, хотя автосоставление это исключает всегда (см. OccupancyIndex.check).
+     * Учитываются записи с {@code academicWeek == null} (действуют каждую неделю) и записи
+     * именно с тем номером недели, что у добавляемой/переносимой пары — та же трактовка,
+     * что и в validateGroupWeeklyLimit.
+     */
+    private void validateNoConflict(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
+                                    String classroom, Integer academicWeek, Integer academicYear,
+                                    Long excludeScheduleId) {
+        TeacherLoad load = loadRepository.findById(teacherLoadId)
+                .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
+        Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
+        Long groupId = load.getGroup() != null ? load.getGroup().getId() : null;
+
+        List<Schedule> sameSlot = scheduleRepository.findByAcademicYear(academicYear).stream()
+                .filter(s -> excludeScheduleId == null || !excludeScheduleId.equals(s.getId()))
+                .filter(s -> s.getDayOfWeek() == dayOfWeek && s.getStartTime().equals(startTime))
+                .filter(s -> s.getAcademicWeek() == null || academicWeek == null
+                        || academicWeek.equals(s.getAcademicWeek()))
+                .toList();
+
+        for (Schedule other : sameSlot) {
+            if (teacherId != null && other.getTeacherLoad() != null && other.getTeacherLoad().getTeacher() != null
+                    && teacherId.equals(other.getTeacherLoad().getTeacher().getId())) {
+                throw new IllegalStateException("Преподаватель " + other.getTeacherLoad().getTeacher().getFullName()
+                        + " уже ведёт другую пару в это время (" + dayLabel(dayOfWeek) + ", " + startTime + ").");
+            }
+            if (groupId != null && other.getTeacherLoad() != null && other.getTeacherLoad().getGroup() != null
+                    && groupId.equals(other.getTeacherLoad().getGroup().getId())) {
+                throw new IllegalStateException("У группы " + other.getTeacherLoad().getGroup().getName()
+                        + " уже есть другая пара в это время (" + dayLabel(dayOfWeek) + ", " + startTime + ").");
+            }
+            if (classroom != null && !classroom.isBlank() && classroom.equals(other.getClassroom())) {
+                throw new IllegalStateException("Аудитория " + classroom
+                        + " уже занята в это время (" + dayLabel(dayOfWeek) + ", " + startTime + ").");
+            }
+        }
+    }
+
+    private String dayLabel(DayOfWeek d) {
+        return switch (d) {
+            case MONDAY -> "понедельник"; case TUESDAY -> "вторник"; case WEDNESDAY -> "среда";
+            case THURSDAY -> "четверг"; case FRIDAY -> "пятница"; case SATURDAY -> "суббота";
+            case SUNDAY -> "воскресенье";
+        };
+    }
+
     @Transactional
     public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime, 
                                    LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear) {
@@ -90,6 +141,7 @@ public class ScheduleService {
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
 
         validateGroupWeeklyLimit(load.getGroup().getId(), academicWeek, academicYear, null);
+        validateNoConflict(teacherLoadId, dayOfWeek, startTime, classroom, academicWeek, academicYear, null);
 
         // Если плановых часов в неделю ещё нет — выводим из годового плана
         if (load.getHoursPerWeek() == null || load.getHoursPerWeek() <= 0) {
@@ -130,6 +182,8 @@ public class ScheduleService {
         // считала бы сама себя и лимит срабатывал бы на пустом месте).
         validateGroupWeeklyLimit(schedule.getTeacherLoad().getGroup().getId(), academicWeek,
                 schedule.getAcademicYear(), schedule.getId());
+        validateNoConflict(schedule.getTeacherLoad().getId(), dayOfWeek, startTime, classroom,
+                academicWeek, schedule.getAcademicYear(), schedule.getId());
 
         schedule.setDayOfWeek(dayOfWeek);
         schedule.setStartTime(startTime);

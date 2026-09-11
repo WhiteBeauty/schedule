@@ -1534,7 +1534,7 @@ public class ApiController {
     }
 
     @PutMapping("/pairs/{id}")
-    public ResponseEntity<Schedule> updatePair(
+    public ResponseEntity<?> updatePair(
             @PathVariable Long id,
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
@@ -1587,6 +1587,10 @@ public class ApiController {
             }
 
             return ResponseEntity.ok(updated);
+        } catch (IllegalStateException validationError) {
+            // Реальная накладка (препод/группа/аудитория заняты) или лимит 18 пар/нед —
+            // осознанный отказ по правилам, сообщение должно дойти до администратора.
+            return ResponseEntity.badRequest().body(Map.of("error", validationError.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();

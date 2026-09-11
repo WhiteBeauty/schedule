@@ -208,13 +208,26 @@ public class ScheduleService {
      * замена не была назначена (см. модуль форс-мажоров), пара считается несостоявшейся.
      */
     @Transactional
+    /**
+     * Подтверждает СОСТОЯВШИЕСЯ пары сегодняшнего дня — те, у которых реальное время уже
+     * прошло (сравниваем с {@code Schedule.endTime}), а не разом весь день целиком.
+     * Раньше подтверждались ВСЕ пары дня одним махом, без проверки времени — из-за этого,
+     * плюс запуск задачи всего раз в сутки (в 23:00, см. scheduledAutoDeduct), "проведено"
+     * весь день показывало 0, даже для пар, которые уже реально прошли утром — не было
+     * привязки к реальному времени.
+     */
     public void autoDeductHours(Integer academicYear) {
         LocalDate today = LocalDate.now();
+        LocalTime now = LocalTime.now();
         List<LessonInstance> todayInstances = lessonInstanceService.generateInstancesForDate(today, academicYear);
 
         for (LessonInstance instance : todayInstances) {
             if (instance.getStatus() != LessonInstance.Status.PLANNED) {
                 continue; // уже подтверждено/отменено/заменено ранее в течение дня
+            }
+            if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null
+                    || now.isBefore(instance.getSchedule().getEndTime())) {
+                continue; // пара ещё не закончилась по факту — рано подтверждать
             }
             Long teacherId = instance.getOriginalTeacher().getId();
             if (lessonInstanceService.isTeacherSickOnDate(teacherId, today)) {
@@ -228,9 +241,12 @@ public class ScheduleService {
     }
 
     /**
-     * Автоматический вычет часов каждый день в 23:00
+     * Автоматическое подтверждение прошедших пар — раньше запускалось раз в сутки в 23:00
+     * (весь день сразу), теперь каждые 15 минут в течение дня, но подтверждает только те
+     * пары, чьё время УЖЕ прошло (см. autoDeductHours) — так "проведено" в сверке часов
+     * обновляется практически сразу после окончания пары, а не поздно вечером.
      */
-    @Scheduled(cron = "0 0 23 * * *")
+    @Scheduled(cron = "0 */15 6-23 * * *")
     @Transactional
     public void scheduledAutoDeduct() {
         log.info("Running scheduled auto-deduct hours...");

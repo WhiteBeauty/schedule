@@ -200,43 +200,49 @@ public class ScheduleService {
     }
 
     /**
-     * Автоматический пересчёт фактической нагрузки за сегодняшний день.
-     * С версии с модулем тарификации (LessonInstance) логика вынесена в
-     * {@link LessonInstanceService}: для каждой пары, стоящей в расписании на сегодня,
-     * создаётся конкретное занятие (если его ещё нет) и подтверждается, если
-     * преподаватель не отсутствует. Если преподаватель на больничном и до конца дня
-     * замена не была назначена (см. модуль форс-мажоров), пара считается несостоявшейся.
+     * Автоматический пересчёт фактической нагрузки: подтверждает СОСТОЯВШИЕСЯ пары —
+     * те, у которых реальное время уже прошло (сравниваем с {@code Schedule.endTime}).
+     *
+     * Раньше обрабатывался только "сегодня" — из-за этого пары за ВЧЕРА и более ранние дни
+     * семестра, которые почему-либо не подтвердились вовремя (сервер перезапускали, БД
+     * сносили во время тестирования, задача ещё не была починена и т.п.), так и оставались
+     * непроверенными навсегда — "проведено" по ним показывало 0, хотя время давно прошло.
+     * Теперь проходим ВЕСЬ период от начала текущего семестра по сегодня — это самоисправляющийся
+     * механизм: пропущенный день доберётся на следующий же прогон (каждые 15 минут), сколько
+     * бы времени ни прошло. Для дней РАНЕЕ сегодня время пары уже точно прошло — их
+     * подтверждаем без сверки часов; для СЕГОДНЯ — только те, чьё время действительно истекло.
      */
     @Transactional
-    /**
-     * Подтверждает СОСТОЯВШИЕСЯ пары сегодняшнего дня — те, у которых реальное время уже
-     * прошло (сравниваем с {@code Schedule.endTime}), а не разом весь день целиком.
-     * Раньше подтверждались ВСЕ пары дня одним махом, без проверки времени — из-за этого,
-     * плюс запуск задачи всего раз в сутки (в 23:00, см. scheduledAutoDeduct), "проведено"
-     * весь день показывало 0, даже для пар, которые уже реально прошли утром — не было
-     * привязки к реальному времени.
-     */
     public void autoDeductHours(Integer academicYear) {
         LocalDate today = LocalDate.now();
         LocalTime now = LocalTime.now();
-        List<LessonInstance> todayInstances = lessonInstanceService.generateInstancesForDate(today, academicYear);
+        int semester = com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
+        LocalDate semesterStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, academicYear);
+        LocalDate from = semesterStart.isAfter(today) ? today : semesterStart;
 
-        for (LessonInstance instance : todayInstances) {
-            if (instance.getStatus() != LessonInstance.Status.PLANNED) {
-                continue; // уже подтверждено/отменено/заменено ранее в течение дня
+        for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
+            List<LessonInstance> instances = lessonInstanceService.generateInstancesForDate(date, academicYear);
+            boolean isToday = date.isEqual(today);
+
+            for (LessonInstance instance : instances) {
+                if (instance.getStatus() != LessonInstance.Status.PLANNED) {
+                    continue; // уже подтверждено/отменено/заменено ранее
+                }
+                if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) {
+                    continue;
+                }
+                if (isToday && now.isBefore(instance.getSchedule().getEndTime())) {
+                    continue; // сегодняшняя пара ещё не закончилась по факту — рано подтверждать
+                }
+                Long teacherId = instance.getOriginalTeacher().getId();
+                if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) {
+                    lessonInstanceService.cancelInstance(instance.getId(),
+                            "Преподаватель на больничном, замена не была назначена до конца дня",
+                            "system:auto-deduct");
+                    continue;
+                }
+                lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
             }
-            if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null
-                    || now.isBefore(instance.getSchedule().getEndTime())) {
-                continue; // пара ещё не закончилась по факту — рано подтверждать
-            }
-            Long teacherId = instance.getOriginalTeacher().getId();
-            if (lessonInstanceService.isTeacherSickOnDate(teacherId, today)) {
-                lessonInstanceService.cancelInstance(instance.getId(),
-                        "Преподаватель на больничном, замена не была назначена до конца дня",
-                        "system:auto-deduct");
-                continue;
-            }
-            lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
         }
     }
 

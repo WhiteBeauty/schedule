@@ -55,6 +55,7 @@ public class ApiController {
     private final AuthService authService;
     private final ScheduleExportService scheduleExportService;
     private final HourAccountingService hourAccountingService;
+    private final PlacementAuditService placementAuditService;
     private final SubstitutionService substitutionService;
     private final NotificationService notificationService;
     private final ScheduleChangeNotifier scheduleChangeNotifier;
@@ -567,6 +568,63 @@ public class ApiController {
             effectiveTeacherId = user.getTeacher().getId(); // не-админ не может смотреть чужие часы
         }
         return ResponseEntity.ok(hourAccountingService.getSummary(academicYear, semester, effectiveTeacherId));
+    }
+
+    /** Сверка за ТЕКУЩУЮ календарную неделю (понедельник-пятница) — новая вкладка. */
+    @GetMapping("/hours/sverka/week")
+    public ResponseEntity<List<HourAccountingService.PeriodHoursSummary>> hoursSverkaWeek(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Long teacherId,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Long effectiveTeacherId = teacherId;
+        if (user.getRole() != User.Role.ADMIN) {
+            if (user.getTeacher() == null) {
+                return ResponseEntity.ok(List.of());
+            }
+            effectiveTeacherId = user.getTeacher().getId();
+        }
+        return ResponseEntity.ok(hourAccountingService.getWeeklySummary(academicYear, effectiveTeacherId));
+    }
+
+    /** Сверка за ТЕКУЩИЙ календарный месяц — новая вкладка. */
+    @GetMapping("/hours/sverka/month")
+    public ResponseEntity<List<HourAccountingService.PeriodHoursSummary>> hoursSverkaMonth(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Long teacherId,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Long effectiveTeacherId = teacherId;
+        if (user.getRole() != User.Role.ADMIN) {
+            if (user.getTeacher() == null) {
+                return ResponseEntity.ok(List.of());
+            }
+            effectiveTeacherId = user.getTeacher().getId();
+        }
+        return ResponseEntity.ok(hourAccountingService.getMonthlySummary(academicYear, effectiveTeacherId));
+    }
+
+    /**
+     * "Проверка вставленных пар за месяц" — сколько часов по тарификации реально попало в
+     * расписание, и для нехватки — свободные слоты у того же препода/группы без накладок.
+     * Только для админа.
+     */
+    @GetMapping("/hours/placement-audit")
+    public ResponseEntity<?> placementAudit(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam int month,
+            Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        if (month < 1 || month > 12) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(placementAuditService.auditMonth(academicYear, month));
     }
 
     @PostMapping("/admin/teachers")

@@ -229,7 +229,7 @@ public class LessonInstanceService {
         upsertMonthly(load, date.getMonthValue(), -hours, note, changedBy);
     }
 
-    /** Обновляет (или создаёт) одну помесячную запись вместо фрагментарных дельт. */
+    /** Обновляет (или создаёт) одну помесячную запись ФАКТИЧЕСКИ проведённых часов (не плана). */
     private void upsertMonthly(TeacherLoad load, int month, int deltaHours, String note, String changedBy) {
         List<MonthlyRecord> existing = monthlyRecordRepository.findByTeacherLoadId(load.getId());
         MonthlyRecord base = existing.stream()
@@ -242,12 +242,14 @@ public class LessonInstanceService {
                     .teacherLoad(load)
                     .month(month)
                     .year(load.getAcademicYear())
-                    .hours(deltaHours)
+                    .hours(0)
+                    .conductedHours(Math.max(0, deltaHours))
                     .note(note)
                     .changedBy(changedBy)
                     .build());
         } else {
-            base.setHours((base.getHours() != null ? base.getHours() : 0) + deltaHours);
+            int current = base.getConductedHours() != null ? base.getConductedHours() : 0;
+            base.setConductedHours(Math.max(0, current + deltaHours));
             if (note != null && !note.isBlank()) {
                 base.setNote(note);
             }

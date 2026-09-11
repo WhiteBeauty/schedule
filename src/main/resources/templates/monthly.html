@@ -47,6 +47,67 @@
 
     <div class="card">
         <div class="card-header">
+            <h2 class="card-title">📅 Сверка за текущую неделю</h2>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+            Часы, которые стоят в расписании на ЭТУ календарную неделю (понедельник-пятница),
+            минус уже реально проведённые (по датам, которые уже прошли). Остальное — сколько
+            ещё должно состояться до конца недели.
+        </p>
+        <table id="sverkaWeekTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th><th>Дисциплина</th><th>Группа</th>
+                <th>По расписанию, ч</th><th>Проведено, ч</th><th>Осталось, ч</th>
+            </tr>
+            </thead>
+            <tbody id="sverkaWeekBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">🗓️ Сверка за текущий месяц</h2>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+            То же самое, что по неделе, но за весь календарный месяц.
+        </p>
+        <table id="sverkaMonthTable">
+            <thead>
+            <tr>
+                <th>Преподаватель</th><th>Дисциплина</th><th>Группа</th>
+                <th>По расписанию, ч</th><th>Проведено, ч</th><th>Осталось, ч</th>
+            </tr>
+            </thead>
+            <tbody id="sverkaMonthBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card" th:if="${isAdmin}">
+        <div class="card-header">
+            <h2 class="card-title">📋 Проверка вставленных пар за месяц</h2>
+            <label style="font-size:0.85rem;">
+                Месяц:
+                <select id="auditMonthSelect" onchange="loadPlacementAudit()">
+                    <option value="1">Январь</option><option value="2">Февраль</option>
+                    <option value="3">Март</option><option value="4">Апрель</option>
+                    <option value="5">Май</option><option value="6">Июнь</option>
+                    <option value="7">Июль</option><option value="8">Август</option>
+                    <option value="9">Сентябрь</option><option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option><option value="12">Декабрь</option>
+                </select>
+            </label>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+            Сравнивает, сколько пар в неделю должно быть по тарификации, с тем, сколько реально
+            стоит в расписании. Для нехватки — свободные слоты (день, пара, аудитория) для ТОГО
+            ЖЕ преподавателя и группы, где точно не будет накладки — жмите «Поставить».
+        </p>
+        <div id="auditResult"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
             <h2 class="card-title">Фильтры</h2>
         </div>
         <div class="filters">
@@ -134,6 +195,118 @@ async function init() {
 
     await loadData();
     loadSverka();
+    loadPeriodSverka('week', 'sverkaWeekBody');
+    loadPeriodSverka('month', 'sverkaMonthBody');
+    if (isAdmin) {
+        const auditSel = document.getElementById('auditMonthSelect');
+        if (auditSel) {
+            auditSel.value = String(new Date().getMonth() + 1);
+            loadPlacementAudit();
+        }
+    }
+}
+
+async function loadPeriodSverka(period, bodyId) {
+    const year = document.getElementById('yearSelect').value;
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    try {
+        const rows = await fetch('/api/hours/sverka/' + period + '?academicYear=' + encodeURIComponent(year))
+            .then(r => r.json());
+        body.innerHTML = '';
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + r.teacherName + '</td>' +
+                '<td>' + r.disciplineName + '</td>' +
+                '<td>' + r.groupName + '</td>' +
+                '<td>' + r.plannedHours + '</td>' +
+                '<td>' + r.conductedHours + '</td>' +
+                '<td>' + r.remainingHours + '</td>';
+            body.appendChild(tr);
+        });
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:1rem;">Нет данных</td></tr>';
+        }
+    } catch (e) {
+        console.error('period sverka (' + period + ') load failed', e);
+    }
+}
+
+async function loadPlacementAudit() {
+    const year = document.getElementById('yearSelect').value;
+    const month = document.getElementById('auditMonthSelect').value;
+    const el = document.getElementById('auditResult');
+    el.innerHTML = '<p class="text-muted">Считаю...</p>';
+    try {
+        const res = await fetch('/api/hours/placement-audit?academicYear=' + encodeURIComponent(year)
+            + '&month=' + encodeURIComponent(month));
+        const gaps = await res.json();
+        if (!res.ok) {
+            el.innerHTML = '<p class="text-danger">Ошибка: ' + (gaps.error || res.status) + '</p>';
+            return;
+        }
+        if (!gaps.length) {
+            el.innerHTML = '<p class="text-muted">Нехватки не найдено — все часы этого месяца стоят в расписании (кроме практики/вождения, они размещаются отдельно).</p>';
+            return;
+        }
+        let html = '';
+        gaps.forEach(g => {
+            html += '<div style="border:1px solid var(--border); border-radius:0.5rem; padding:0.75rem; margin-bottom:0.75rem;">'
+                + '<div style="font-weight:600;">' + g.teacherName + ' — ' + g.disciplineName + ' · ' + g.groupName + '</div>'
+                + '<div class="text-muted" style="font-size:0.85rem; margin:0.25rem 0;">По плану ' + g.expectedPairsPerWeek
+                + ' пар/нед, в расписании ' + g.actualPairsPerWeek + ' — не хватает ' + g.missingPairs + '.</div>';
+            if (g.suggestedSlots && g.suggestedSlots.length) {
+                html += '<div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.5rem;">';
+                g.suggestedSlots.forEach(s => {
+                    html += '<button class="btn btn-sm" onclick="insertSuggestedPair(' + g.loadId + ',\'' + s.dayOfWeek + '\',\''
+                        + s.startTime + '\',\'' + s.endTime + '\',\'' + s.room + '\', this)">'
+                        + '➕ ' + s.dayOfWeek + ', ' + s.startTime.substring(0, 5) + '-' + s.endTime.substring(0, 5) + ', ауд. ' + s.room + '</button>';
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="text-danger" style="font-size:0.85rem;">Свободных слотов без накладки не нашлось — придётся освобождать место вручную.</div>';
+            }
+            html += '</div>';
+        });
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = '<p class="text-danger">Ошибка сети: ' + e.message + '</p>';
+    }
+}
+
+const dayOfWeekEnumByRu = {
+    'Понедельник': 'MONDAY', 'Вторник': 'TUESDAY', 'Среда': 'WEDNESDAY',
+    'Четверг': 'THURSDAY', 'Пятница': 'FRIDAY'
+};
+
+async function insertSuggestedPair(loadId, dayRu, startTime, endTime, room, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Ставим...';
+    try {
+        const year = document.getElementById('yearSelect').value;
+        const res = await fetch('/api/pairs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                teacherLoadId: loadId,
+                dayOfWeek: dayOfWeekEnumByRu[dayRu] || dayRu,
+                startTime, endTime, classroom: room,
+                academicYear: Number(year)
+            })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert('Ошибка: ' + (body.error || res.status));
+            btn.disabled = false;
+            btn.textContent = '➕ ' + dayRu + ', ' + startTime.substring(0, 5) + '-' + endTime.substring(0, 5) + ', ауд. ' + room;
+            return;
+        }
+        btn.textContent = '✅ Поставлено';
+        loadPlacementAudit();
+    } catch (e) {
+        alert('Ошибка сети: ' + e.message);
+        btn.disabled = false;
+    }
 }
 
 async function loadSverka() {

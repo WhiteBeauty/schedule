@@ -11,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,6 +29,7 @@ public class MonthlyRecordService {
     private final MonthlyRecordRepository repository;
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
+    private final LessonInstanceService lessonInstanceService;
 
     public List<MonthlyRecord> findByLoad(Long loadId) {
         return repository.findByTeacherLoadId(loadId);
@@ -133,17 +133,19 @@ public class MonthlyRecordService {
     }
 
     /**
-     * ПОМЕСЯЧНЫЙ УЧЁТ ПО РАСПИСАНИЮ.
+     * ПОМЕСЯЧНЫЙ УЧЁТ ПО РАСПИСАНИЮ — ПЛАНОВЫЕ часы (не фактические, см. MonthlyRecord.conductedHours).
      *
-     * Раньше поле {@link MonthlyRecord#getHours()} всегда оставалось 0 (заглушка,
-     * заполнялась только вручную через {@link #adjust}). Теперь при появлении
-     * реального расписания (пары в {@link Schedule}) часы за каждый месяц считаются
-     * автоматически: пара повторяется еженедельно по дню недели, поэтому часы за
-     * месяц = (сколько раз этот день недели встречается в данном календарном месяце)
-     * × 2 (часа за пару), просуммировано по всем парам этой нагрузки.
+     * Раньше считало день-недели-вхождения слепо по всем 12 месяцам года, включая каникулы
+     * и месяцы ЧУЖОГО семестра (ТЗ п.1 требует хранить расписание строго по семестрам —
+     * см. тот же фикс в MonthlyScheduleService/LessonInstanceService.generateInstancesForDate).
+     * Теперь идём по реальным датам месяца и учитываем: каникулы (isVacation), семестр самой
+     * записи расписания (Schedule.semester — null = старые записи, действуют всегда, ради
+     * обратной совместимости) и, если задана конкретная учебная неделя (числитель/
+     * знаменатель) — совпадение с ней.
      *
-     * adjustedHours (ручная корректировка администратора) НЕ трогается — считается
-     * только "плановое по расписанию" значение hours.
+     * adjustedHours (ручная корректировка администратора) НЕ трогается. conductedHours
+     * (фактически проведённые часы) тоже не трогается — это отдельное поле, обновляемое
+     * только через LessonInstanceService.confirmInstance/cancelInstance.
      */
     @Transactional
     public void recalculateHoursForLoad(Long loadId) {
@@ -171,11 +173,7 @@ public class MonthlyRecordService {
             // academicYearStart, январь-август — к следующему календарному году.
             int calendarYear = month >= 9 ? academicYearStart : academicYearStart + 1;
 
-            int hours = 0;
-            for (Schedule s : schedulesForLoad) {
-                if (s.getDayOfWeek() == null) continue;
-                hours += countWeekdayOccurrencesInMonth(s.getDayOfWeek(), calendarYear, month) * HOURS_PER_LESSON;
-            }
+            int hours = plannedHoursInMonth(schedulesForLoad, calendarYear, month, academicYearStart);
 
             MonthlyRecord rec = byMonth.get(month);
             if (rec != null) {
@@ -185,14 +183,24 @@ public class MonthlyRecordService {
         }
     }
 
-    private int countWeekdayOccurrencesInMonth(DayOfWeek dow, int calendarYear, int month) {
+    /** Плановые часы всех пар этой нагрузки в конкретном календарном месяце — по реальным датам, с учётом каникул/семестра/недели. */
+    private int plannedHoursInMonth(List<Schedule> schedulesForLoad, int calendarYear, int month, int academicYear) {
+        int hours = 0;
         LocalDate d = LocalDate.of(calendarYear, month, 1);
-        int count = 0;
         while (d.getMonthValue() == month) {
-            if (d.getDayOfWeek() == dow) count++;
+            if (!com.karyakina.schedule.util.AcademicYearUtil.isVacation(d)) {
+                int dateSemester = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(d);
+                int week = lessonInstanceService.computeAcademicWeek(d, academicYear);
+                for (Schedule s : schedulesForLoad) {
+                    if (s.getDayOfWeek() != d.getDayOfWeek()) continue;
+                    if (s.getSemester() != null && !s.getSemester().equals(dateSemester)) continue;
+                    if (s.getAcademicWeek() != null && !s.getAcademicWeek().equals(week)) continue;
+                    hours += HOURS_PER_LESSON;
+                }
+            }
             d = d.plusDays(1);
         }
-        return count;
+        return hours;
     }
 }
 

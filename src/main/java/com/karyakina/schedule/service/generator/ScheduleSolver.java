@@ -287,6 +287,21 @@ public class ScheduleSolver {
 
     // ------------------------------------------------------------------ локальное улучшение
 
+    /**
+     * Локальный поиск с принятием по Simulated Annealing (а не чистый hill climbing, как
+     * было раньше).
+     *
+     * <p>Раньше здесь принимался только строго лучший сосед (delta &lt; 0), что классически
+     * застревает в локальном оптимуме — ровно то поведение, что наблюдалось эмпирически:
+     * подкрутка весов "окон"/равномерности по дням непредсказуемо то улучшала, то резко
+     * ухудшала результат, потому что поиск каждый раз упирался в ближайший локальный
+     * минимум, а не в устойчиво лучшее решение. Simulated Annealing — стандартный приём
+     * именно для этого класса задач (school/university timetabling, см. например
+     * Abramson, Krishnamoorthy, Dang — "Simulated annealing cooling schedules for the
+     * school timetabling problem"): временно принимать И ухудшающие ходы, с вероятностью,
+     * убывающей по мере остывания "температуры", чтобы выбраться из локальной ямы вместо
+     * того, чтобы в ней застрять.
+     */
     private void localSearch(OccupancyIndex index,
                              SoftScorer scorer,
                              SolverInput input,
@@ -305,10 +320,22 @@ public class ScheduleSolver {
         Map<String, GenerationGrid.Room> roomByName = new HashMap<>();
         input.rooms().forEach(r -> roomByName.put(r.name(), r));
 
-        for (int i = 0; i < input.config().localSearchIterations(); i++) {
+        int totalIterations = Math.max(1, input.config().localSearchIterations());
+        // Начальная "температура" — порядка типичного штрафа за одно среднее нарушение
+        // (веса мягких ограничений в SolverConfig лежат в диапазоне ~1.5-60), чтобы вначале
+        // поиск был готов принимать заметные ухудшения; к концу остывает почти до нуля —
+        // последние итерации фактически превращаются в обычный hill climbing (это и есть
+        // стандартная схема геометрического охлаждения).
+        final double initialTemperature = 18.0;
+        final double finalTemperature = 0.05;
+
+        for (int i = 0; i < totalIterations; i++) {
             if ((i & 255) == 0 && System.currentTimeMillis() > deadline) {
                 return;
             }
+            double progress = totalIterations <= 1 ? 1.0 : (double) i / (totalIterations - 1);
+            double temperature = initialTemperature * Math.pow(finalTemperature / initialTemperature, progress);
+
             int idx = random.nextInt(placed.size());
             SolverResult.PlacedPair current = placed.get(idx);
             SolverInput.Demand demand = demandById.get(current.loadId());
@@ -326,7 +353,15 @@ public class ScheduleSolver {
             Placement alternative = bestPlacement(index, scorer, demand, group, teacher,
                     roomsByDemand.getOrDefault(demand.loadId(), List.of()), target, random, null);
 
-            if (alternative != null && alternative.penalty() < currentPenalty - 0.001) {
+            boolean accept;
+            if (alternative == null) {
+                accept = false;
+            } else {
+                double delta = alternative.penalty() - currentPenalty;
+                accept = delta < -0.001 || random.nextDouble() < Math.exp(-delta / temperature);
+            }
+
+            if (accept) {
                 SolverResult.PlacedPair moved = new SolverResult.PlacedPair(current.loadId(), current.groupId(),
                         current.disciplineId(), current.teacherId(), alternative.room().name(),
                         alternative.dayIdx(), alternative.pairIdx());

@@ -20,7 +20,7 @@ public class SyntheticGapTest {
         System.out.println("heavyLoad groupGaps(metrics)=" + result.metrics().get("groupGaps")
                 + " recomputed=" + recomputedGaps + " placed=" + result.placed().size());
 
-        assertTrue(recomputedGaps <= 15,
+        assertTrue(recomputedGaps <= 3,
                 "Слишком много окон у групп на плотной сетке: " + recomputedGaps);
     }
 

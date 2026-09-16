@@ -45,7 +45,7 @@ public record SolverConfig(
     }
 
     public static SolverConfig defaults() {
-        return new SolverConfig(2, 36, 4, 2, 2, 5, 8, 30, 9000, 20260501L, Weights.defaults());
+        return new SolverConfig(2, 36, 4, 2, 2, 5, 8, 30, 60000, 20260501L, Weights.defaults());
     }
 
     public int teacherMaxWeeklyPairs() {

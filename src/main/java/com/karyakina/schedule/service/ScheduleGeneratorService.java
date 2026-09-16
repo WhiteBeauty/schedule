@@ -788,8 +788,11 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    private void occupyExisting(OccupancyIndex index, List<Schedule> existing) {
+    void occupyExisting(OccupancyIndex index, List<Schedule> existing) {
         for (Schedule schedule : existing) {
+            if (schedule.getAcademicWeek() != null) {
+                continue;
+            }
             TeacherLoad load = schedule.getTeacherLoad();
             if (load == null) {
                 continue;

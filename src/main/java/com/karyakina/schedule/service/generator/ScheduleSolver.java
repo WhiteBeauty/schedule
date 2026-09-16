@@ -90,6 +90,7 @@ public class ScheduleSolver {
         }
 
         localSearch(index, scorer, input, placed, roomsByDemand, targetPerDay, random, deadline);
+        retryUnplaced(index, scorer, input, placed, missing, roomsByDemand, targetPerDay, random, deadline);
 
         SoftScorer.Metrics metrics = scorer.evaluate(placed);
         List<SolverResult.Unplaced> unplaced = buildUnplaced(input, missing, blockStats);
@@ -243,6 +244,61 @@ public class ScheduleSolver {
             }
         }
         return blockers;
+    }
+
+    private void retryUnplaced(OccupancyIndex index,
+                               SoftScorer scorer,
+                               SolverInput input,
+                               List<SolverResult.PlacedPair> placed,
+                               Map<Long, Integer> missing,
+                               Map<Long, List<GenerationGrid.Room>> roomsByDemand,
+                               Map<Long, Double> targetPerDay,
+                               Random random,
+                               long deadline) {
+        if (missing.isEmpty()) {
+            return;
+        }
+        Map<Long, SolverInput.Demand> demandById = new HashMap<>();
+        input.demands().forEach(d -> demandById.put(d.loadId(), d));
+        Map<Long, SolverInput.GroupRef> groups = input.groupsById();
+        Map<Long, SolverInput.TeacherRef> teachers = input.teachersById();
+
+        for (Long loadId : new ArrayList<>(missing.keySet())) {
+            int remaining = missing.getOrDefault(loadId, 0);
+            if (remaining <= 0) {
+                continue;
+            }
+            SolverInput.Demand demand = demandById.get(loadId);
+            SolverInput.GroupRef group = demand == null ? null : groups.get(demand.groupId());
+            SolverInput.TeacherRef teacher = demand == null ? null : teachers.get(demand.teacherId());
+            if (demand == null || group == null || teacher == null) {
+                continue;
+            }
+            List<GenerationGrid.Room> rooms = roomsByDemand.getOrDefault(loadId, List.of());
+            double target = targetPerDay.getOrDefault(group.id(), 1.0);
+
+            while (remaining > 0) {
+                if (System.currentTimeMillis() > deadline) {
+                    missing.put(loadId, remaining);
+                    return;
+                }
+                Placement placement = bestPlacement(index, scorer, demand, group, teacher, rooms, target, random, null);
+                if (placement == null) {
+                    placement = tryEject(index, scorer, input, demand, group, teacher, rooms,
+                            targetPerDay, placed, roomsByDemand);
+                }
+                if (placement == null) {
+                    break;
+                }
+                SolverResult.PlacedPair pair = new SolverResult.PlacedPair(demand.loadId(), group.id(),
+                        demand.disciplineId(), teacher.id(), placement.room().name(),
+                        placement.dayIdx(), placement.pairIdx());
+                index.place(pair);
+                placed.add(pair);
+                remaining--;
+            }
+            missing.put(loadId, remaining);
+        }
     }
 
     private void localSearch(OccupancyIndex index,

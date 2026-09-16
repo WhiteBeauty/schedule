@@ -17,16 +17,6 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.*;
 
-/**
- * "Проверка вставленных пар за месяц" — новая вкладка сверки часов. Смотрит на все
- * нагрузки (кроме практики/вождения — их размещает администратор отдельно, см.
- * {@code ScheduleGeneratorService#isPracticeOrDriving}), сравнивает, сколько пар в
- * неделю ДОЛЖНО быть по тарификации (те же формулы, что при автосоставлении) с тем,
- * сколько реально СТОИТ в {@link Schedule} — и для нехватки сразу предлагает свободные
- * слоты (день + пара + аудитория) для ТОГО ЖЕ преподавателя/группы этой нагрузки, где
- * нет накладки. Администратор жмёт «Поставить» — пара создаётся обычным
- * ScheduleService.createSchedule (та же самая проверка накладок, что и везде).
- */
 @Service
 @RequiredArgsConstructor
 public class PlacementAuditService {
@@ -59,7 +49,6 @@ public class PlacementAuditService {
         private List<SlotSuggestion> suggestedSlots;
     }
 
-    /** Регексы те же, что isPracticeOrDriving в ScheduleGeneratorService — держать в синхроне при правках там. */
     private boolean isPracticeOrDriving(String disciplineName) {
         if (disciplineName == null) return false;
         String normalized = disciplineName.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
@@ -73,7 +62,7 @@ public class PlacementAuditService {
         LocalDate representative = LocalDate.of(calendarYear, month, 15);
         int semester = AcademicYearUtil.semesterOfDate(representative);
         if (semester == 0) {
-            return List.of(); // весь месяц — каникулы, проверять нечего
+            return List.of();
         }
         int weeksInSemester = AcademicYearUtil.getSemesterWeeks(semester, year);
 
@@ -94,16 +83,12 @@ public class PlacementAuditService {
             int semHours = semester == 2
                     ? (load.getSecondSemesterHours() == null ? 0 : load.getSecondSemesterHours())
                     : (load.getFirstSemesterHours() == null ? 0 : load.getFirstSemesterHours());
-            if (semHours <= 0) continue; // в этом семестре предмета нет вообще — не нехватка
+            if (semHours <= 0) continue;
 
             int expectedPairs = Math.max(0, (int) Math.round(semHours / (double) weeksInSemester / 2.0));
             if (expectedPairs <= 0) continue;
 
             List<Schedule> own = schedulesByLoad.getOrDefault(load.getId(), List.of());
-            // Считаем УНИКАЛЬНЫЕ (день, пара) — так же, как реально повторяется в расписании
-            // каждую неделю (academicWeek==null); записи "только на одну неделю" (числитель/
-            // знаменатель или перенос из-за экзамена/практики) в этот подсчёт не включаем —
-            // это не постоянное место в сетке.
             long actualPairs = own.stream()
                     .filter(s -> s.getAcademicWeek() == null)
                     .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
@@ -130,7 +115,6 @@ public class PlacementAuditService {
         return gaps;
     }
 
-    /** Свободные (день, пара, аудитория) для преподавателя+группы этой нагрузки — без накладок. */
     private List<SlotSuggestion> findFreeSlots(TeacherLoad load, List<Schedule> allSchedules,
                                                List<GenerationGrid.Room> rooms, int semester, int limit) {
         Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;

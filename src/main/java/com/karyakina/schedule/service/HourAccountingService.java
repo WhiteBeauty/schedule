@@ -16,13 +16,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.*;
 
-/**
- * Сверка часов (ТЗ п.6): для каждой нагрузки — сколько часов запланировано в ТЕКУЩЕМ
- * семестре, сколько реально проведено (по факту, от начала семестра до СЕГОДНЯ), и сколько
- * осталось. "Проведено" считается по {@link LessonInstance} со статусом CONFIRMED или
- * REPLACED (замена — занятие всё равно состоялось, просто другим преподавателем) — то есть
- * это фактические данные, а не то, что просто "должно было быть по шаблону расписания".
- */
 @Service
 @RequiredArgsConstructor
 public class HourAccountingService {
@@ -40,17 +33,11 @@ public class HourAccountingService {
         private String disciplineName;
         private String groupName;
         private int semester;
-        private int plannedHours;   // часы этого семестра по тарификации (firstSemesterHours/secondSemesterHours)
-        private int conductedHours; // фактически проведено с начала семестра по сегодня
-        private int remainingHours; // plannedHours - conductedHours, не меньше 0
+        private int plannedHours;
+        private int conductedHours;
+        private int remainingHours;
     }
 
-    /**
-     * Сверка на неделю/месяц (новая вкладка): "запланировано на этот период по РАСПИСАНИЮ"
-     * минус "фактически проведено (по реальным датам)" = "осталось". В отличие от
-     * {@link LoadHoursSummary} (которая считает от начала семестра по сегодня), это
-     * скользящее окно — конкретная календарная неделя или месяц.
-     */
     @Data
     @Builder
     public static class PeriodHoursSummary {
@@ -58,12 +45,11 @@ public class HourAccountingService {
         private String teacherName;
         private String disciplineName;
         private String groupName;
-        private int plannedHours;    // сколько часов этой нагрузки стоит в расписании на период
-        private int conductedHours;  // сколько из них уже реально проведено (по датам, что миновали)
-        private int remainingHours;  // plannedHours - conductedHours, не меньше 0
+        private int plannedHours;
+        private int conductedHours;
+        private int remainingHours;
     }
 
-    /** Сверка за ТЕКУЩУЮ календарную неделю (понедельник-пятница). */
     public List<PeriodHoursSummary> getWeeklySummary(Integer academicYear, Long teacherId) {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         LocalDate today = LocalDate.now();
@@ -72,7 +58,6 @@ public class HourAccountingService {
         return getPeriodSummary(year, teacherId, monday, friday);
     }
 
-    /** Сверка за ТЕКУЩИЙ календарный месяц. */
     public List<PeriodHoursSummary> getMonthlySummary(Integer academicYear, Long teacherId) {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         LocalDate today = LocalDate.now();
@@ -81,12 +66,6 @@ public class HourAccountingService {
         return getPeriodSummary(year, teacherId, monthStart, monthEnd);
     }
 
-    /**
-     * Общая логика периода [from, to]: "план" — сколько раз пары этой нагрузки реально стоят
-     * в {@link Schedule} на даты периода (с учётом каникул/семестра/числителя-знаменателя —
-     * та же фильтрация, что и в календаре/генерации занятий), "факт" — сколько из ТЕХ ЖЕ дат,
-     * что уже прошли (не позже сегодня), подтверждено по факту (CONFIRMED/REPLACED).
-     */
     private List<PeriodHoursSummary> getPeriodSummary(int academicYear, Long teacherId, LocalDate from, LocalDate to) {
         List<TeacherLoad> loads = teacherId != null
                 ? loadRepository.findByTeacherIdAndAcademicYear(teacherId, academicYear)
@@ -113,7 +92,7 @@ public class HourAccountingService {
                     if (s.getDayOfWeek() != d.getDayOfWeek()) continue;
                     if (s.getSemester() != null && !s.getSemester().equals(dateSemester)) continue;
                     if (s.getAcademicWeek() != null && !s.getAcademicWeek().equals(week)) continue;
-                    plannedByLoad.merge(entry.getKey(), 2, Integer::sum); // академ. часов за пару
+                    plannedByLoad.merge(entry.getKey(), 2, Integer::sum);
                 }
             }
 
@@ -134,7 +113,7 @@ public class HourAccountingService {
         List<PeriodHoursSummary> result = new ArrayList<>();
         for (TeacherLoad load : loads) {
             int planned = plannedByLoad.getOrDefault(load.getId(), 0);
-            if (planned == 0 && !conductedByLoad.containsKey(load.getId())) continue; // нечего показывать
+            if (planned == 0 && !conductedByLoad.containsKey(load.getId())) continue;
             int conducted = conductedByLoad.getOrDefault(load.getId(), 0);
             result.add(PeriodHoursSummary.builder()
                     .loadId(load.getId())
@@ -151,19 +130,12 @@ public class HourAccountingService {
         return result;
     }
 
-    /**
-     * @param academicYear год (см. AcademicYearUtil) — если null, берётся текущий
-     * @param semester     1 или 2 — если null, берётся текущий по дате (см. AcademicYearUtil.getCurrentSemester)
-     * @param teacherId    ограничить одним преподавателем (для его личного кабинета) — null = все (только для админа)
-     */
     public List<LoadHoursSummary> getSummary(Integer academicYear, Integer semester, Long teacherId) {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         int sem = semester != null ? semester : AcademicYearUtil.getCurrentSemester();
 
         LocalDate semesterStart = AcademicYearUtil.semesterStart(sem, year);
         LocalDate today = LocalDate.now();
-        // Если семестр ещё не начался (готовим расписание заранее) — проведённых часов пока
-        // нет; если уже закончился — считаем "по сегодня", но не дальше конца семестра.
         LocalDate countTo = today.isBefore(semesterStart) ? semesterStart.minusDays(1)
                 : today.isAfter(AcademicYearUtil.semesterEnd(sem, year)) ? AcademicYearUtil.semesterEnd(sem, year)
                 : today;

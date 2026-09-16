@@ -1,15 +1,3 @@
-/**
- * ИНТЕРАКТИВНОЕ АВТОСОСТАВЛЕНИЕ РАСПИСАНИЯ.
- *
- * Сервер никогда не отвечает пустой ошибкой: всё, чего не хватает или что противоречит
- * друг другу, приходит в missingData — списком вопросов с готовыми вариантами действий.
- * Этот файл показывает вопросы по одному в модальном окне, собирает ответы, отправляет
- * их пачкой на /resolve и повторяет цикл, пока не останется блокирующих вопросов.
- *
- * Подключение (см. INTEGRATION.md):
- *   <div th:replace="~{fragments/generation-modal :: modal}"></div>
- *   <script src="/js/schedule-generation.js"></script>
- */
 (function () {
     'use strict';
 
@@ -22,8 +10,6 @@
     };
 
     const API = '/api/schedule-generation';
-
-    // ---------------------------------------------------------------- сеть
 
     async function post(url, body) {
         let response;
@@ -70,8 +56,6 @@
         };
     }
 
-    // ---------------------------------------------------------------- запуск
-
     async function generate() {
         const yearSelect = document.getElementById('yearSelect');
         const academicYear = yearSelect ? Number(yearSelect.value) : null;
@@ -116,14 +100,6 @@
         }
         renderResult(result);
         const issues = result.missingData || [];
-        // В модальное окно "стопкой" выводим ТОЛЬКО блокирующие вопросы — без ответа на них
-        // сохранить нельзя (см. renderResult/commitBtn.disabled). Непринципиальные
-        // предупреждения (не встала пара из-за нехватки аудиторий и т.п.) не блокируют
-        // сохранение вообще, и если гонять администратора по ним кликами при КАЖДОМ повторном
-        // прогоне (а причина — реальная нехватка ресурса — никуда не денется, пока он не
-        // добавит аудитории/изменит данные, так что предупреждение возникает заново) — это
-        // именно то самое "по тысяче раз одно и то же". Такие предупреждения по-прежнему
-        // видны в фоновой панели (renderWarnings/renderIssueList) — просто не прерывают работу.
         const blockingIssues = issues.filter(function (issue) { return issue.severity === 'BLOCKING'; });
         if (blockingIssues.length > 0) {
             state.issues = blockingIssues;
@@ -134,8 +110,6 @@
             closeModal();
         }
     }
-
-    // ---------------------------------------------------------------- модальное окно с вопросами
 
     function showIssue() {
         const issue = state.issues[state.index];
@@ -254,8 +228,6 @@
             overlay.style.display = 'none';
         }
     }
-
-    // ---------------------------------------------------------------- отрисовка результата
 
     function renderResult(result) {
         const card = document.getElementById('genResultCard');
@@ -390,8 +362,6 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    // ---------------------------------------------------------------- больничный
-
     async function submitSickLeave() {
         const teacherId = document.getElementById('sickTeacher').value;
         const startDate = document.getElementById('sickStart').value;
@@ -479,8 +449,6 @@
         }
     }
 
-    // ---------------------------------------------------------------- инициализация
-
     document.addEventListener('DOMContentLoaded', function () {
         bind('genRunBtn', generate);
         bind('genCommitBtn', commit);
@@ -497,7 +465,6 @@
         }
     }
 
-    // Наружу — чтобы кнопки в разметке могли вызывать напрямую.
     window.scheduleGeneration = {
         run: generate,
         commit: commit,

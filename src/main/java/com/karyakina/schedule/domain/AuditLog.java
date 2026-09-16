@@ -7,11 +7,6 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
-/**
- * Журнал аудита. Пишется при чувствительных административных действиях (в первую
- * очередь — назначение/снятие прав администратора), чтобы всегда можно было ответить
- * на вопрос "кто, кого и когда повысил/понизил".
- */
 @Entity
 @Table(name = "audit_logs")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -23,13 +18,13 @@ public class AuditLog {
     private Long id;
 
     @Column(nullable = false)
-    private String action; // например "PROMOTE_TO_ADMIN", "DEMOTE_FROM_ADMIN"
+    private String action;
 
     @Column(nullable = false)
-    private String actorUsername; // кто выполнил действие
+    private String actorUsername;
 
     @Column(nullable = false)
-    private String targetUsername; // над кем выполнено действие
+    private String targetUsername;
 
     private String details;
 

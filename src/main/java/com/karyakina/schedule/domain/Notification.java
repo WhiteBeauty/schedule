@@ -7,11 +7,6 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
-/**
- * Внутрисистемное уведомление. Используется модулем форс-мажоров для оповещения кандидата
- * на замену и администрации, а также может дублироваться на email (см. NotificationService).
- * Если recipientTeacher == null и forAdmins == true — уведомление адресовано всем администраторам.
- */
 @Entity
 @Table(name = "notifications")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -40,10 +35,8 @@ public class Notification {
     @Column(length = 2000)
     private String message;
 
-    /** Ссылка на связанную заявку на замену, если применимо. */
     private Long substitutionRequestId;
 
-    /** Ссылка на конкретную запись (например, на пару в расписании), которую затронуло изменение. */
     private String linkUrl;
 
     @Column(nullable = false)
@@ -54,15 +47,15 @@ public class Notification {
     private LocalDateTime createdAt;
 
     public enum Type {
-        SUBSTITUTION_REQUEST,   // кандидату: просьба подтвердить замену
-        SUBSTITUTION_ACCEPTED,  // всем причастным: замена подтверждена
-        SUBSTITUTION_DECLINED,  // администрации: кандидат отказался
-        SUBSTITUTION_UNRESOLVED,// администрации: замену найти не удалось
-        IMPORT_REPORT,          // администрации: отчёт об импорте
-        SCHEDULE_CONFLICT,      // администрации: конфликт при автосоставлении расписания
-        SICK_LEAVE,             // администрации / преподавателю: зарегистрирован больничный/форс-мажор
-        SCHEDULE_CHANGED,       // преподавателю: администратор создал/перенёс/удалил его пару
-        LOAD_CHANGED,           // преподавателю: администратор скорректировал его нагрузку
+        SUBSTITUTION_REQUEST,
+        SUBSTITUTION_ACCEPTED,
+        SUBSTITUTION_DECLINED,
+        SUBSTITUTION_UNRESOLVED,
+        IMPORT_REPORT,
+        SCHEDULE_CONFLICT,
+        SICK_LEAVE,
+        SCHEDULE_CHANGED,
+        LOAD_CHANGED,
         INFO
     }
 }

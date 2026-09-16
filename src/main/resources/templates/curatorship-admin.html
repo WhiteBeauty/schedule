@@ -15,7 +15,6 @@
         <button class="btn btn-primary" onclick="openAssignModal()">➕ Назначить куратора</button>
     </div>
 
-    <!-- Filters -->
     <div class="card" style="margin-bottom:1.5rem">
         <div class="filters">
             <select id="filterTeacher" onchange="loadCuratorships()">
@@ -28,7 +27,6 @@
         </div>
     </div>
 
-    <!-- Curatorships table -->
     <div class="card">
         <table id="curatorshipTable">
             <thead>
@@ -47,7 +45,6 @@
     </div>
 </main>
 
-<!-- Modal Assign Curator -->
 <div class="modal-overlay" id="assignModal">
     <div class="modal">
         <div class="modal-header">
@@ -82,7 +79,6 @@
     </div>
 </div>
 
-<!-- Modal View/Edit Curatorship -->
 <div class="modal-overlay" id="editModal">
     <div class="modal" style="max-width:800px">
         <div class="modal-header">
@@ -90,7 +86,6 @@
             <button class="close-btn" onclick="closeEditModal()">×</button>
         </div>
         <div class="modal-body" id="editBody">
-            <!-- Заполняется динамически -->
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeEditModal()">Закрыть</button>

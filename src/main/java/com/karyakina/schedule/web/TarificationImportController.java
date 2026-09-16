@@ -11,14 +11,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * МОДУЛЬ ИМПОРТА ФАЙЛА "ТАРИФИКАЦИЯ" (годовая сводная таблица нагрузки, лист "Часовка").
- * Отдельный от {@link ImportController} путь, так как формат файла принципиально другой
- * (сводная pivot-таблица, а не построчный список) — см. {@link TarificationImportService}.
- * Доступен только администратору. Групы всегда создаются из файла (см. решение в
- * ImportPersistenceService#applyTarificationRows), поэтому экрана сверки не требуется —
- * импорт применяется одним шагом.
- */
 @RestController
 @RequestMapping("/api/import/tarification")
 @RequiredArgsConstructor

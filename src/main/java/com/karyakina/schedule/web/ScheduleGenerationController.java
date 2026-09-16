@@ -27,16 +27,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-/**
- * МОДУЛЬ АВТОМАТИЧЕСКОГО СОСТАВЛЕНИЯ РАСПИСАНИЯ. Доступен только администратору.
- *
- * <p>Интерактивный цикл: {@code /run} — черновик и вопросы, {@code /{sessionId}/resolve} —
- * ответы администратора и пересчёт, {@code /{sessionId}/commit} — фиксация в расписании.
- * Старые {@code /preview} и {@code /apply} оставлены, чтобы существующие кнопки продолжали работать.
- *
- * <p>Любая неожиданная ошибка превращается в {@link GenerationResultDTO} со статусом FAILED
- * и текстом причины — фронтенд никогда не получает пустую ошибку.
- */
 @RestController
 @RequestMapping("/api/schedule-generation")
 @RequiredArgsConstructor
@@ -47,9 +37,6 @@ public class ScheduleGenerationController {
     private final SickLeaveReschedulingService sickLeaveService;
     private final UserRepository userRepository;
 
-    // ------------------------------------------------------------------ интерактивный режим
-
-    /** Запуск автосоставления: возвращает черновик + вопросы, которые нужно решить. */
     @PostMapping("/run")
     public ResponseEntity<GenerationResultDTO> run(@RequestBody(required = false) GenerationRequestDTO request,
                                                    Authentication authentication) {
@@ -62,7 +49,6 @@ public class ScheduleGenerationController {
         return ResponseEntity.ok(generatorService.generateInteractive(effective, adminDisplayName(admin)));
     }
 
-    /** Ответы администратора на вопросы: применяем и пересобираем расписание. */
     @PostMapping("/{sessionId}/resolve")
     public ResponseEntity<GenerationResultDTO> resolve(@PathVariable String sessionId,
                                                        @RequestBody(required = false) List<ResolutionDecision> decisions,
@@ -75,7 +61,6 @@ public class ScheduleGenerationController {
                 decisions == null ? List.of() : decisions, adminDisplayName(admin)));
     }
 
-    /** Фиксация черновика в расписании. */
     @PostMapping("/{sessionId}/commit")
     public ResponseEntity<GenerationResultDTO> commit(@PathVariable String sessionId,
                                                       Authentication authentication) {
@@ -86,14 +71,6 @@ public class ScheduleGenerationController {
         return ResponseEntity.ok(generatorService.commit(sessionId, adminDisplayName(admin)));
     }
 
-    // ------------------------------------------------------------------ форс-мажор
-
-    /**
-     * Преподаватель заболел: ищем замены, переносим пары, остаток отдаём администратору
-     * с вариантами действий.
-     *
-     * <p>Тело запроса: {@code {"teacherId":12,"startDate":"2026-09-07","endDate":"2026-09-09"}}
-     */
     @PostMapping("/sick-leave")
     public ResponseEntity<RescheduleResultDTO> sickLeave(@RequestBody Map<String, Object> body,
                                                          Authentication authentication) {
@@ -111,8 +88,6 @@ public class ScheduleGenerationController {
         }
         return ResponseEntity.ok(sickLeaveService.handleTeacherSickLeave(teacherId, start, end));
     }
-
-    // ------------------------------------------------------------------ прежние эндпоинты
 
     @PostMapping("/preview")
     public ResponseEntity<ScheduleGenerationResultDto> preview(
@@ -138,12 +113,6 @@ public class ScheduleGenerationController {
         return ResponseEntity.ok(generatorService.generate(year, true, adminDisplayName(admin)));
     }
 
-    // ------------------------------------------------------------------ обработка ошибок
-
-    /**
-     * Ни одна ошибка не уходит на фронтенд пустым 500-м: администратор видит текст причины
-     * в том же формате, что и обычные вопросы генератора.
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<GenerationResultDTO> handleAny(Exception e) {
         log.error("Ошибка в модуле автосоставления", e);
@@ -152,8 +121,6 @@ public class ScheduleGenerationController {
                         + (e.getMessage() == null ? "" : ": " + e.getMessage())
                         + ". Данные не изменены.")));
     }
-
-    // ------------------------------------------------------------------ вспомогательное
 
     private ResponseEntity<GenerationResultDTO> forbidden() {
         return ResponseEntity.status(403).body(GenerationResultDTO.failed(null,

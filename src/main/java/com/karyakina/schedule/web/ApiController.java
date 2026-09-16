@@ -96,7 +96,6 @@ public class ApiController {
         }
     }
 
-    /** Сверка: план недели/месяца vs часы, уже поставленные в расписание (цель — разница 0). */
     @GetMapping("/loads/reconciliation")
     public ResponseEntity<List<Map<String, Object>>> loadsReconciliation(
             @RequestParam(required = false) Integer year,
@@ -151,7 +150,6 @@ public class ApiController {
     @GetMapping("/teachers")
     public ResponseEntity<List<Teacher>> teachers() {
         List<Teacher> teachers = teacherRepository.findAll();
-        // Загружаем email из User через Join
         teachers.forEach(t -> {
             if (t.getUser() != null && t.getEmail() == null) {
                 t.setEmail(t.getUser().getEmail());
@@ -170,11 +168,9 @@ public class ApiController {
         String phone = (String) body.get("phone");
         String password = (String) body.get("password");
 
-        // Check if user exists
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
-        // Create or update teacher profile
         Teacher teacher = new Teacher();
         teacher.setUser(user);
         teacher.setFullName(fullName);
@@ -183,7 +179,6 @@ public class ApiController {
         teacher.setRate(rate);
         teacher.setPhone(phone);
 
-        // Set password if provided
         if (password != null && !password.isEmpty()) {
             user.setPassword(passwordEncoder.encode(password));
             userRepository.save(user);
@@ -212,7 +207,6 @@ public class ApiController {
         teacher.setRate(rate);
         teacher.setPhone(phone);
 
-        // Update password if provided
         if (password != null && !password.isEmpty()) {
             User user = teacher.getUser();
             if (user != null) {
@@ -264,10 +258,6 @@ public class ApiController {
     public ResponseEntity<List<Discipline>> disciplines() {
         return ResponseEntity.ok(disciplineRepository.findAll());
     }
-
-    // ---- Аудитории: фонд для автосоставления расписания (см. GenerationGrid.rooms) ----
-    // Заводятся импортом (лист "Аудитории"/"Аудитория"/"Кабинет" в файле нагрузки) или
-    // вручную здесь. Аудитория без списка дисциплин открыта для любых пар.
 
     @GetMapping("/classrooms")
     public ResponseEntity<List<Classroom>> classrooms() {
@@ -357,7 +347,6 @@ public class ApiController {
         return ResponseEntity.ok(monthlyRecordService.findByLoad(loadId));
     }
 
-    /** Получить все monthly records с информацией о нагрузке */
     @GetMapping("/monthly-records")
     public ResponseEntity<List<Map<String, Object>>> getMonthlyRecords(
             @RequestParam(required = false) Integer year,
@@ -369,10 +358,8 @@ public class ApiController {
 
             List<TeacherLoad> loads;
             if (user.getRole() == User.Role.ADMIN) {
-                // Админ видит все нагрузки
                 loads = loadRepository.findByAcademicYear(year);
             } else {
-                // Преподаватель видит только свои
                 Teacher teacher = user.getTeacher();
                 if (teacher == null) {
                     return ResponseEntity.ok(new ArrayList<>());
@@ -422,7 +409,6 @@ public class ApiController {
         return ResponseEntity.ok(curatorshipService.findByTeacherId(teacherId));
     }
 
-    /** Получить все curatorship текущего авторизованного преподавателя */
     @GetMapping("/curatorships/my")
     public ResponseEntity<List<Curatorship>> getMyCuratorships(Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -439,7 +425,6 @@ public class ApiController {
         return ResponseEntity.ok(new ArrayList<>());
     }
 
-    /** Получить curatorship по ID с проверкой прав */
     @GetMapping("/curatorships/by-id/{id}")
     public ResponseEntity<Curatorship> curatorshipById(@PathVariable Long id, Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -478,7 +463,6 @@ public class ApiController {
         }
 
         StringBuilder csv = new StringBuilder();
-        // BOM для корректного отображения кириллицы в Excel
         csv.append("\uFEFF");
         csv.append("Преподаватель;Дисциплина;Группа;Месяц;Год;Часы (факт);Скорректировано;Примечание;Кем изменено\n");
 
@@ -514,11 +498,6 @@ public class ApiController {
             .body(bytes);
     }
 
-    /**
-     * Печатная форма расписания за календарный месяц (Excel), в формате, привычном учебной
-     * части: "УТВЕРЖДАЮ" в шапке, таблица день/пара по строкам, группы по столбцам, один
-     * лист на календарную неделю месяца. См. {@link ScheduleExportService}.
-     */
     @GetMapping("/schedule/export/month")
     public ResponseEntity<byte[]> exportMonthSchedule(
             @RequestParam int year,
@@ -547,11 +526,6 @@ public class ApiController {
         }
     }
 
-    /**
-     * Сверка часов (ТЗ п.6): запланировано/проведено/осталось от начала ТЕКУЩЕГО семестра
-     * до сегодня. См. {@link HourAccountingService}. Преподаватель видит только свои
-     * нагрузки, админ — по параметру teacherId либо все.
-     */
     @GetMapping("/hours/sverka")
     public ResponseEntity<List<HourAccountingService.LoadHoursSummary>> hoursSverka(
             @RequestParam(required = false) Integer academicYear,
@@ -565,12 +539,11 @@ public class ApiController {
             if (user.getTeacher() == null) {
                 return ResponseEntity.ok(List.of());
             }
-            effectiveTeacherId = user.getTeacher().getId(); // не-админ не может смотреть чужие часы
+            effectiveTeacherId = user.getTeacher().getId();
         }
         return ResponseEntity.ok(hourAccountingService.getSummary(academicYear, semester, effectiveTeacherId));
     }
 
-    /** Сверка за ТЕКУЩУЮ календарную неделю (понедельник-пятница) — новая вкладка. */
     @GetMapping("/hours/sverka/week")
     public ResponseEntity<List<HourAccountingService.PeriodHoursSummary>> hoursSverkaWeek(
             @RequestParam(required = false) Integer academicYear,
@@ -588,7 +561,6 @@ public class ApiController {
         return ResponseEntity.ok(hourAccountingService.getWeeklySummary(academicYear, effectiveTeacherId));
     }
 
-    /** Сверка за ТЕКУЩИЙ календарный месяц — новая вкладка. */
     @GetMapping("/hours/sverka/month")
     public ResponseEntity<List<HourAccountingService.PeriodHoursSummary>> hoursSverkaMonth(
             @RequestParam(required = false) Integer academicYear,
@@ -606,11 +578,6 @@ public class ApiController {
         return ResponseEntity.ok(hourAccountingService.getMonthlySummary(academicYear, effectiveTeacherId));
     }
 
-    /**
-     * "Проверка вставленных пар за месяц" — сколько часов по тарификации реально попало в
-     * расписание, и для нехватки — свободные слоты у того же препода/группы без накладок.
-     * Только для админа.
-     */
     @GetMapping("/hours/placement-audit")
     public ResponseEntity<?> placementAudit(
             @RequestParam(required = false) Integer academicYear,
@@ -686,8 +653,6 @@ public class ApiController {
         }
     }
 
-    // ==================== Schedule Management ====================
-
     @GetMapping("/schedule")
     public ResponseEntity<List<TeacherLoad>> getSchedule(
             @RequestParam(required = false) Integer year,
@@ -737,7 +702,6 @@ public class ApiController {
 
             TeacherLoad savedLoad = loadRepository.save(load);
 
-            // Создаём monthly records для всех 12 месяцев
             monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
 
             return ResponseEntity.ok(savedLoad);
@@ -827,11 +791,6 @@ public class ApiController {
         return ResponseEntity.ok().build();
     }
 
-    /**
-     * Полный снос расписания или снос по фильтру: только конкретный день недели,
-     * только конкретная учебная неделя, либо пересечение обоих условий. Без параметров
-     * dayOfWeek/academicWeek сносит весь учебный год целиком.
-     */
     @PostMapping("/schedule/wipe")
     public ResponseEntity<?> wipeSchedule(
             @RequestParam(name = "academicYear", required = false) Integer academicYear,
@@ -861,12 +820,6 @@ public class ApiController {
         }
     }
 
-    /**
-     * ПОЛНЫЙ СНОС БД, КРОМЕ ВХОДА АДМИНИСТРАТОРОВ — только для тестирования (тестового цикла
-     * "снести всё -> заново импортировать -> заново сгенерировать расписание", не теряя
-     * возможность зайти в систему). Требует явного подтверждения параметром
-     * {@code confirm=WIPE}, чтобы случайный вызов не мог снести боевые данные.
-     */
     @PostMapping("/admin/wipe-all-except-admins")
     public ResponseEntity<?> wipeAllExceptAdmins(
             @RequestParam(name = "confirm", required = false) String confirm,
@@ -888,12 +841,6 @@ public class ApiController {
         }
     }
 
-    /**
-     * Одноразовая очистка нагрузок, у которых группа и/или дисциплина — слитное
-     * название нескольких значений через запятую/`;` (данные, оставшиеся с импорта
-     * до появления автоматического разбиения таких ячеек). Безопасно вызывать
-     * повторно — если слитных названий не осталось, просто ничего не делает.
-     */
     @PostMapping("/admin/cleanup/split-merged-names")
     public ResponseEntity<?> splitMergedGroupsAndDisciplines(Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -907,8 +854,6 @@ public class ApiController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
-
-    // ==================== Curatorship Management ====================
 
     @PostMapping("/curatorships")
     public ResponseEntity<?> assignCuratorship(
@@ -930,13 +875,11 @@ public class ApiController {
             StudyGroup group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
 
-            // Проверяем, есть ли уже такое кураторство у этого преподавателя для этой группы
             var existing = curatorshipRepository.findByTeacherIdAndGroupId(teacherId, groupId);
             if (existing.isPresent()) {
                 return ResponseEntity.badRequest().body("Этот преподаватель уже является куратором данной группы");
             }
 
-            // Проверяем, нет ли уже другого куратора у этой группы (один куратор на группу)
             var existingCurators = curatorshipRepository.findByGroupId(groupId);
             if (!existingCurators.isEmpty()) {
                 return ResponseEntity.badRequest().body("У этой группы уже есть куратор. Одна группа может иметь только одного преподавателя-куратора.");
@@ -1010,7 +953,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав: админ или преподаватель, которому принадлежит это curatorship
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1038,7 +980,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1065,7 +1006,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1096,7 +1036,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1124,7 +1063,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1151,7 +1089,6 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
-        // Проверка прав
         if (user.getRole() != User.Role.ADMIN) {
             Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
             if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
@@ -1170,8 +1107,6 @@ public class ApiController {
 
         return ResponseEntity.ok(curatorship);
     }
-
-    // ==================== Groups Management ====================
 
     @GetMapping("/admin/groups")
     public ResponseEntity<List<StudyGroup>> getAllGroups(Authentication authentication) {
@@ -1228,8 +1163,6 @@ public class ApiController {
         if (body.containsKey("specialty")) {
             group.setSpecialty(body.get("specialty").toString());
         }
-        // Обед этой конкретной группы — либо "HH:mm" (задаём/меняем), либо null
-        // (очищаем override, группа вернётся на общий обед потока, если он настроен).
         if (body.containsKey("lunchStart") || body.containsKey("lunchEnd")) {
             Object startVal = body.get("lunchStart");
             Object endVal = body.get("lunchEnd");
@@ -1242,14 +1175,13 @@ public class ApiController {
                 return ResponseEntity.badRequest().build();
             }
             if ((group.getLunchStart() == null) != (group.getLunchEnd() == null)) {
-                return ResponseEntity.badRequest().build(); // оба поля или оба пустые
+                return ResponseEntity.badRequest().build();
             }
         }
 
         return ResponseEntity.ok(groupRepository.save(group));
     }
 
-    /** Общий обед для всего потока по умолчанию — используется группами без своего override. */
     @GetMapping("/admin/settings/lunch")
     public ResponseEntity<?> getGlobalLunch(Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -1307,8 +1239,6 @@ public class ApiController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
-
-    // ==================== Disciplines Management ====================
 
     @GetMapping("/admin/disciplines")
     public ResponseEntity<List<Discipline>> getAllDisciplines(Authentication authentication) {
@@ -1383,8 +1313,6 @@ public class ApiController {
         }
     }
 
-    // ==================== Schedule (Pairs) Management ====================
-
     @GetMapping("/pairs")
     public ResponseEntity<List<Schedule>> getPairs(
             @RequestParam(required = false) Integer year,
@@ -1418,12 +1346,6 @@ public class ApiController {
         }
     }
 
-    /**
-     * Актуальные замены преподавателей (недавние/предстоящие) — для подсветки пары
-     * в расписании другим цветом и показа фактического преподавателя вместо
-     * исходного. "Актуальные" = дата занятия не старше 7 дней назад и не дальше
-     * 30 дней вперёд, чтобы старые давно прошедшие замены не подсвечивались вечно.
-     */
     @GetMapping("/pairs/substitutions")
     public ResponseEntity<List<SubstitutionInfoDto>> getActiveSubstitutions(
             @RequestParam(required = false) Integer year) {
@@ -1445,12 +1367,6 @@ public class ApiController {
         return ResponseEntity.ok(result);
     }
 
-    /**
-     * Расписание на месяц: раскрытые по датам занятия за выбранный календарный месяц
-     * (year/month — обычный год/месяц, например 2026/8), с наложенными заменами
-     * преподавателей (см. MonthScheduleService). Опционально фильтруется по
-     * преподавателю или группе.
-     */
     @GetMapping("/schedule/month")
     public ResponseEntity<List<com.karyakina.schedule.dto.MonthLessonDto>> getMonthSchedule(
             @RequestParam int year,
@@ -1475,14 +1391,12 @@ public class ApiController {
         }
 
         try {
-            // Пробуем получить teacherLoadId напрямую
             Object teacherLoadIdObj = body.get("teacherLoadId");
             Long teacherLoadId = null;
 
             if (teacherLoadIdObj != null) {
                 teacherLoadId = Long.valueOf(teacherLoadIdObj.toString());
             } else {
-                // Если teacherLoadId нет, пробуем найти по teacherId, groupId, disciplineId
                 Object teacherIdObj = body.get("teacherId");
                 Object groupIdObj = body.get("groupId");
                 Object disciplineIdObj = body.get("disciplineId");
@@ -1542,17 +1456,12 @@ public class ApiController {
                 notifyEx.printStackTrace();
             }
             try {
-                // Помесячный учёт считается по факту от реального расписания —
-                // пересчитываем сразу, а не оставляем нули до следующего импорта.
                 monthlyRecordService.recalculateHoursForLoad(teacherLoadId);
             } catch (Exception syncEx) {
                 syncEx.printStackTrace();
             }
             return ResponseEntity.ok(created);
         } catch (IllegalStateException validationError) {
-            // Осознанное бизнес-ограничение (например, лимит 18 пар/нед у группы) —
-            // это не поломка, а отказ по правилам; сообщение должно дойти до администратора,
-            // а не тихо превратиться в пустой 400 без объяснения.
             return ResponseEntity.badRequest().body(Map.of("error", validationError.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
@@ -1646,16 +1555,12 @@ public class ApiController {
 
             return ResponseEntity.ok(updated);
         } catch (IllegalStateException validationError) {
-            // Реальная накладка (препод/группа/аудитория заняты) или лимит 18 пар/нед —
-            // осознанный отказ по правилам, сообщение должно дойти до администратора.
             return ResponseEntity.badRequest().body(Map.of("error", validationError.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();
         }
     }
-
-    // ==================== Sick Leave Management ====================
 
     @GetMapping("/sick-leaves")
     public ResponseEntity<List<SickLeave>> getSickLeaves(Authentication authentication) {
@@ -1696,7 +1601,6 @@ public class ApiController {
                     .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
             LocalDate startDate = LocalDate.parse(body.get("startDate").toString());
             LocalDate endDate = LocalDate.parse(body.get("endDate").toString());
-            // Причина: всегда передаём, даже если пустая
             String reason = body.get("reason") != null ? body.get("reason").toString() : "";
             Integer academicYear = Integer.valueOf(body.get("academicYear").toString());
 
@@ -1710,13 +1614,9 @@ public class ApiController {
 
             SickLeave saved = sickLeaveRepository.save(sickLeave);
 
-            // МОДУЛЬ ФОРС-МАЖОРОВ: сразу ищем замену на все затронутые пары
             try {
                 substitutionService.handleNewSickLeave(saved);
             } catch (Exception ex) {
-                // Не блокируем регистрацию больничного, если подбор замены не удался,
-                // но НЕ скрываем это от администрации — раньше исключение просто уходило
-                // в лог сервера и снаружи выглядело так, будто вообще ничего не произошло.
                 ex.printStackTrace();
                 try {
                     notificationService.notifyAdmins(
@@ -1732,9 +1632,6 @@ public class ApiController {
                 }
             }
 
-            // МОДУЛЬ АВТОСОСТАВЛЕНИЯ: структурированный переезд/замена пар за период больничного
-            // (не заменяет substitutionService выше, а дополняет его результатом с диагностикой
-            // для тех пар, где обычный подбор замены не сработал)
             try {
                 sickLeaveReschedulingService.handleTeacherSickLeave(
                         saved.getTeacher().getId(), saved.getStartDate(), saved.getEndDate());
@@ -1760,7 +1657,6 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
-        // Сначала связанные заявки на замену и уведомления (FK)
         List<SubstitutionRequest> related = substitutionRequestRepository.findBySickLeaveId(id);
         for (SubstitutionRequest req : related) {
             if (req.getId() != null) {

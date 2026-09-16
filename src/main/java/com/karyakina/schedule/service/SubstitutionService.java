@@ -15,13 +15,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * МОДУЛЬ ОБРАБОТКИ ФОРС-МАЖОРОВ И АВТОМАТИЧЕСКОЙ ЗАМЕНЫ.
- *
- * При регистрации {@link SickLeave} для каждого затронутого занятия сразу подбирается
- * лучший кандидат и замена применяется в расписании. Уведомления уходят:
- * заболевшему, заменяющему и администрации.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -36,20 +29,14 @@ public class SubstitutionService {
     private final ScheduleRepository scheduleRepository;
     private final NotificationService notificationService;
 
-    /** Горизонт поиска свободного дня для автопереноса пары (в календарных днях после конца больничного). */
     private static final int RESCHEDULE_SEARCH_HORIZON_DAYS = 21;
 
-    /**
-     * Точка входа: больничный/форс-мажор зарегистрирован.
-     * Находит занятия в диапазоне дат, назначает замену и рассылает уведомления.
-     */
     @Transactional
     public void handleNewSickLeave(SickLeave sickLeave) {
         Integer academicYear = sickLeave.getAcademicYear();
         String reasonLabel = (sickLeave.getReason() == null || sickLeave.getReason().isBlank())
                 ? "больничный" : sickLeave.getReason();
 
-        // INFO — гарантированно проходит старый PostgreSQL CHECK; SICK_LEAVE тоже ок после SchemaConstraintFixer
         notificationService.notifyAdmins(
                 Notification.Type.INFO,
                 "Отсутствие преподавателя: " + sickLeave.getTeacher().getFullName(),
@@ -87,10 +74,6 @@ public class SubstitutionService {
         }
     }
 
-    /**
-     * Сразу назначает лучшего кандидата (без ожидания подтверждения), обновляет занятие
-     * и уведомляет обоих преподавателей и администрацию.
-     */
     @Transactional
     public void autoAssignReplacement(LessonInstance instance, SickLeave sickLeave, Set<Long> excludeTeacherIds) {
         List<Candidate> candidates = findCandidates(instance, excludeTeacherIds);
@@ -152,9 +135,6 @@ public class SubstitutionService {
                 request.getId());
     }
 
-    /**
-     * Подбирает следующего кандидата (ручной/повторный сценарий после отказа).
-     */
     @Transactional
     public void proposeNextCandidate(LessonInstance instance, SickLeave sickLeave, Set<Long> excludeTeacherIds) {
         List<Candidate> candidates = findCandidates(instance, excludeTeacherIds);
@@ -270,7 +250,6 @@ public class SubstitutionService {
         LessonInstance instance = lessonInstanceRepository.findById(request.getLessonInstance().getId())
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено"));
 
-        // После отказа сразу назначаем следующего кандидата автоматически
         autoAssignReplacement(instance, request.getSickLeave(), alreadyProposed);
 
         return request;
@@ -284,18 +263,6 @@ public class SubstitutionService {
         return substitutionRequestRepository.findAllByOrderByCreatedAtDesc();
     }
 
-    /**
-     * Замену найти не удалось (findCandidates вернул пустой список). Прежде чем сдаться,
-     * пробуем ПЕРЕНЕСТИ пару на другой свободный день в пределах {@link #RESCHEDULE_SEARCH_HORIZON_DAYS}
-     * дней после окончания больничного — на исходного преподавателя (он к тому моменту уже
-     * здоров), в то же время дня и по возможности в ту же аудиторию. Если это тоже не
-     * получилось — уведомляем администрацию тремя конкретными вариантами действий, каждый
-     * из которых уже реализован как метод сервиса (см. {@link LessonInstanceService}):
-     *   1) отменить занятие              -> LessonInstanceService.cancelInstance(...)
-     *   2) поставить самостоятельную работу -> LessonInstanceService.markIndependentWork(...)
-     *   3) назначить преподавателя вручную  -> LessonInstanceService.replaceInstance(...)
-     * (см. новый LessonInstanceAdminController — эти три действия доступны как REST-эндпоинты).
-     */
     @Transactional
     public void resolveOrReportConflict(LessonInstance instance, SickLeave sickLeave) {
         if (tryRescheduleToFreeDay(instance, sickLeave)) {
@@ -319,17 +286,6 @@ public class SubstitutionService {
                 null);
     }
 
-    /**
-     * Ищет свободный день (группа, преподаватель и аудитория свободны) в том же временном
-     * слоте, что и исходная пара, начиная со дня, следующего за концом больничного. При
-     * успехе создаёт одноразовую запись {@link Schedule} (academicWeek = конкретная неделя,
-     * а не "каждую неделю"), генерирует по ней занятие на найденную дату и отменяет исходное
-     * (PLANNED) занятие с пометкой о переносе. Преподаватель НЕ меняется — переносится время.
-     *
-     * Упрощение: если аудитория исходной пары в подходящий день занята — просто переходим
-     * к следующему дню, а не подбираем другую аудиторию (полный подбор аудиторий — в
-     * ScheduleGeneratorService; дублировать его здесь ради редкого краевого случая избыточно).
-     */
     private boolean tryRescheduleToFreeDay(LessonInstance instance, SickLeave sickLeave) {
         Schedule originalSchedule = instance.getSchedule();
         var load = originalSchedule.getTeacherLoad();
@@ -344,8 +300,6 @@ public class SubstitutionService {
             if (date.getDayOfWeek() == DayOfWeek.SUNDAY) continue;
             if (date.equals(instance.getLessonDate())) continue;
 
-            // Идемпотентно материализуем занятия этого дня (как это уже делает
-            // handleNewSickLeave), чтобы честно проверить занятость по факту, а не по шаблону.
             List<LessonInstance> dayInstances = lessonInstanceService.generateInstancesForDate(date, academicYear);
 
             boolean groupBusy = dayInstances.stream()
@@ -379,7 +333,7 @@ public class SubstitutionService {
                     .startTime(originalSchedule.getStartTime())
                     .endTime(originalSchedule.getEndTime())
                     .classroom(classroom)
-                    .academicWeek(targetWeek) // только эта конкретная неделя, не "каждую неделю"
+                    .academicWeek(targetWeek)
                     .academicYear(academicYear)
                     .build();
             scheduleRepository.save(makeup);

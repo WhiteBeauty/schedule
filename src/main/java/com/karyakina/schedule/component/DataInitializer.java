@@ -34,11 +34,6 @@ public class DataInitializer implements CommandLineRunner {
     @org.springframework.beans.factory.annotation.Value("${app.initial-admin-password:admin123}")
     private String initialAdminPassword;
 
-    /**
-     * Гарантированный администратор: создаётся при каждом старте приложения, если
-     * пользователь с этим email отсутствует в БД (например, после полного сноса базы).
-     * Таким образом не приходится заново регистрировать администратора вручную.
-     */
     private static final String GUARANTEED_ADMIN_EMAIL = "elizabethrk@yandex.ru";
     private static final String GUARANTEED_ADMIN_USERNAME = "elizabethrk";
     private static final String GUARANTEED_ADMIN_PASSWORD = "123456";
@@ -47,35 +42,15 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         log.info("Initializing application data...");
 
-        // Гарантированный админ создаётся всегда, независимо от наличия остальных данных.
         ensureAdminExists();
 
-        // Подстраховка: гарантируем, что у ВСЕХ существующих нагрузок (независимо от того,
-        // когда и как они были созданы — сид, импорт, ручное добавление) есть 12 строк
-        // помесячного учёта. Идемпотентно: пропускает нагрузки, у которых записи уже есть.
-        // Это чинит "помесячный учёт не показывается" для БД, где нагрузки уже существовали
-        // до появления этого вызова.
         monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
-        // Проверяем, есть ли уже данные. Раньше проверялось только количество преподавателей —
-        // но после "снести всё, кроме входа админов" (AdminDeletionService.wipeAllExceptAdmins,
-        // предназначено для тестового цикла) teacherRepository.count() снова становится 0, хотя
-        // администратор(ы) сознательно сохранены. Без доп. проверки код решал, что это "первый
-        // запуск на пустой базе", и пытался заново создать демо-админа admin@example.com —
-        // тот уже существовал (был сохранён при сносе), вставка падала с нарушением уникального
-        // ограничения по email, и всё приложение не поднималось. Проверка на существование
-        // admin@example.com (он же переживает снос — это ADMIN) отличает "правда фреш инсталл"
-        // от "снесли данные, но админа оставили".
         if (teacherRepository.count() > 0 || userRepository.findByEmail("admin@example.com").isPresent()) {
             log.info("Data already exists, skipping initialization");
             return;
         }
 
-        // Создаём единственного супер-администратора. Пароль берётся из
-        // app.initial-admin-password (переменная окружения INITIAL_ADMIN_PASSWORD) —
-        // см. application.properties. Дальнейшие администраторы назначаются только
-        // через /admin/users действующим администратором (см. UserAdminService),
-        // самостоятельная регистрация с ролью ADMIN невозможна.
         User admin = User.builder()
                 .username("admin")
                 .email("admin@example.com")
@@ -94,7 +69,6 @@ public class DataInitializer implements CommandLineRunner {
             log.warn("=====================================================================");
         }
 
-        // Создаём преподавателей
         Teacher teacher1 = Teacher.builder()
                 .fullName("Иванов Иван Иванович")
                 .department("Математика")
@@ -164,7 +138,6 @@ public class DataInitializer implements CommandLineRunner {
         teacher3.setUser(user3);
         teacherRepository.save(teacher3);
 
-        // Создаём группы
         StudyGroup group1 = StudyGroup.builder().name("ИТ-101").course(1).specialty("Информационные технологии").build();
         group1 = groupRepository.save(group1);
         StudyGroup group2 = StudyGroup.builder().name("ИТ-201").course(2).specialty("Информационные технологии").build();
@@ -174,7 +147,6 @@ public class DataInitializer implements CommandLineRunner {
         StudyGroup group4 = StudyGroup.builder().name("П-201").course(2).specialty("Программирование").build();
         group4 = groupRepository.save(group4);
 
-        // Создаём дисциплины
         Discipline disc1 = Discipline.builder().name("Математический анализ").code("MA.101").build();
         disc1 = disciplineRepository.save(disc1);
         Discipline disc2 = Discipline.builder().name("Программирование на Java").code("CS.201").build();
@@ -190,10 +162,8 @@ public class DataInitializer implements CommandLineRunner {
 
         Integer academicYear = AcademicYearUtil.getCurrentAcademicYearStart();
 
-        // Создаём нагрузки (TeacherLoad)
         List<TeacherLoad> loads = new ArrayList<>();
 
-        // Иванов - Математический анализ для ИТ-101
         TeacherLoad load1 = TeacherLoad.builder()
                 .teacher(teacher1)
                 .group(group1)
@@ -208,7 +178,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load1));
 
-        // Иванов - Линейная алгебра для П-101
         TeacherLoad load2 = TeacherLoad.builder()
                 .teacher(teacher1)
                 .group(group3)
@@ -223,7 +192,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load2));
 
-        // Петрова - Физика для ИТ-101
         TeacherLoad load3 = TeacherLoad.builder()
                 .teacher(teacher2)
                 .group(group1)
@@ -238,7 +206,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load3));
 
-        // Петрова - Физика для П-201
         TeacherLoad load4 = TeacherLoad.builder()
                 .teacher(teacher2)
                 .group(group4)
@@ -253,7 +220,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load4));
 
-        // Сидоров - Программирование на Java для ИТ-201
         TeacherLoad load5 = TeacherLoad.builder()
                 .teacher(teacher3)
                 .group(group2)
@@ -268,7 +234,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load5));
 
-        // Сидоров - Базы данных для ИТ-201
         TeacherLoad load6 = TeacherLoad.builder()
                 .teacher(teacher3)
                 .group(group2)
@@ -283,7 +248,6 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load6));
 
-        // Сидоров - Операционные системы для П-201
         TeacherLoad load7 = TeacherLoad.builder()
                 .teacher(teacher3)
                 .group(group4)
@@ -298,10 +262,8 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         loads.add(loadRepository.save(load7));
 
-        // Создаём расписание пар (Schedule)
         List<Schedule> schedules = new ArrayList<>();
 
-        // Иванов - Матанализ, ИТ-101
         schedules.add(Schedule.builder()
                 .teacherLoad(load1)
                 .dayOfWeek(DayOfWeek.MONDAY)
@@ -330,7 +292,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Иванов - Линейная алгебра, П-101
         schedules.add(Schedule.builder()
                 .teacherLoad(load2)
                 .dayOfWeek(DayOfWeek.TUESDAY)
@@ -350,7 +311,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Петрова - Физика, ИТ-101
         schedules.add(Schedule.builder()
                 .teacherLoad(load3)
                 .dayOfWeek(DayOfWeek.MONDAY)
@@ -370,7 +330,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Петрова - Физика, П-201
         schedules.add(Schedule.builder()
                 .teacherLoad(load4)
                 .dayOfWeek(DayOfWeek.TUESDAY)
@@ -390,7 +349,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Сидоров - Java, ИТ-201
         schedules.add(Schedule.builder()
                 .teacherLoad(load5)
                 .dayOfWeek(DayOfWeek.MONDAY)
@@ -419,7 +377,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Сидоров - Базы данных, ИТ-201
         schedules.add(Schedule.builder()
                 .teacherLoad(load6)
                 .dayOfWeek(DayOfWeek.THURSDAY)
@@ -439,7 +396,6 @@ public class DataInitializer implements CommandLineRunner {
                 .academicYear(academicYear)
                 .build());
 
-        // Сидоров - ОС, П-201
         schedules.add(Schedule.builder()
                 .teacherLoad(load7)
                 .dayOfWeek(DayOfWeek.FRIDAY)
@@ -461,12 +417,6 @@ public class DataInitializer implements CommandLineRunner {
 
         scheduleRepository.saveAll(schedules);
 
-        // Помесячный учёт (MonthlyRecord) для этих нагрузок создаётся вызовом
-        // monthlyRecordService.initializeMonthlyRecordsForAllLoads() ниже — все 12 месяцев
-        // с нулевыми часами. Реальные цифры появятся по мере подтверждения занятий
-        // (см. LessonInstanceService / ScheduleService.autoDeductHours), а не как фикстура.
-        // Вызываем ещё раз: при самом первом запуске на пустой БД вызов в начале run()
-        // ничего не сделал, т.к. этих нагрузок ещё не существовало.
         monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
         log.info("Application data initialization completed");
@@ -477,15 +427,6 @@ public class DataInitializer implements CommandLineRunner {
         log.info("Teacher 3 login: sidorov@example.com / teacher123");
     }
 
-    /**
-     * Гарантирует существование администратора {@link #GUARANTEED_ADMIN_EMAIL}:
-     * <ul>
-     *   <li>если пользователь отсутствует (в т.ч. после полного сноса БД) — создаёт его
-     *       с ролью ADMIN и паролем {@link #GUARANTEED_ADMIN_PASSWORD};</li>
-     *   <li>если пользователь существует, но был понижен — возвращает роль ADMIN
-     *       (пароль при этом НЕ перезаписывается, чтобы не отменять смену пароля в UI).</li>
-     * </ul>
-     */
     private void ensureAdminExists() {
         User admin = userRepository.findByEmail(GUARANTEED_ADMIN_EMAIL)
                 .orElseGet(() -> {

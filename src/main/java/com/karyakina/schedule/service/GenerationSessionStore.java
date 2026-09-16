@@ -17,14 +17,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Сессия автосоставления живёт между запросами: администратор запускает генерацию,
- * получает вопросы, отвечает на них, генерация повторяется с учётом ответов — и только
- * потом черновик фиксируется в расписании.
- *
- * <p>Хранится в памяти приложения: сессия — это черновик на несколько минут, а не данные,
- * которые нужно переживать перезапуск. Протухшие сессии убираются лениво, при обращении.
- */
 @Component
 public class GenerationSessionStore {
 
@@ -33,7 +25,6 @@ public class GenerationSessionStore {
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
-    /** Состояние одной сессии: исходный запрос + все принятые администратором решения. */
     public static final class Session {
         private final String id = UUID.randomUUID().toString();
         private final Instant createdAt = Instant.now();
@@ -42,31 +33,18 @@ public class GenerationSessionStore {
         private GenerationRequestDTO request;
         private Integer academicYear;
 
-        /** loadId -> утверждённые часы (ответ на расхождение файла и ручного ввода). */
         private final Map<Long, Integer> approvedHours = new HashMap<>();
-        /** loadId -> преподаватель, назначенный вручную. */
         private final Map<Long, Long> assignedTeachers = new HashMap<>();
-        /** Нагрузки, которые администратор решил не ставить в этом прогоне. */
         private final Set<Long> skippedLoads = new HashSet<>();
-        /** teacherId -> поднятый вручную недельный лимит часов. */
         private final Map<Long, Integer> teacherHourLimits = new HashMap<>();
-        /**
-         * Преподаватели, чей перегруз администратор осознанно принял («Ставить в пределах
-         * лимита, остаток — в предупреждения»). Без этого TEACHER_OVERLOAD поднимался бы
-         * заново на каждом прогоне (лимит и реальные часы не менялись), и расписание было
-         * бы невозможно сохранить — ни один ответ администратора не "гасил" вопрос.
-         */
         private final Set<Long> acknowledgedTeacherOverloads = new HashSet<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
         private Integer teacherMaxWeeklyHours;
 
-        /** Открытые вопросы по requestId — нужны, чтобы понять, к чему относится ответ. */
         private final Map<String, MissingResourceRequest> openIssues = new LinkedHashMap<>();
-        /** Последний черновик: то, что будет сохранено при фиксации. */
         private final List<SolverResult.PlacedPair> draft = new ArrayList<>();
-        /** Вопросы и предупреждения последнего прогона — чтобы не пересчитывать всё заново при фиксации. */
         private final List<MissingResourceRequest> lastIssues = new ArrayList<>();
         private final List<String> lastWarnings = new ArrayList<>();
         private final Map<String, Integer> lastMetrics = new LinkedHashMap<>();

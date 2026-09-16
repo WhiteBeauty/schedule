@@ -2,12 +2,6 @@ package com.karyakina.schedule.dto;
 
 import java.util.Map;
 
-/**
- * Ответ администратора на {@link MissingResourceRequest}: выбранный вариант + введённые значения.
- *
- * <p>Пример тела запроса:
- * {@code {"requestId":"9f1c...","actionCode":"USE_CUSTOM_HOURS","payload":{"hours":24}}}
- */
 public record ResolutionDecision(String requestId, String actionCode, Map<String, Object> payload) {
 
     public ResolutionDecision {

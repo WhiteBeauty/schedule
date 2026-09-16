@@ -6,11 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Снимок данных для одного прогона автосоставления. Здесь нет JPA-сущностей:
- * солвер чистый и тестируемый без БД, а перевод из {@code TeacherLoad}/{@code StudyGroup}/
- * {@code Teacher} делает {@code ScheduleGeneratorService}.
- */
 public record SolverInput(
         List<GroupRef> groups,
         List<TeacherRef> teachers,
@@ -19,12 +14,6 @@ public record SolverInput(
         SolverConfig config
 ) {
 
-    /**
-     * Учебная группа (монолит — пары ставятся на группу целиком).
-     *
-     * @param maxWeeklyPairs жёсткий лимит пар в неделю у группы (по ТЗ — 18)
-     * @param blockedSlots плоские индексы слотов, недоступных группе (обед, практика)
-     */
     public record GroupRef(long id, String name, int studentCount, int maxPairsPerDay, int maxWeeklyPairs,
                            Set<Integer> blockedSlots) {
         public GroupRef {
@@ -32,12 +21,6 @@ public record SolverInput(
         }
     }
 
-    /**
-     * Преподаватель.
-     *
-     * @param maxWeeklyPairs жёсткий лимит пар в неделю (36 ч / 2 ч = 18 пар)
-     * @param preferredDays  мягкое пожелание: индексы дней (0 = понедельник)
-     */
     public record TeacherRef(long id, String fullName, int maxPairsPerDay, int maxWeeklyPairs,
                              Set<Integer> preferredDays) {
         public TeacherRef {
@@ -45,12 +28,6 @@ public record SolverInput(
         }
     }
 
-    /**
-     * Потребность = одна запись нагрузки {@code TeacherLoad}: сколько пар в неделю
-     * поставить группе по дисциплине у конкретного преподавателя.
-     *
-     * @param academicHours часы, утверждённые к моменту генерации (после разбора расхождений)
-     */
     public record Demand(
             long loadId,
             long groupId,

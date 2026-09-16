@@ -45,7 +45,6 @@ public class PageController {
         Teacher teacher = user.getTeacher();
         if (teacher == null) {
             if (user.getRole() == User.Role.ADMIN) {
-                // Для ADMIN без учителя показываем пустую страницу
                 model.addAttribute("teacher", null);
                 model.addAttribute("year", year);
                 model.addAttribute("productivity", null);
@@ -97,7 +96,6 @@ public class PageController {
         if (teacher != null) {
             model.addAttribute("teacherId", teacher.getId());
         } else {
-            // ADMIN видит всех учителей
             model.addAttribute("teacherId", null);
         }
         return "schedule";
@@ -146,7 +144,6 @@ public class PageController {
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         model.addAttribute("defaultYear", AcademicYearUtil.getCurrentAcademicYearStart());
 
-        // Для админа показываем страницу управления кураторством
         if (user.getRole() == User.Role.ADMIN) {
             return "curatorship-admin";
         }
@@ -313,7 +310,6 @@ public class PageController {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
-        // ADMIN не требует учителя
         if (user.getRole() == User.Role.ADMIN) {
             return null;
         }

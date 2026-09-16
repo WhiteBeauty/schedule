@@ -10,11 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * "Администратор не создаётся сам — администратор назначается". Единственный способ
- * получить права ADMIN — чтобы их выдал уже действующий администратор через этот сервис.
- * Каждое повышение/понижение фиксируется в AuditLog: кто, кого и когда.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -37,7 +32,7 @@ public class UserAdminService {
                 .orElseThrow(() -> new RuntimeException("Пользователь не найден: " + userId));
 
         if (target.getRole() == User.Role.ADMIN) {
-            return target; // уже администратор, ничего не делаем
+            return target;
         }
 
         target.setRole(User.Role.ADMIN);
@@ -59,7 +54,7 @@ public class UserAdminService {
                 .orElseThrow(() -> new RuntimeException("Пользователь не найден: " + userId));
 
         if (target.getRole() != User.Role.ADMIN) {
-            return target; // уже не администратор
+            return target;
         }
 
         if (target.getId().equals(actor.getId())) {

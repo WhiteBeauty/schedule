@@ -49,7 +49,6 @@ public class TeacherLoadService {
                 .filter(l -> l.getTeacher() != null)
                 .collect(Collectors.groupingBy(l -> l.getTeacher().getId()));
 
-        // Рассчитываем целевое значение на текущую дату
         int progress = calculateAcademicYearProgress();
         double targetProgress = Math.min(progress * 100, 100);
 
@@ -59,9 +58,6 @@ public class TeacherLoadService {
             double totalPlan = teacherLoads.stream().mapToInt(TeacherLoad::getPlannedHours).sum();
             double totalRead = teacherLoads.stream().mapToInt(TeacherLoad::getReadHours).sum();
 
-            // Кураторские часы (см. Curatorship): plan = запланировано на год,
-            // factual = количество проведённых кураторских часов = количество записей
-            // в журнале (logs) — раньше эти часы вообще нигде не учитывались.
             List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
             double curatorshipPlan = curatorships.stream()
                     .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
@@ -75,7 +71,6 @@ public class TeacherLoadService {
                     .filter(cp -> cp.getStatus() == ControlPoint.ControlPointStatus.ON_TIME)
                     .count();
 
-            // Точность учёта (100 - процент корректировок)
             long totalAdjustments = teacherLoads.stream()
                     .mapToLong(l -> l.getMonthlyRecords().stream()
                             .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
@@ -91,10 +86,8 @@ public class TeacherLoadService {
             double planCompletion = computePlanCompletion(
                     teacherLoads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, progress);
 
-            // Своевременность контрольных точек
             double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
 
-            // Итоговая продуктивность: план 50%, своевременность 30%, точность 20%
             double index = (planCompletion * 0.5) + (timeliness * 0.3) + (accuracy * 0.2);
             index = Math.round(Math.max(0, Math.min(100, index)) * 100.0) / 100.0;
 
@@ -132,18 +125,6 @@ public class TeacherLoadService {
         return result;
     }
 
-    /**
-     * "Выполнение плана" считается не как простое readHours/plannedHours за ВЕСЬ год
-     * (это давало заниженный/оторванный от реальности процент в начале года и
-     * завышенный в конце вне зависимости от того, сколько пар РЕАЛЬНО уже должно
-     * было пройти), а относительно ОЖИДАЕМЫХ на сегодняшний день часов — тех, что
-     * уже должны были состояться по факту еженедельного расписания
-     * (см. MonthlyRecordService.recalculateHoursForLoad, который считает эти часы
-     * из реальных пар в Schedule). Плюс сюда же добавляются кураторские часы.
-     * Если расписание ещё не сгенерировано (expectedToDate == 0), используем долю
-     * от годового плана по проценту прошедшего учебного года как разумный запасной
-     * вариант, чтобы не показывать искусственный 0%.
-     */
     private double computePlanCompletion(List<TeacherLoad> teacherLoads, double totalPlan, double totalRead,
                                           double curatorshipPlan, double curatorshipDone, int yearProgressPercent) {
         double expectedTeachingToDate = computeExpectedHoursToDate(teacherLoads);
@@ -158,13 +139,6 @@ public class TeacherLoadService {
         return expectedToDate > 0 ? Math.min(150, (actualToDate / expectedToDate) * 100) : 0;
     }
 
-    /**
-     * Сколько часов преподавания УЖЕ ДОЛЖНО было состояться к сегодняшнему дню по
-     * факту реального расписания (не по среднегодовой доле, а по конкретным дням
-     * недели пар в MonthlyRecord.hours, которые в свою очередь посчитаны из Schedule).
-     * Полностью прошедшие месяцы считаются целиком, текущий месяц — пропорционально
-     * прошедшим дням.
-     */
     private double computeExpectedHoursToDate(List<TeacherLoad> teacherLoads) {
         LocalDate today = LocalDate.now();
         double total = 0;
@@ -183,7 +157,6 @@ public class TeacherLoadService {
                     double fraction = today.getDayOfMonth() / (double) monthStart.lengthOfMonth();
                     total += hours * fraction;
                 }
-                // будущие месяцы (ещё не наступили) в ожидаемое "на сегодня" не входят
             }
         }
         return total;
@@ -194,16 +167,11 @@ public class TeacherLoadService {
         int currentYear = today.getYear();
         int currentMonth = today.getMonthValue();
 
-        // Реальные границы текущего учебного года (сентябрь — май) считаются здесь
-        // отдельно от AcademicYearUtil: там "текущий год" — это год, который показывают
-        // в интерфейсе (совпадает с календарным), а прогресс должен отражать фактическое
-        // положение в учебном цикле сентябрь-май независимо от того, какой год выбран
-        // для фильтрации данных.
         int startYear = currentMonth >= 9 ? currentYear : currentYear - 1;
-        int startMonth = 9; // Сентябрь
+        int startMonth = 9;
 
         LocalDate startDate = LocalDate.of(startYear, startMonth, 1);
-        LocalDate endDate = startDate.plusMonths(9); // Май
+        LocalDate endDate = startDate.plusMonths(9);
 
         if (today.isBefore(startDate)) {
             return 0;
@@ -238,7 +206,6 @@ public class TeacherLoadService {
                         .build()
         ).toList();
 
-        // Динамика по месяцам (сентябрь - август)
         Map<String, Integer> monthMap = new LinkedHashMap<>();
         List<Month> academicMonths = List.of(
                 Month.SEPTEMBER, Month.OCTOBER, Month.NOVEMBER, Month.DECEMBER,
@@ -294,7 +261,6 @@ public class TeacherLoadService {
                 .orElseThrow(() -> new NoSuchElementException("Teacher not found: " + teacherId));
         List<TeacherLoad> loads = loadRepository.findByTeacherIdAndAcademicYear(teacherId, year);
 
-        // Продуктивность по новой формуле
         double totalPlan = loads.stream().mapToInt(TeacherLoad::getPlannedHours).sum();
         double totalRead = loads.stream().mapToInt(TeacherLoad::getReadHours).sum();
 
@@ -304,7 +270,6 @@ public class TeacherLoadService {
                 .filter(cp -> cp.getStatus() == ControlPoint.ControlPointStatus.ON_TIME)
                 .count();
 
-        // Точность учёта
         long totalAdjustments = loads.stream()
                 .mapToLong(l -> l.getMonthlyRecords().stream()
                         .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
@@ -324,14 +289,11 @@ public class TeacherLoadService {
         double curatorshipDone = curatorships.stream()
                 .mapToInt(c -> c.getLogs() != null ? c.getLogs().size() : 0).sum();
 
-        // Процент выполнения плана — по факту от расписания на сегодняшний день + кураторские часы
         double planCompletion = computePlanCompletion(
                 loads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, academicYearProgress);
 
-        // Своевременность контрольных точек
         double timeliness = totalCp > 0 ? ((double) onTimeCp / totalCp) * 100 : 100;
 
-        // Итоговая продуктивность: план 50%, своевременность 30%, точность 20%
         double index = (planCompletion * 0.5) + (timeliness * 0.3) + (accuracy * 0.2);
         index = Math.round(Math.max(0, Math.min(100, index)) * 100.0) / 100.0;
 
@@ -348,7 +310,6 @@ public class TeacherLoadService {
             color = "danger";
         }
 
-        // Рассчитываем целевое значение на текущую дату
         double targetProgress = academicYearProgress;
 
         DashboardDto.ProductivityBarDto productivity = DashboardDto.ProductivityBarDto.builder()
@@ -361,7 +322,6 @@ public class TeacherLoadService {
                 .accuracyPercent(Math.round(accuracy * 100.0) / 100.0)
                 .build();
 
-        // Нагрузка — строки таблицы
         List<DashboardDto.TeacherLoadRowDto> rows = loads.stream().map(l ->
                 DashboardDto.TeacherLoadRowDto.builder()
                         .id(l.getId())

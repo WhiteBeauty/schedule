@@ -5,13 +5,6 @@ import com.karyakina.schedule.domain.Schedule;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 
-/**
- * Одна пара из результата автосоставления — плоская, без ленивых JPA-прокси.
- * Сущность {@link Schedule} специально не отдаётся наружу: сериализация ленивых связей
- * при частично собранном черновике — источник «пустых» ошибок на фронтенде.
- *
- * @param scheduleId id записи расписания; {@code null}, пока черновик не сохранён
- */
 public record PlannedLessonDto(
         Long scheduleId,
         Long teacherLoadId,

@@ -1,17 +1,5 @@
-<!--
-  ФРАГМЕНТЫ МОДУЛЯ АВТОСОСТАВЛЕНИЯ.
-
-  Подключение в admin-schedule.html (см. INTEGRATION.md):
-    <div th:replace="~{fragments/generation-modal :: panel}"></div>
-    <div th:replace="~{fragments/generation-modal :: modal}"></div>
-    <script src="/js/schedule-generation.js"></script>
-
-  Разметка намеренно использует классы существующей темы (card, btn, badge, modal-overlay),
-  чтобы блок не выглядел чужеродным. Собственные стили — только для «стопки решений».
--->
 <div xmlns:th="http://www.thymeleaf.org">
 
-    <!-- ============================================ панель результата + больничный -->
     <div th:fragment="panel">
         <style>
             .gen-metrics { display:flex; flex-wrap:wrap; gap:1.25rem; margin-top:0.75rem; }
@@ -67,7 +55,6 @@
             </div>
         </div>
 
-        <!-- Форс-мажор: больничный преподавателя -->
         <div class="card" id="sickLeaveCard" style="margin-bottom:1.5rem;">
             <div class="card-header"><span class="card-title">🤒 Отсутствие преподавателя</span></div>
             <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
@@ -95,7 +82,6 @@
         </div>
     </div>
 
-    <!-- ============================================ модалка «стопка решений» -->
     <div th:fragment="modal">
         <div class="modal-overlay" id="genIssueModal">
             <div class="modal" style="max-width:620px">

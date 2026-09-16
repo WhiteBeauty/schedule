@@ -3,20 +3,6 @@ package com.karyakina.schedule.dto;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Единственный формат ответа автосоставления. Пустых ошибок и 500-х не бывает:
- * всё, что пошло не так, лежит в {@code missingData} с готовыми вариантами действий
- * либо в {@code warnings}.
- *
- * @param sessionId       идентификатор сессии — с ним отправляются решения администратора
- *                        (POST /api/schedule-generation/{sessionId}/resolve) и фиксация результата
- * @param status          OK / NEEDS_INPUT / PARTIAL / FAILED
- * @param successSchedule то, что удалось расставить (черновик или уже сохранённые пары)
- * @param missingData     вопросы администратору с вариантами действий
- * @param warnings        предупреждения, не требующие ответа
- *                        («У преподавателя Иванов И.И. осталось 2 нераспределённых часа нагрузки»)
- * @param metrics         сводка: окна, число пар, максимальная недельная нагрузка и т.д.
- */
 public record GenerationResultDTO(
         String sessionId,
         Status status,
@@ -28,13 +14,9 @@ public record GenerationResultDTO(
 ) {
 
     public enum Status {
-        /** Всё расставлено, вопросов нет. */
         OK,
-        /** Есть блокирующие вопросы — после ответа генерация повторится. */
         NEEDS_INPUT,
-        /** Часть пар не встала, блокирующих вопросов нет. */
         PARTIAL,
-        /** Техническая ошибка — причина в missingData, интерфейс покажет текст. */
         FAILED
     }
 

@@ -18,22 +18,6 @@ import java.time.LocalDate;
 import java.time.temporal.WeekFields;
 import java.util.*;
 
-/**
- * Экспорт расписания за календарный месяц в Excel — в виде печатной формы, привычной
- * учебной части: "УТВЕРЖДАЮ" в шапке, таблица "День недели / № урока" по строкам и
- * группы (название + № кабинета) по столбцам, один лист на календарную неделю месяца.
- * Формат подсмотрен в реальном расписании техникума (см. пример, приложенный к задаче) —
- * не претендует на побайтовое совпадение оформления, но повторяет структуру таблицы,
- * которую распечатывают и вешают на стенд/публикуют на сайте.
- *
- * <p>Источник данных — {@link Schedule} (недельный шаблон), а не {@code LessonInstance}:
- * это то же самое, что видит администратор на странице "Расписание пар", и то, что
- * реально приходит из автосоставления. Если у записи расписания задан конкретный
- * {@code academicWeek} (числитель/знаменатель), для каждой даты месяца подбирается
- * подходящая запись через {@link LessonInstanceService#computeAcademicWeek}; если для
- * пары в этот день недели есть только запись "на каждую неделю" (academicWeek == null),
- * используется она.
- */
 @Service
 @RequiredArgsConstructor
 public class ScheduleExportService {
@@ -47,10 +31,6 @@ public class ScheduleExportService {
             "июля", "августа", "сентября", "октября", "ноября", "декабря"
     };
 
-    /**
-     * @param academicYear учебный год записи (см. Schedule.academicYear / AcademicYearUtil)
-     * @param month        календарный месяц 1-12
-     */
     public byte[] exportMonth(int academicYear, int month, String orgName, String directorName) throws IOException {
         LocalDate monthStart = LocalDate.of(academicYear, month, 1);
         LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
@@ -59,7 +39,6 @@ public class ScheduleExportService {
         groups.sort(Comparator.comparing(StudyGroup::getName, Comparator.nullsLast(String::compareTo)));
 
         List<Schedule> schedules = scheduleRepository.findByAcademicYear(academicYear);
-        // Индекс для быстрого поиска: группа+день недели+№ пары -> все варианты (в т.ч. по неделям).
         Map<String, List<Schedule>> byGroupDayPair = new HashMap<>();
         for (Schedule s : schedules) {
             if (s.getTeacherLoad() == null || s.getTeacherLoad().getGroup() == null) continue;
@@ -74,11 +53,6 @@ public class ScheduleExportService {
 
             Styles styles = new Styles(workbook);
 
-            // Разбиваем месяц на календарные недели (понедельник-воскресенье), по одному листу
-            // на каждую неделю, пересекающуюся с месяцем — совсем как отдельные вкладки-недели
-            // в примере. В лист попадают только рабочие дни (WORK_DAYS), реально входящие
-            // в этот месяц (хвост недели за пределами месяца не показываем — он будет в
-            // соседнем месяце).
             LocalDate weekCursor = monthStart.with(WeekFields.ISO.getFirstDayOfWeek());
             int sheetIndex = 0;
             while (!weekCursor.isAfter(monthEnd)) {
@@ -101,8 +75,6 @@ public class ScheduleExportService {
             }
 
             if (workbook.getNumberOfSheets() == 0) {
-                // Пустой месяц (например, нет ни одной рабочей даты) — отдаём лист-заглушку,
-                // чтобы файл не был битым и было видно, что данных нет, а не что что-то сломалось.
                 Sheet sheet = workbook.createSheet("Нет данных");
                 sheet.createRow(0).createCell(0)
                         .setCellValue("На " + MONTH_GENITIVE[month] + " " + academicYear + " г. расписание не найдено.");
@@ -118,8 +90,6 @@ public class ScheduleExportService {
         LocalDate last = daysInMonth.get(daysInMonth.size() - 1);
         String raw = pad(first.getDayOfMonth()) + "." + pad(first.getMonthValue()) + "-"
                 + pad(last.getDayOfMonth()) + "." + pad(last.getMonthValue());
-        // Excel не разрешает : \ / ? * [ ] в названии листа и ограничивает длину 31 символом —
-        // наш формат их не использует, но на всякий случай подрежем длину.
         return raw.length() > 31 ? ("Неделя " + index) : raw;
     }
 
@@ -131,12 +101,11 @@ public class ScheduleExportService {
                                 Map<String, List<Schedule>> byGroupDayPair, int academicYear,
                                 String orgName, String directorName) {
         int pairsPerDay = GenerationGrid.pairsPerDay();
-        int groupCols = groups.size() * 2; // название/дисциплина + № кабинета на группу
-        int lastCol = 1 + groupCols; // col0 = День недели, col1 = № урока, далее группы
+        int groupCols = groups.size() * 2;
+        int lastCol = 1 + groupCols;
 
         int row = 0;
 
-        // ---- Гриф утверждения (сверху справа) ----
         Row approveRow = sheet.createRow(row);
         Cell approveCell = approveRow.createCell(Math.max(0, lastCol - 5));
         approveCell.setCellValue("УТВЕРЖДАЮ\n"
@@ -147,7 +116,6 @@ public class ScheduleExportService {
         sheet.addMergedRegion(new CellRangeAddress(row, row, Math.max(0, lastCol - 5), lastCol));
         row += 3;
 
-        // ---- Заголовок ----
         row = mergedTitleRow(sheet, styles, row, lastCol, "РАСПИСАНИЕ", styles.titleBig);
         row = mergedTitleRow(sheet, styles, row, lastCol,
                 "занятий учебных групп" + (orgName == null || orgName.isBlank() ? "" : " " + orgName), styles.titleSmall);
@@ -156,9 +124,8 @@ public class ScheduleExportService {
         row = mergedTitleRow(sheet, styles, row, lastCol, String.format("в период с «%d» %s по «%d» %s %d г.",
                 first.getDayOfMonth(), MONTH_GENITIVE[first.getMonthValue()],
                 last.getDayOfMonth(), MONTH_GENITIVE[last.getMonthValue()], last.getYear()), styles.titleSmall);
-        row++; // пустая строка-отступ
+        row++;
 
-        // ---- Шапка таблицы: 3 строки (название группы+кабинет / курс / "Учебная дисциплина") ----
         int headerTop = row;
         int headerBottom = row + 2;
         Row nameRow = sheet.createRow(headerTop);
@@ -170,7 +137,7 @@ public class ScheduleExportService {
         sheet.addMergedRegion(new CellRangeAddress(headerTop, headerBottom, 0, 0));
         sheet.addMergedRegion(new CellRangeAddress(headerTop, headerBottom, 1, 1));
         for (int r = headerTop; r <= headerBottom; r++) {
-            sheet.getRow(r); // гарантируем существование строк для стилей объединения
+            sheet.getRow(r);
         }
 
         for (int g = 0; g < groups.size(); g++) {
@@ -186,7 +153,6 @@ public class ScheduleExportService {
         }
         row = headerBottom + 1;
 
-        // ---- Тело таблицы: дата (одна строка) + пары дня ----
         for (LocalDate date : days) {
             int academicWeek = lessonInstanceService.computeAcademicWeek(date, academicYear);
             int dayIdx = GenerationGrid.dayIndex(date.getDayOfWeek());
@@ -203,8 +169,6 @@ public class ScheduleExportService {
             for (int pairIdx = 0; pairIdx < pairsPerDay; pairIdx++) {
                 Row lessonRow = sheet.createRow(row);
                 Cell lessonNumberCell = lessonRow.createCell(1);
-                // Нумерация "1, 3, 5, 7..." — как в примере: пара считается по номеру
-                // её первого академического часа (пара = 2 часа).
                 lessonNumberCell.setCellValue(pairIdx * 2 + 1);
                 lessonNumberCell.setCellStyle(styles.dataCellCenter);
 
@@ -234,26 +198,18 @@ public class ScheduleExportService {
         }
         sheet.createFreezePane(2, headerBottom + 1);
 
-        // ---- Настройки печати: без этого лист на 14+ групп (30 колонок) при печати/экспорте
-        // в PDF режется на десятки мелких фрагментов — по ширине и по высоте отдельно
-        // (обычный размер листа/масштаб 100% просто не вмещает столько столбцов). Прижимаем
-        // всю ширину таблицы к одной странице (альбомная ориентация, минимальные поля),
-        // а по высоте даём расписанию течь на сколько угодно страниц вниз — это нормально
-        // для целой недели.
         sheet.setFitToPage(true);
         PrintSetup printSetup = sheet.getPrintSetup();
         printSetup.setLandscape(true);
         printSetup.setFitWidth((short) 1);
         printSetup.setFitHeight((short) 0);
-        printSetup.setPaperSize(PrintSetup.A3_PAPERSIZE); // 14+ столбцов на A4 нечитаемо мелко
+        printSetup.setPaperSize(PrintSetup.A3_PAPERSIZE);
         sheet.setMargin(Sheet.LeftMargin, 0.3);
         sheet.setMargin(Sheet.RightMargin, 0.3);
         sheet.setMargin(Sheet.TopMargin, 0.4);
         sheet.setMargin(Sheet.BottomMargin, 0.4);
         sheet.setRepeatingRows(new CellRangeAddress(headerTop, headerBottom, -1, -1));
 
-        // Высота строк с переносом текста — без явной высоты Excel показывает такие ячейки
-        // обрезанными (например, гриф "УТВЕРЖДАЮ" в 4 строки или длинные названия дисциплин).
         approveRow.setHeightInPoints(60);
         for (int r = headerTop; r <= headerBottom; r++) {
             Row headerRowRef = sheet.getRow(r);
@@ -265,7 +221,6 @@ public class ScheduleExportService {
         }
     }
 
-    /** Выбирает подходящую запись: сперва — привязанную именно к этой учебной неделе, иначе — "на каждую неделю". */
     private Schedule pickSchedule(Map<String, List<Schedule>> byGroupDayPair, Long groupId, DayOfWeek dayOfWeek,
                                   int pairIdx, int academicWeek) {
         List<Schedule> candidates = byGroupDayPair.get(groupId + "|" + dayOfWeek + "|" + pairIdx);
@@ -302,7 +257,6 @@ public class ScheduleExportService {
         c.setCellStyle(style);
     }
 
-    /** Именованные стили, чтобы не плодить одинаковые объекты CellStyle на каждую ячейку. */
     private static final class Styles {
         final CellStyle titleBig;
         final CellStyle titleSmall;

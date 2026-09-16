@@ -25,8 +25,6 @@ public class Curatorship {
 
     private Integer hours;
 
-    /** Уникальность: одна группа — один куратор. Проверяется на уровне API. */
-
     @ElementCollection
     @CollectionTable(name = "curatorship_events", joinColumns = @JoinColumn(name = "curatorship_id"))
     @Column(name = "event")

@@ -12,13 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-/**
- * МОДУЛЬ ОБРАБОТКИ ФОРС-МАЖОРОВ И АВТОМАТИЧЕСКОЙ ЗАМЕНЫ.
- * Подбор кандидата запускается автоматически при создании больничного
- * (см. ApiController#createSickLeave -> SubstitutionService#handleNewSickLeave).
- * Этот контроллер отвечает за отклик кандидата (подтвердить/отклонить) и
- * просмотр заявок.
- */
 @RestController
 @RequestMapping("/api/substitutions")
 @RequiredArgsConstructor

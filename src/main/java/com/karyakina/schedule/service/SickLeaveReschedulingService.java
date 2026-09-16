@@ -34,30 +34,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * СЦЕНАРИЙ 2: АВТОМАТИЧЕСКАЯ РЕАКЦИЯ НА БОЛЬНИЧНЫЙ.
- *
- * <p>Точка входа — {@link #handleTeacherSickLeave(Long, LocalDate, LocalDate)}. Для каждой
- * затронутой пары по очереди пробуются два пути, и только если оба не сработали, вопрос
- * уходит администратору:
- * <ol>
- *   <li><b>Замена.</b> Среди преподавателей, ведущих эту же дисциплину (по {@code TeacherLoad}),
- *       ищем свободного в этот слот: не болеет, не занят другой парой, вписывается в дневной
- *       лимит. Побеждает тот, у кого больше остаток плановых часов — замена без переработки.
- *       Меняется только преподаватель, расписание группы остаётся прежним.</li>
- *   <li><b>Перенос.</b> Если замены нет — ищем «окно» группы: любой день после больничного и
- *       любую пару в сетке, где свободны группа, исходный преподаватель и хотя бы одна
- *       аудитория. Создаётся одноразовая запись расписания на конкретную неделю, исходное
- *       занятие отменяется с пометкой о переносе.</li>
- *   <li><b>Вопрос администратору.</b> Три варианта, каждый — существующий эндпоинт
- *       {@code LessonInstanceAdminController}: отменить пару, назначить самостоятельную работу,
- *       назначить преподавателя вручную.</li>
- * </ol>
- *
- * <p>Отличие от прежнего поведения: результат возвращается структурой {@link RescheduleResultDTO}
- * (её показывает интерфейс), перенос ищется по всем парам дня, а не только в тот же слот,
- * и аудитория подбирается заново, если прежняя занята.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -74,18 +50,9 @@ public class SickLeaveReschedulingService {
     private final LessonInstanceService lessonInstanceService;
     private final NotificationService notificationService;
 
-    /** Горизонт поиска свободного слота для переноса (календарных дней после окончания больничного). */
     private static final int RESCHEDULE_HORIZON_DAYS = 21;
     private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
 
-    /**
-     * Обрабатывает отсутствие преподавателя за период: ищет замены, переносит пары,
-     * а неразрешимое отдаёт администратору с вариантами действий. Исключений не бросает.
-     *
-     * @param teacherId преподаватель, который заболел
-     * @param startDate первый день отсутствия (включительно)
-     * @param endDate   последний день отсутствия (включительно)
-     */
     @Transactional
     public RescheduleResultDTO handleTeacherSickLeave(Long teacherId, LocalDate startDate, LocalDate endDate) {
         try {
@@ -133,7 +100,6 @@ public class SickLeaveReschedulingService {
                     unresolved.add(describeUnresolved(instance));
                     missing.add(unresolvedIssue(instance, teacher));
                 } catch (Exception perLesson) {
-                    // Одна проблемная пара не должна ронять обработку всего больничного.
                     log.error("Ошибка обработки пары {} при больничном преподавателя {}",
                             instance.getId(), teacherId, perLesson);
                     warnings.add("Пара " + instance.getLessonDate() + ": обработать автоматически не удалось ("
@@ -156,16 +122,9 @@ public class SickLeaveReschedulingService {
         }
     }
 
-    // ------------------------------------------------------------------ поиск замены
-
     private record Candidate(Teacher teacher, int priorityRank, String reason, boolean overload, int remainingHours) {
     }
 
-    /**
-     * Кандидаты на замену: сначала те, кто уже ведёт эту дисциплину, затем коллеги по кафедре.
-     * Проверяется реальная свободность в слоте: не болеет, не занят своей парой, есть запас
-     * по числу пар в день.
-     */
     private Candidate findBestSubstitute(LessonInstance instance, Teacher sickTeacher) {
         TeacherLoad originalLoad = instance.getSchedule().getTeacherLoad();
         if (originalLoad == null || originalLoad.getDiscipline() == null) {
@@ -203,7 +162,6 @@ public class SickLeaveReschedulingService {
             }
         }
 
-        // Лучший — с наибольшим остатком плановых часов: замена без переработки предпочтительнее.
         return candidates.stream()
                 .sorted(Comparator.comparingInt(Candidate::priorityRank)
                         .thenComparing(Comparator.comparingInt(Candidate::remainingHours).reversed()))
@@ -211,7 +169,6 @@ public class SickLeaveReschedulingService {
                 .orElse(null);
     }
 
-    /** Свободен ли преподаватель в это время: не болеет, не занят парой, есть запас пар в день. */
     private boolean isAvailable(Teacher candidate, LessonInstance instance, LocalDate date) {
         try {
             if (lessonInstanceService.isTeacherSickOnDate(candidate.getId(), date)) {
@@ -237,7 +194,6 @@ public class SickLeaveReschedulingService {
             return false;
         }
 
-        // Шаблон расписания тоже занимает время, даже если занятие ещё не материализовано.
         for (Schedule schedule : scheduleRepository.findByTeacherLoadTeacherIdAndAcademicYear(
                 candidate.getId(), instance.getAcademicYear())) {
             if (schedule.getDayOfWeek() != date.getDayOfWeek()) {
@@ -292,13 +248,6 @@ public class SickLeaveReschedulingService {
                 substitute.teacher().getFullName(), substitute.reason(), substitute.overload()));
     }
 
-    // ------------------------------------------------------------------ перенос пары
-
-    /**
-     * Ищет «окно» группы после больничного: перебираются все дни горизонта и все пары сетки.
-     * Свободными должны быть группа, исходный преподаватель и хотя бы одна аудитория.
-     * Предпочтение — ближайшая дата и то же время дня, что у исходной пары.
-     */
     private RescheduleResultDTO.Moved tryMoveToFreeSlot(LessonInstance instance, SickLeave sickLeave) {
         Schedule original = instance.getSchedule();
         TeacherLoad load = original.getTeacherLoad();
@@ -344,7 +293,7 @@ public class SickLeaveReschedulingService {
                         .startTime(start)
                         .endTime(end)
                         .classroom(room)
-                        .academicWeek(academicWeekOf(date, academicYear)) // только эта неделя, не «каждую»
+                        .academicWeek(academicWeekOf(date, academicYear))
                         .academicYear(academicYear)
                         .build());
                 lessonInstanceService.generateInstancesForDate(date, academicYear);
@@ -374,7 +323,6 @@ public class SickLeaveReschedulingService {
         return null;
     }
 
-    /** Сначала пробуем то же время дня, что и у исходной пары, потом остальные по порядку. */
     private List<Integer> pairSearchOrder(int preferredPairIdx) {
         List<Integer> order = new ArrayList<>();
         if (preferredPairIdx >= 0 && preferredPairIdx < GenerationGrid.pairsPerDay()) {
@@ -402,10 +350,6 @@ public class SickLeaveReschedulingService {
                 && overlaps(li.getSchedule().getStartTime(), li.getSchedule().getEndTime(), start, end));
     }
 
-    /**
-     * Свободная аудитория в этом слоте: сначала прежняя, потом минимальная достаточная
-     * по вместимости группы. Прежняя версия просто пропускала день, если исходная занята.
-     */
     private String pickFreeRoom(List<LessonInstance> active, TeacherLoad load, String preferredRoom,
                                 LocalTime start, LocalTime end) {
         Set<String> busy = new LinkedHashSet<>();
@@ -430,8 +374,6 @@ public class SickLeaveReschedulingService {
                 .orElse(null);
     }
 
-    // ------------------------------------------------------------------ неразрешённое
-
     private RescheduleResultDTO.Unresolved describeUnresolved(LessonInstance instance) {
         TeacherLoad load = instance.getSchedule() == null ? null : instance.getSchedule().getTeacherLoad();
         return new RescheduleResultDTO.Unresolved(
@@ -444,7 +386,6 @@ public class SickLeaveReschedulingService {
                         + RESCHEDULE_HORIZON_DAYS + " дней");
     }
 
-    /** Три варианта действий администратора — каждый уже реализован эндпоинтом. */
     private MissingResourceRequest unresolvedIssue(LessonInstance instance, Teacher sickTeacher) {
         TeacherLoad load = instance.getSchedule() == null ? null : instance.getSchedule().getTeacherLoad();
         String groupName = load != null && load.getGroup() != null ? load.getGroup().getName() : "—";
@@ -474,8 +415,6 @@ public class SickLeaveReschedulingService {
                 .build();
     }
 
-    // ------------------------------------------------------------------ вспомогательное
-
     private SickLeave findOrCreateSickLeave(Teacher teacher, LocalDate startDate, LocalDate endDate) {
         List<SickLeave> existing = sickLeaveRepository.findByTeacherIdAndDateRange(teacher.getId(), startDate);
         for (SickLeave leave : existing) {
@@ -492,7 +431,6 @@ public class SickLeaveReschedulingService {
                 .build());
     }
 
-    /** Материализует занятия за период и оставляет только запланированные пары заболевшего. */
     private List<LessonInstance> collectAffectedLessons(Teacher teacher, SickLeave sickLeave,
                                                         LocalDate startDate, LocalDate endDate) {
         Map<Long, LessonInstance> affected = new LinkedHashMap<>();

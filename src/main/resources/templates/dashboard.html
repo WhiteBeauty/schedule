@@ -114,12 +114,10 @@
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <!-- Top bar for Teacher -->
     <div th:if="${teacher != null}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
 
-        <!-- Productivity indicator -->
         <div class="productivity-bar" style="flex: 1; margin: 0; padding: 0.5rem 1rem;">
             <div class="productivity-indicator" th:classappend="${productivity != null && productivity.level == 'HIGH' ? 'productivity-high' : (productivity != null && productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
                 <span th:text="${productivity != null ? (productivity.level == 'HIGH' ? '▲▲▲' : (productivity.level == 'MEDIUM' ? '▲' : '▼▼▼')) : '—'}"></span>
@@ -143,7 +141,6 @@
         <button th:if="${teacher != null}" onclick="openSickLeaveModal('force')" class="btn btn-sm btn-outline" style="border-color:#ea580c;color:#ea580c;">⚡ Форс-мажор</button>
     </div>
 
-    <!-- Top bar for Admin -->
     <div th:if="${teacher == null && isAdmin}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
         <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
@@ -154,7 +151,6 @@
     <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
     <h1 class="page-title" th:if="${teacher == null && isAdmin}">📊 Панель администратора</h1>
 
-        <!-- Teacher card (clickable) -->
         <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher != null ? teacher.id : null}" th:if="${teacher != null}">
             <div class="teacher-avatar" th:text="${teacher.fullName != null ? teacher.fullName.substring(0, 1).toUpperCase() : '?'}">?</div>
             <div class="teacher-info">
@@ -173,14 +169,12 @@
             </div>
         </div>
 
-        <!-- Tabs -->
         <div class="tabs">
             <a href="#load" class="tab active">Нагрузка на <span th:text="${year}"></span></a>
             <a th:href="@{/monthly(year=${year})}" class="tab">Помесячный учёт</a>
             <a th:href="@{/curatorship}" class="tab">Кураторство</a>
         </div>
 
-        <!-- Load table -->
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Нагрузка на <span th:text="${year}"></span> учебный год</h2>
@@ -239,7 +233,6 @@
             </div>
         </div>
 
-        <!-- Admin content: List of all teachers -->
         <div th:if="${teacher == null && isAdmin}">
             <div class="card">
                 <div class="card-header">
@@ -253,7 +246,6 @@
         </div>
     </main>
 
-    <!-- Modal: Full teacher info -->
     <div class="modal-overlay" id="teacherModal" th:if="${teacher != null}">
         <div class="modal">
             <div class="modal-header">
@@ -348,7 +340,6 @@
         </div>
     </div>
 
-    <!-- Modal: Sick Leave -->
     <div class="modal-overlay" id="sickLeaveModal" th:if="${teacher != null}">
         <div class="modal">
             <div class="modal-header">

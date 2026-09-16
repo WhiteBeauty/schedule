@@ -43,27 +43,6 @@ import java.util.regex.Pattern;
 
 import com.karyakina.schedule.util.AcademicYearUtil;
 
-/**
- * МОДУЛЬ АВТОМАТИЧЕСКОГО СОСТАВЛЕНИЯ РАСПИСАНИЯ.
- *
- * <p>Сценарий 1 — первичная генерация. Сама расстановка вынесена в {@link ScheduleSolver}
- * (рестарты + выталкивание + локальное улучшение), здесь — подготовка данных, проверки
- * и разбор проблем.
- *
- * <p><b>Интерактивный режим.</b> Сервис не бросает исключений наружу и не возвращает пустых
- * ошибок. Всё, чего не хватает или что противоречит друг другу, возвращается в
- * {@link GenerationResultDTO#missingData()} как вопрос с готовыми вариантами действий:
- * расхождение часов между файлом нагрузки и ручным вводом, отсутствие преподавателя,
- * перегруз свыше 36 ч/нед, нехватка слотов и аудиторий, нерасставленные пары.
- * Администратор отвечает (POST {@code /{sessionId}/resolve}), генерация повторяется
- * с учётом ответа, и только потом черновик фиксируется (POST {@code /{sessionId}/apply}).
- *
- * <p>Жёсткие ограничения (никогда не нарушаются): преподаватель/группа/аудитория не заняты
- * дважды в одном слоте; ≤ 36 ч в неделю у преподавателя; лимит пар в день у группы и
- * преподавателя; не более двух одинаковых пар подряд (три и более запрещены); лимит пар
- * одной дисциплины в день; обеденное окно группы. Мягкие: минимум «окон», равномерность
- * по дням, отсутствие одинакового рисунка дней, пожелания преподавателей.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -82,23 +61,10 @@ public class ScheduleGeneratorService {
     private final GenerationSessionStore sessionStore;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
-    // Часы в неделю по дисциплине считаются от часов ИМЕННО текущего/выбранного семестра
-    // (TeacherLoad.firstSemesterHours/secondSemesterHours), делённых на ТОЧНОЕ число недель
-    // ЭТОГО семестра (AcademicYearUtil.getSemesterWeeks — семестры по ТЗ разной длины: 1й
-    // ~17 недель, 2й ~24), а не от суммы часов за год делённой на APPROX_WEEKS_PER_YEAR —
-    // см. resolveSemester()/semesterHours(). Раньше делили на общую для обоих семестров
-    // константу 18, из-за чего у преподавателей с разными по семестрам нагрузками недельная
-    // нагрузка считалась как фиктивное "среднее" — не соответствующее ни одной реальной
-    // неделе — и после независимого округления каждой отдельной нагрузки до целых пар
-    // суммарно давало заметно завышенный (или, наоборот, заниженный) результат.
     private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
-    /** ТЗ: максимум 18 пар в неделю для одной группы — жёсткий лимит, не настраивается через UI. */
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
 
-    // =================================================================== публичное API
-
-    /** Запуск генерации: создаёт сессию и возвращает черновик вместе с вопросами администратору. */
     @Transactional
     public GenerationResultDTO generateInteractive(GenerationRequestDTO request, String adminName) {
         Integer year = request != null && request.academicYear() != null
@@ -112,7 +78,6 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /** Ответы администратора на вопросы: применяем и пересобираем расписание. */
     public GenerationResultDTO applyDecisions(String sessionId, List<ResolutionDecision> decisions, String adminName) {
         GenerationSessionStore.Session session = sessionStore.find(sessionId).orElse(null);
         if (session == null) {
@@ -136,7 +101,6 @@ public class ScheduleGeneratorService {
         return run(session, adminName);
     }
 
-    /** Фиксация черновика: создаём записи расписания, пересчитываем учёт, шлём уведомления. */
     @Transactional
     public GenerationResultDTO commit(String sessionId, String adminName) {
         GenerationSessionStore.Session session = sessionStore.find(sessionId).orElse(null);
@@ -157,8 +121,6 @@ public class ScheduleGeneratorService {
                 if (load == null) {
                     continue;
                 }
-                // Автоподбор преподавателя фиксируем только сейчас: просмотр черновика
-                // не должен менять данные (иначе повторный просмотр не идемпотентен).
                 if (load.getTeacher() == null || !Long.valueOf(pair.teacherId()).equals(idOf(load.getTeacher()))) {
                     teacherRepository.findById(pair.teacherId()).ifPresent(load::setTeacher);
                     loadRepository.save(load);
@@ -180,8 +142,6 @@ public class ScheduleGeneratorService {
             session.setPersisted(true);
             session.getDraft().clear();
 
-            // Пересчитывать расписание заново не нужно: показываем сохранённые пары и то,
-            // что осталось нерешённым по итогам последнего прогона.
             int missingPairs = session.getLastMetrics().getOrDefault("missingPairs", 0);
             GenerationResultDTO.Status status = missingPairs > 0
                     ? GenerationResultDTO.Status.PARTIAL
@@ -195,11 +155,6 @@ public class ScheduleGeneratorService {
         }
     }
 
-    /**
-     * Старое API (используется кнопками «Автосоставление (черновик)» и «Применить и сохранить»).
-     * Сохранено ради совместимости: внутри работает новый алгоритм, а вопросы администратору
-     * сворачиваются в понятные строки conflicts/capacityWarnings.
-     */
     @Transactional
     public ScheduleGenerationResultDto generate(Integer academicYear, boolean persist, String adminName) {
         GenerationRequestDTO request = GenerationRequestDTO.forYear(academicYear, persist);
@@ -221,13 +176,11 @@ public class ScheduleGeneratorService {
                 .totalLoadsConsidered(result.metrics().getOrDefault("loadsConsidered", 0))
                 .placedLessons(result.successSchedule().size())
                 .unresolvedLoads(result.metrics().getOrDefault("unresolvedLoads", 0))
-                .createdSchedules(List.of()) // черновик отдаётся плоским списком в новом API
+                .createdSchedules(List.of())
                 .capacityWarnings(capacityWarnings)
                 .conflicts(conflicts)
                 .build();
     }
-
-    // =================================================================== конвейер
 
     private GenerationResultDTO run(GenerationSessionStore.Session session, String adminName) {
         List<MissingResourceRequest> issues = new ArrayList<>();
@@ -267,15 +220,6 @@ public class ScheduleGeneratorService {
                     .toList();
             metrics.put("loadsConsidered", candidates.size());
 
-            // ТЗ п.7-9: практика (ПП/УП) и вождение НЕ учитываются автосоставлением из файла
-            // тарификации — их размещает администратор вручную (блоками, к концу семестра).
-            // Раньше этого исключения не было, и "Вождение (СМ) кат В/Е" по 300ч у каждого —
-            // это ОДИН предмет, но с огромным объёмом часов, рассчитанным на несколько
-            // интенсивных недель практики, а не на равномерное распределение по всему
-            // семестру — генератор честно делил 300ч/17недель ≈ 17.6ч/нед и требовал под
-            // это 9 ПАР В НЕДЕЛЮ на КАЖДОЕ вождение, что само по себе почти выбирало весь
-            // недельный лимit группы (18 пар) ещё до учёта обычной программы — отсюда и
-            // "37 пар в неделю нужно, а влезает только 30".
             List<TeacherLoad> practiceOrDriving = candidates.stream()
                     .filter(l -> isPracticeOrDriving(l.getDiscipline().getName()))
                     .toList();
@@ -301,14 +245,11 @@ public class ScheduleGeneratorService {
             for (TeacherLoad load : candidates) {
                 Teacher teacher = teacherByLoad.get(load.getId());
                 if (teacher == null) {
-                    continue; // вопрос уже задан администратору в resolveTeachers
+                    continue;
                 }
                 loadById.put(load.getId(), load);
                 ResolvedHours hours = hoursByLoad.getOrDefault(load.getId(),
                         new ResolvedHours(plannedHours(load), false));
-                // Утверждённые вручную часы трактуем как годовые (администратор явно
-                // подтвердил именно это число) — делим на весь год. Часы из файла нагрузки
-                // (обычный случай) трактуем как часы ИМЕННО текущего семестра.
                 int weeksBasis = hours.overridden() ? APPROX_WEEKS_PER_YEAR
                         : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
                 int hoursForPeriod = hours.overridden() ? hours.annualHours() : semesterHours(load, semester);
@@ -317,7 +258,6 @@ public class ScheduleGeneratorService {
                     if (plannedHours(load) == 0) {
                         warnings.add("Нагрузка «" + describe(load) + "» пропущена: в ней 0 часов.");
                     }
-                    // иначе — дисциплина просто не идёт в этом семестре, это норма, не варнинг
                     continue;
                 }
                 demands.add(new SolverInput.Demand(load.getId(), load.getGroup().getId(),
@@ -325,14 +265,6 @@ public class ScheduleGeneratorService {
                         pairs, hours.annualHours(), preferredDayIndexes(load), preferredPairIndexes(load),
                         session.getMaxSameSubjectPerDay()));
             }
-
-            // Проверка недельного лимита ЧАСОВ ПРЕПОДАВАТЕЛЯ убрана по требованию — лимит
-            // относится к ГРУППЕ (18 пар/нед = 36 ч), а не к преподавателю: один человек
-            // может вести много групп, и раньше это давало ложные "перегрузы" вида
-            // "у Иванова 41ч при лимите 36", хотя по факту это просто сумма его нагрузки
-            // по разным группам, каждая из которых сама по себе в пределах своего лимита.
-            // Групповой лимит уже обеспечен жёстко в солвере (см. GROUP_MAX_WEEKLY_PAIRS/
-            // OccupancyIndex.Violation.GROUP_WEEK_LIMIT) — отдельная проверка не нужна.
 
             SolverInput input = new SolverInput(
                     buildGroups(candidates, config, session),
@@ -376,7 +308,6 @@ public class ScheduleGeneratorService {
                     toDtos(solution.placed(), loadById, teacherByLoad), issues, warnings, metrics);
 
         } catch (Exception e) {
-            // Никаких пустых 500-х: причина уходит на экран администратора текстом.
             log.error("Ошибка автосоставления расписания", e);
             return GenerationResultDTO.failed(session.getId(), MissingResourceRequest.technical(
                     "Внутренняя ошибка при расчёте: " + describe(e)
@@ -384,13 +315,6 @@ public class ScheduleGeneratorService {
         }
     }
 
-    // =================================================================== проверки данных
-
-    /**
-     * РАСХОЖДЕНИЕ ЧАСОВ. Сверяем часы из файла нагрузки (TeacherLoad.plannedHours, как он
-     * был импортирован) с ручным вводом администратора. При расхождении не гадаем и не падаем —
-     * задаём вопрос с тремя вариантами, ровно как в требованиях.
-     */
     private Map<Long, ResolvedHours> reconcileHours(List<TeacherLoad> loads,
                                                     GenerationSessionStore.Session session,
                                                     SolverConfig config,
@@ -450,7 +374,6 @@ public class ScheduleGeneratorService {
                                 "Указать своё количество часов",
                                 MissingResourceRequest.InputSpec.number("Часов за год", "hours", 0, 2000, fileHours)))
                         .build());
-                // До ответа считаем по файлу, чтобы успешная часть расписания всё равно собралась.
                 result.put(load.getId(), new ResolvedHours(fileHours, false));
                 continue;
             }
@@ -459,9 +382,6 @@ public class ScheduleGeneratorService {
             int hours = overridden ? manualHours : fileHours;
             result.put(load.getId(), new ResolvedHours(hours, overridden));
 
-            // Явно нереалистичные часы: 50 ч/нед на одну дисциплину не влезут ни в какую сетку.
-            // Часы из файла — это часы ТЕКУЩЕГО семестра, а не годовая сумма (см. комментарий
-            // у AcademicYearUtil.getSemesterWeeks); утверждённые вручную часы по-прежнему годовые.
             int weeksBasis = overridden ? APPROX_WEEKS_PER_YEAR
                     : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
             int hoursForPeriod = overridden ? hours : semesterHours(load, semester);
@@ -495,12 +415,10 @@ public class ScheduleGeneratorService {
                                 Map.of("loadId", load.getId())))
                         .build());
             }
-            // Проверка "много часов одного предмета у одной группы" убрана по требованию.
         }
         return result;
     }
 
-    /** Дубликаты «преподаватель + дисциплина + группа»: они конкурируют за одни и те же слоты. */
     private void detectDuplicates(List<TeacherLoad> loads,
                                   GenerationSessionStore.Session session,
                                   List<MissingResourceRequest> issues) {
@@ -544,7 +462,6 @@ public class ScheduleGeneratorService {
         }
     }
 
-    /** Преподаватель записи: явный, подобранный автоматически или назначенный администратором. */
     private Map<Long, Teacher> resolveTeachers(List<TeacherLoad> loads,
                                                TeacherAssignmentService.Resolution assignment,
                                                GenerationSessionStore.Session session,
@@ -595,16 +512,6 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /**
-     * Практика (производственная — "ПП", учебная — "УП") и вождение — по ТЗ размещаются
-     * администратором вручную блоками (см. п.7-9), а не автосоставлением из тарификации:
-     * их часы в файле — это блок из нескольких интенсивных недель, а не равномерная
-     * еженедельная нагрузка, и деление на число недель семестра даёт абсурдные "9 пар
-     * в неделю на один предмет".
-     *
-     * Названия в тарификации: "ПП.01", "ПП. 02", "УП.01", "УП 02" (буквы в начале, дальше
-     * точка/пробел/цифры) и "Вождение (СМ) кат В/Е" (слово "вождение" где угодно в названии).
-     */
     private boolean isPracticeOrDriving(String disciplineName) {
         if (disciplineName == null) return false;
         String normalized = disciplineName.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
@@ -612,7 +519,6 @@ public class ScheduleGeneratorService {
         return normalized.matches("^(пп|уп)[\\s.].*") || normalized.matches("^(пп|уп)\\d.*");
     }
 
-    /** Хватит ли в сетке слотов группе на всю её недельную нагрузку. */
     private void checkGridCapacity(SolverInput input,
                                    Map<Long, TeacherLoad> loadById,
                                    List<MissingResourceRequest> issues,
@@ -657,7 +563,6 @@ public class ScheduleGeneratorService {
         }
     }
 
-    /** Нерасставленные пары: один понятный вопрос на нагрузку, с диагнозом и вариантами. */
     private List<MissingResourceRequest> unplacedIssues(SolverResult solution,
                                                         Map<Long, TeacherLoad> loadById,
                                                         GenerationSessionStore.Session session) {
@@ -707,7 +612,6 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /** «У преподавателя Иванов И.И. осталось 2 нераспределённых часа нагрузки». */
     private List<String> remainingHoursWarnings(SolverResult solution,
                                                 List<SolverInput.Demand> demands,
                                                 Map<Long, TeacherLoad> loadById,
@@ -733,8 +637,6 @@ public class ScheduleGeneratorService {
                 .toList();
     }
 
-    // =================================================================== применение решений
-
     private void applyDecision(GenerationSessionStore.Session session, ResolutionDecision decision) {
         if (decision == null || decision.actionCode() == null) {
             return;
@@ -757,11 +659,6 @@ public class ScheduleGeneratorService {
                         session.getApprovedHours().put(loadId, hours);
                     }
                 } else if (teacherId != null) {
-                    // Легаси: раньше здесь обрабатывалось решение по TEACHER_OVERLOAD
-                    // ("перегруз преподавателя"). Эта проверка убрана по требованию — лимит
-                    // относится к ГРУППЕ (18 пар/нед), а не к преподавателю, поэтому
-                    // TEACHER_OVERLOAD больше не поднимается и сюда попасть не должно;
-                    // оставлено на случай, если где-то ещё остался старый открытый вопрос.
                     session.getAcknowledgedTeacherOverloads().add(teacherId);
                 }
             }
@@ -808,7 +705,6 @@ public class ScheduleGeneratorService {
                 }
             }
             default -> {
-                // KEEP_AS_IS и незнакомые коды: ничего не меняем, вопрос просто закрывается.
             }
         }
         if (issue != null) {
@@ -831,8 +727,6 @@ public class ScheduleGeneratorService {
             });
         }
     }
-
-    // =================================================================== построение входа солвера
 
     private SolverConfig buildConfig(GenerationSessionStore.Session session) {
         SolverConfig config = SolverConfig.defaults();
@@ -885,13 +779,6 @@ public class ScheduleGeneratorService {
 
         List<SolverInput.TeacherRef> result = new ArrayList<>();
         for (Teacher teacher : unique.values()) {
-            // Недельный ЛИМИТ ЧАСОВ у преподавателя убран по требованию — лимит относится к
-            // ГРУППЕ (18 пар/нед = 36 ч, см. GROUP_MAX_WEEKLY_PAIRS/checkTeacherWeeklyLimits
-            // больше не вызывается), а не к преподавателю: один человек может вести много
-            // групп, и раньше это ошибочно считалось "перегрузом" самого преподавателя.
-            // GenerationGrid.slotCount() как maxWeeklyPairs — практически "без ограничения"
-            // (больше, чем физически может набраться пар за неделю), при этом не трогаем
-            // структуру TeacherRef/OccupancyIndex ради одной этой правки.
             int maxWeeklyPairs = GenerationGrid.slotCount();
             int maxPerDay = teacher.getMaxPairsPerDay() != null && teacher.getMaxPairsPerDay() > 0
                     ? teacher.getMaxPairsPerDay() : DEFAULT_TEACHER_MAX_PAIRS_PER_DAY;
@@ -901,13 +788,6 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /**
-     * Уже сохранённые пары занимают слоты — новые к ним не встанут поверх.
-     *
-     * <p>Пары с нестандартным временем (добавленные вручную, не по сетке звонков) не
-     * игнорируются: занятыми помечаются все слоты, которые пересекаются с их интервалом.
-     * Иначе генератор поставил бы поверх них вторую пару той же группе или в ту же аудиторию.
-     */
     private void occupyExisting(OccupancyIndex index, List<Schedule> existing) {
         for (Schedule schedule : existing) {
             TeacherLoad load = schedule.getTeacherLoad();
@@ -916,7 +796,7 @@ public class ScheduleGeneratorService {
             }
             int dayIdx = GenerationGrid.dayIndex(schedule.getDayOfWeek());
             if (dayIdx < 0) {
-                continue; // воскресенье или день вне рабочей недели
+                continue;
             }
             Long groupId = load.getGroup() == null ? null : load.getGroup().getId();
             Long teacherId = load.getTeacher() == null ? null : load.getTeacher().getId();
@@ -930,7 +810,6 @@ public class ScheduleGeneratorService {
         }
     }
 
-    /** Номера пар, которые перекрывает существующая запись расписания. */
     private List<Integer> occupiedPairIndexes(Schedule schedule) {
         int exact = GenerationGrid.pairIndex(schedule.getStartTime());
         if (exact >= 0) {
@@ -949,8 +828,6 @@ public class ScheduleGeneratorService {
         }
         return result;
     }
-
-    // =================================================================== вспомогательное
 
     private void recalculateMonthlyRecords(List<Schedule> created, Integer academicYear) {
         Map<Long, List<Schedule>> byLoad = new HashMap<>();
@@ -1059,14 +936,9 @@ public class ScheduleGeneratorService {
         return null;
     }
 
-    /** Утверждённые часы: {@code overridden} = администратор или ручной ввод перебили файл. */
     private record ResolvedHours(int annualHours, boolean overridden) {
     }
 
-    /**
-     * Какой семестр (1 или 2) считать "текущим" для расчёта часов в неделю: явно указанный
-     * в запросе на генерацию или, если не указан, определяемый по сегодняшней дате.
-     */
     private int resolveSemester(GenerationSessionStore.Session session) {
         Integer requested = session.getRequest() == null ? null : session.getRequest().semester();
         if (requested != null && requested == 2) return 2;
@@ -1074,19 +946,11 @@ public class ScheduleGeneratorService {
         return AcademicYearUtil.getCurrentSemester();
     }
 
-    /** Часы ИМЕННО указанного семестра (а не сумма за год) — 0, если в этом семестре дисциплина не идёт. */
     private int semesterHours(TeacherLoad load, int semester) {
         Integer h = semester == 2 ? load.getSecondSemesterHours() : load.getFirstSemesterHours();
         return h == null ? 0 : Math.max(0, h);
     }
 
-    /**
-     * Точные (не округлённые до целой пары) часы в неделю — используется как для расчёта
-     * числа пар, так и отдельно для проверки недельного лимита преподавателя, чтобы
-     * независимое округление каждой отдельной нагрузки не накапливало ошибку при суммировании
-     * (пример: пять нагрузок по 1.4 пары каждая — это 7 пар/14 ч суммарно, а не 5×2=10 пар,
-     * если округлять каждую по отдельности до ближайшей целой пары).
-     */
     private double exactWeeklyHours(TeacherLoad load, int hoursForPeriod, int weeksBasis, boolean overridden) {
         if (!overridden && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
             return load.getHoursPerWeek();
@@ -1094,26 +958,11 @@ public class ScheduleGeneratorService {
         return hoursForPeriod / (double) weeksBasis;
     }
 
-    /**
-     * Часы -> пары в неделю.
-     *
-     * <p>Обычно приоритет у явного {@code hoursPerWeek} из файла нагрузки. Но если часы
-     * утвердил администратор (ответ на расхождение) или они пришли ручным вводом, то считаем
-     * именно от них: иначе ответ администратора не влиял бы ни на что, пока в записи
-     * заполнено поле «часов в неделю».
-     *
-     * <p>{@code hoursForPeriod}/{@code weeksBasis} — часы и число недель ЗА ОДИН И ТОТ ЖЕ
-     * период: для обычной (не утверждённой вручную) нагрузки это часы текущего семестра и
-     * {@link AcademicYearUtil#getSemesterWeeks}, для утверждённой вручную — годовые часы и
-     * {@link #APPROX_WEEKS_PER_YEAR} (см. вызывающий код).
-     */
     private int weeklyPairs(TeacherLoad load, int hoursForPeriod, int weeksBasis, SolverConfig config,
                              boolean overridden) {
         double hoursPerWeek = exactWeeklyHours(load, hoursForPeriod, weeksBasis, overridden);
         int pairs = (int) Math.round(hoursPerWeek / config.academicHoursPerPair());
         if (pairs <= 0) {
-            // 0 часов -> 0 пар. Раньше здесь стояло Math.max(1, ...), из-за чего пустая
-            // строка нагрузки всё равно порождала пару в расписании.
             return hoursForPeriod > 0 ? 1 : 0;
         }
         return Math.min(pairs, GenerationGrid.slotCount());
@@ -1158,12 +1007,6 @@ public class ScheduleGeneratorService {
         return parsed == null ? fallback : parsed.intValue();
     }
 
-    // ------------------------------------------------------------------ пожелания из импорта
-
-    /**
-     * Ячейка «Предпочтительные дни» из файла нагрузки — свободный текст на русском
-     * («Пн, Ср», «понедельник, среда, до 12:00»), поэтому разбираем терпимо.
-     */
     private Set<Integer> preferredDayIndexes(TeacherLoad load) {
         if (load.getPreferredDays() == null || load.getPreferredDays().isBlank()) {
             return Set.of();
@@ -1194,7 +1037,6 @@ public class ScheduleGeneratorService {
                     result.add(number - 1);
                 }
             } catch (NumberFormatException ignored) {
-                // мусор в ячейке пожеланий не должен ломать генерацию
             }
         }
         return result;

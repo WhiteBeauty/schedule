@@ -34,10 +34,6 @@ public class AuthService {
             throw new RuntimeException("Email уже зарегистрирован");
         }
 
-        // БЕЗОПАСНОСТЬ: роль из тела запроса ИГНОРИРУЕТСЯ намеренно — самостоятельная
-        // регистрация создаёт только TEACHER. Раньше request.getRole() бралась как есть,
-        // что позволяло получить ADMIN простым изменением поля в запросе. Администратор
-        // назначается только другим администратором через /admin/users (см. UserAdminService).
         Teacher teacher = teacherRepository.save(Teacher.builder()
                 .fullName(request.getLastName() + " " + request.getFirstName())
                 .email(request.getEmail())

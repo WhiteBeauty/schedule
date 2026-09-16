@@ -7,7 +7,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
-/** Результат назначения экзамена/практики/вождения (ТЗ п.4-9) — см. SpecialEventService. */
 public class SpecialEventDtos {
 
     @Data
@@ -36,7 +35,7 @@ public class SpecialEventDtos {
         private LocalDate originalDate;
         private String originalDayOfWeek;
         private LocalTime originalStartTime;
-        private String reason; // почему не удалось найти слот автоматически
+        private String reason;
     }
 
     @Data
@@ -46,7 +45,7 @@ public class SpecialEventDtos {
         private String type;
         private String typeLabel;
         private String groupName;
-        private String disciplineName; // только для EXAM — чтобы в UI сразу было видно, что именно назначено
+        private String disciplineName;
         private LocalDate startDate;
         private LocalDate endDate;
         private List<MovedPair> moved;

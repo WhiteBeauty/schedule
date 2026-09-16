@@ -33,7 +33,6 @@ public class User {
         TEACHER, ADMIN
     }
 
-    // Связь с преподавателем (если это преподаватель)
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "teacher_id")
     @JsonIgnore

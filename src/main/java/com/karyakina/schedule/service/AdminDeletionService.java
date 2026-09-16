@@ -13,18 +13,6 @@ import java.time.DayOfWeek;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Безопасное каскадное удаление. Прямой repository.deleteById() на Teacher/Discipline/
- * StudyGroup падает с ошибкой внешнего ключа, если есть связанные TeacherLoad/Schedule/
- * LessonInstance/SubstitutionRequest - этот сервис сначала вручную вычищает всю цепочку
- * зависимостей в правильном порядке (потомки раньше родителей), затем удаляет саму запись.
- *
- * Порядок зависимостей вокруг TeacherLoad:
- *   SubstitutionRequest -> LessonInstance -> Schedule -> TeacherLoad
- *                                                           |-> ControlPoint, MonthlyRecord
- *                                                               (каскадируются автоматически
- *                                                                через JPA orphanRemoval)
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -186,23 +174,6 @@ public class AdminDeletionService {
         return tokens;
     }
 
-    /**
-     * ОДНОРАЗОВАЯ ОЧИСТКА уже накопленных "слитных" названий групп/дисциплин — тех,
-     * что попали в базу ДО того, как импорт научился разбивать ячейку с несколькими
-     * значениями через запятую/`;` (см. ImportService.expandMultiValueRows). Симптом
-     * именно в этом, а не в самом алгоритме составления расписания: если у нагрузки
-     * группа буквально называется "ИС2-Б23, ИС1-Б23, ИВТ, М, ИСТ" (одно "имя" вместо
-     * пяти групп), а дисциплина — "Высшая математика, мат. Анализ" (одно "имя" вместо
-     * двух дисциплин), то преподаватель выглядит так, будто ведёт 5 групп и 2 предмета
-     * одновременно — на самом деле это одна (кривая) запись нагрузки, generator её
-     * размещает без конфликтов, но по смыслу это неверно.
-     *
-     * Каждую такую нагрузку разбивает на отдельные записи (одна на каждую комбинацию
-     * группа×дисциплина), удаляет старые пары расписания по ней (они относятся к
-     * "плохой" версии — по новым записям расписание нужно составить заново), затем
-     * удаляет саму слитную нагрузку, а если на слитную группу/дисциплину больше никто
-     * не ссылается — удаляет и её.
-     */
     @Transactional
     public Map<String, Object> splitMergedGroupsAndDisciplines() {
         List<TeacherLoad> allLoads = loadRepository.findAll();
@@ -217,7 +188,7 @@ public class AdminDeletionService {
             List<String> disciplineTokens = splitTokens(disciplineName);
             if (groupTokens.isEmpty()) groupTokens = List.of(groupName);
             if (disciplineTokens.isEmpty()) disciplineTokens = List.of(disciplineName);
-            if (groupTokens.size() <= 1 && disciplineTokens.size() <= 1) continue; // нечего разбивать
+            if (groupTokens.size() <= 1 && disciplineTokens.size() <= 1) continue;
 
             touchedGroupIds.add(load.getGroup().getId());
             touchedDisciplineIds.add(load.getDiscipline().getId());
@@ -333,26 +304,6 @@ public class AdminDeletionService {
         }
     }
 
-    /**
-     * ПОЛНЫЙ СНОС БАЗЫ ДАННЫХ, КРОМЕ ВХОДА АДМИНИСТРАТОРОВ. Только для тестирования —
-     * позволяет откатить базу в чистое состояние и заново прогнать импорт/автосоставление,
-     * не пересоздавая учётку(и) с ролью ADMIN (чтобы не потерять возможность зайти в систему).
-     *
-     * Удаляет ВСЁ остальное: преподавателей, дисциплины, группы, нагрузку, расписание
-     * (шаблоны и фактические занятия), заявки на замену, больничные, кураторства,
-     * уведомления, аудитории, настройки приложения, журнал аудита и пользователей с ролью
-     * TEACHER (в т.ч. их логины — по условию сохраняется вход только для ADMIN).
-     *
-     * Порядок удаления соблюдает цепочку внешних ключей (см. комментарий в начале класса):
-     * SubstitutionRequest -> LessonInstance -> Schedule -> TeacherLoad (после явного сноса
-     * его дочерних ControlPoint/MonthlyRecord) -> сами преподаватели/группы/дисциплины.
-     * Пользователи-преподаватели удаляются ДО удаления Teacher, так как именно User хранит
-     * внешний ключ на Teacher (users.teacher_id), а не наоборот.
-     *
-     * deleteAllInBatch() используется вместо deleteAll(), так как здесь порядок уже вручную
-     * гарантирует отсутствие висячих ссылок — это быстрее (один DELETE-запрос на таблицу
-     * вместо построчного удаления через persistence context).
-     */
     @Transactional
     public WipeDatabaseResultDto wipeAllExceptAdmins() {
         int substitutionRequests = (int) substitutionRequestRepository.count();
@@ -382,8 +333,6 @@ public class AdminDeletionService {
         int notifications = (int) notificationRepository.count();
         notificationRepository.deleteAllInBatch();
 
-        // Пользователей-преподавателей удаляем ДО Teacher (users.teacher_id — внешний ключ
-        // именно у User). Администраторов не трогаем — в этом весь смысл операции.
         List<User> nonAdminUsers = userRepository.findAll().stream()
                 .filter(u -> u.getRole() != User.Role.ADMIN)
                 .collect(Collectors.toList());

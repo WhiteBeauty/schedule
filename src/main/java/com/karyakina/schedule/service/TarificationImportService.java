@@ -15,30 +15,6 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * МОДУЛЬ ИМПОРТА ФАЙЛА "ТАРИФИКАЦИЯ" (годовая сводная таблица нагрузки).
- *
- * В отличие от {@link ImportService} (плоская таблица "одна строка = преподаватель +
- * дисциплина + группа"), файл тарификации — это сводная (pivot) таблица на листе
- * "Часовка":
- *  - строки сгруппированы по преподавателю (ФИО указано один раз в первой строке его
- *    блока), внутри — по дисциплине (тоже одна строка на дисциплину с маркером "ч" —
- *    часы; следующие 2 строки "д"/"к" зарезервированы в самом файле под другие виды
- *    нагрузки, но фактически всегда пустые, поэтому они пропускаются);
- *  - столбцы после "Предмет"/"Часы / Конс." разбиты на блоки по 4 колонки — один блок
- *    на учебную группу (название группы и курс — в объединённых по всему блоку
- *    ячейках), внутри блока: часы I семестра, форма контроля I семестра, часы
- *    II семестра, форма контроля II семестра (ДЗ/З/Э/РК).
- *
- * Результат разбора — плоский список {@link TarificationRow}, который дальше
- * применяется в {@link ImportPersistenceService#applyTarificationRows}: для каждой
- * непустой пары (дисциплина, группа) у преподавателя создаётся/обновляется
- * {@code TeacherLoad} с часами по семестрам и формами контроля. Сама раскладка по
- * дням недели и месяцу в файле не содержится (это годовые часы, а не расписание) —
- * после импорта администратор запускает уже существующий модуль автосоставления
- * расписания (ScheduleGeneratorService), который считает часы в неделю от плановых
- * часов и расставляет пары по дням.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -46,10 +22,9 @@ public class TarificationImportService {
 
     private final ImportPersistenceService persistenceService;
 
-    private static final int GROUP_BLOCK_WIDTH = 4; // часы1, контроль1, часы2, контроль2
+    private static final int GROUP_BLOCK_WIDTH = 4;
     private static final Pattern LEADING_NUMBER = Pattern.compile("(\\d+)");
 
-    /** Одна "ученическая" запись: преподаватель ведёт дисциплину у конкретной группы. */
     public static class TarificationRow {
         public String teacherName;
         public String disciplineName;
@@ -70,7 +45,6 @@ public class TarificationImportService {
         public String fatalError;
     }
 
-    /** Точка входа: разбор файла и сохранение всех валидных записей в одной транзакции. */
     public ImportReportDto importFile(MultipartFile file, Integer academicYear) {
         ParseResult parsed = parse(file);
         if (parsed.fatalError != null) {
@@ -113,10 +87,6 @@ public class TarificationImportService {
                 .build();
     }
 
-    // ------------------------------------------------------------------------------
-    // Разбор файла
-    // ------------------------------------------------------------------------------
-
     public ParseResult parse(MultipartFile file) {
         ParseResult result = new ParseResult();
         try (InputStream is = file.getInputStream();
@@ -147,7 +117,6 @@ public class TarificationImportService {
         return null;
     }
 
-    /** Ищет строку с заголовком "Преподаватель" в первых 10 строках листа. Возвращает 0-based номер строки или -1. */
     private int findHeaderRow(Sheet sheet) {
         DataFormatter formatter = new DataFormatter();
         int maxRow = Math.min(sheet.getLastRowNum(), 10);
@@ -177,8 +146,6 @@ public class TarificationImportService {
         int lastCol = 0;
         for (Row row : sheet) if (row != null) lastCol = Math.max(lastCol, row.getLastCellNum());
 
-        // Строку целиком читаем как текст — это устойчиво к объединённым ячейкам
-        // (у них значение есть только в левой верхней ячейке блока, остальные — "").
         List<String> headerCells = readRowAsText(sheet, headerRow, lastCol, formatter);
 
         int teacherCol = indexOfContaining(headerCells, "преподаватель");
@@ -205,8 +172,6 @@ public class TarificationImportService {
         List<String> courseRow = readRowAsText(sheet, courseRowIdx, lastCol, formatter);
         List<String> studentsRow = readRowAsText(sheet, studentsRowIdx, lastCol, formatter);
 
-        // Начало области групп — первая непустая ячейка в строке названий групп
-        // правее маркерной колонки "ч/д/к".
         int groupsStartCol = -1;
         for (int c = markerCol + 1; c < totalPerSubjectCol; c++) {
             if (!groupNameRow.get(c).isBlank()) { groupsStartCol = c; break; }
@@ -245,7 +210,7 @@ public class TarificationImportService {
             }
 
             String marker = normalize(rowCells.get(markerCol));
-            if (!marker.equals("ч")) continue; // "д"/"к" в этом файле всегда пустые — пропускаем
+            if (!marker.equals("ч")) continue;
 
             String discipline = rowCells.get(disciplineCol).trim();
             if (discipline.isEmpty()) continue;
@@ -264,7 +229,7 @@ public class TarificationImportService {
                 Integer hours2 = parseNumber(rowCells.get(block.startCol + 2));
                 String control2 = emptyToNull(rowCells.get(block.startCol + 3));
 
-                if (nz(hours1) == 0 && nz(hours2) == 0) continue; // эта группа не учится у этого преподавателя
+                if (nz(hours1) == 0 && nz(hours2) == 0) continue;
 
                 TarificationRow tr = new TarificationRow();
                 tr.teacherName = currentTeacher;
@@ -288,10 +253,6 @@ public class TarificationImportService {
         Integer course;
         Integer studentCount;
     }
-
-    // ------------------------------------------------------------------------------
-    // Утилиты
-    // ------------------------------------------------------------------------------
 
     private List<String> readRowAsText(Sheet sheet, int rowIdx, int lastCol, DataFormatter formatter) {
         List<String> cells = new ArrayList<>();
@@ -325,7 +286,7 @@ public class TarificationImportService {
         try {
             return (int) Math.round(Double.parseDouble(cleaned));
         } catch (NumberFormatException e) {
-            return null; // декоративные символы шрифта-иконки и т.п. — не число
+            return null;
         }
     }
 
@@ -339,7 +300,6 @@ public class TarificationImportService {
         return v == null ? 0 : v;
     }
 
-    /** "№ 4 Механизаторы" -> "Механизаторы" (для поля specialty новой группы). */
     private String stripGroupNumberPrefix(String label) {
         return label.replaceFirst("^№\\s*\\d+\\s*", "").trim();
     }

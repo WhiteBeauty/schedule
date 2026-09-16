@@ -8,7 +8,6 @@ import java.util.List;
 
 @Data @Builder
 public class DashboardDto {
-    // Информация о преподавателе
     private Long id;
     private String fullName;
     private String initials;
@@ -19,10 +18,8 @@ public class DashboardDto {
     private Double rate;
     private LocalDate birthDate;
 
-    // Продуктивность
     private ProductivityBarDto productivity;
 
-    // Нагрузка
     private List<TeacherLoadRowDto> loads;
     private int totalDisciplines;
     private int totalGroups;
@@ -32,15 +29,14 @@ public class DashboardDto {
     private int totalRemaining;
     private int totalRead;
 
-    // Профиль для модального окна
     private TeacherProfileDto profile;
 
     @Data @Builder
     public static class ProductivityBarDto {
         private double index;
         private double target;
-        private String level; // HIGH, MEDIUM, LOW
-        private String color; // success, warning, danger
+        private String level;
+        private String color;
         private double planCompletionPercent;
         private double timelinessPercent;
         private double accuracyPercent;

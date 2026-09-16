@@ -22,19 +22,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/**
- * МОДУЛЬ ИМПОРТА ДАННЫХ (Excel / CSV).
- *
- * Администратор загружает файл произвольной структуры с нагрузкой преподавателей.
- * Сервис сам находит строку заголовков и распознаёт нужные колонки по синонимам
- * (жёстко заданных номеров/названий колонок не требуется), затем:
- *  1) валидирует каждую строку (пустые обязательные поля, отрицательные часы, дубликаты)
- *     и формирует отчёт об импорте;
- *  2) в рамках ОДНОЙ транзакции создаёт/обновляет сущности Teacher, Discipline,
- *     StudyGroup и их плановую нагрузку (TeacherLoad) для всех валидных строк.
- * Строки с ошибками не блокируют импорт остальных — они просто исключаются
- * и перечисляются в отчёте с номером строки.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -45,7 +32,6 @@ public class ImportService {
     private final DisciplineRepository disciplineRepository;
     private final StudyGroupRepository studyGroupRepository;
 
-    // ---- синонимы заголовков колонок (нормализованные: нижний регистр, без "ё") ----
     private static final Map<Field, List<String>> COLUMN_SYNONYMS = new EnumMap<>(Field.class);
     static {
         COLUMN_SYNONYMS.put(Field.TEACHER, List.of(
@@ -82,7 +68,6 @@ public class ImportService {
         HOURS_PER_WEEK, LESSON_TYPE, PREFERRED, DEPARTMENT, CONTROL_POINT
     }
 
-    /** Разобранная и провалидированная строка данных, готовая к импорту. */
     static class ParsedRow {
         int rowNumber;
         String teacherName;
@@ -98,16 +83,10 @@ public class ImportService {
         String department;
         String controlPointType;
 
-        // Заполняются при разборе ячеек "Группа"/"Дисциплина" с несколькими значениями
-        // через запятую/точку с запятой (см. expandMultiValueRows). Исходный текст
-        // сохраняется, чтобы показать администратору, что именно было разбито.
         boolean splitAmbiguous;
         String splitNote;
     }
 
-    /**
-     * Точка входа: разбор файла, валидация, импорт валидных строк в одной транзакции.
-     */
     public ImportReportDto importFile(MultipartFile file, Integer academicYear) {
         ParseResult parsed = parseAndValidate(file);
         if (parsed.fatalError != null) {
@@ -161,11 +140,6 @@ public class ImportService {
                 .build();
     }
 
-    /**
-     * МОДУЛЬ ИМПОРТА: предпросмотр с распознаванием преподавателей (нечёткое сравнение).
-     * Ничего не сохраняет — только парсит, валидирует и подбирает кандидатов на совпадение
-     * по ФИО, чтобы администратор разрешил "жёлтые" (неоднозначные) строки перед импортом.
-     */
     public ImportPreviewDto previewImport(MultipartFile file, Integer academicYear) {
         ParseResult parsed = parseAndValidate(file);
         if (parsed.fatalError != null) {
@@ -190,8 +164,6 @@ public class ImportService {
             String status;
             MatchCandidate candidate;
             if (isBlank(row.teacherName)) {
-                // Преподаватель не указан намеренно — подбор произойдёт при
-                // автосоставлении расписания, здесь не с чем сравнивать по ФИО.
                 status = "AUTO";
                 candidate = null;
             } else {
@@ -229,10 +201,6 @@ public class ImportService {
                     .build());
         }
 
-        // "Дубли" (совпадения с уже существующими преподавателями — EXACT/FUZZY)
-        // выводим ПЕРЕД полностью новыми строками (NEW/AUTO), чтобы администратор
-        // сначала проверил все совпадения, а не искал их вперемешку с новыми.
-        // Порядок строк с одинаковым статусом не меняется (стабильная сортировка).
         Map<String, Integer> statusPriority = Map.of("EXACT", 0, "FUZZY", 1, "NEW", 2, "AUTO", 3);
         matchRows.sort(Comparator.comparingInt(r -> statusPriority.getOrDefault(r.getMatchStatus(), 9)));
 
@@ -259,13 +227,6 @@ public class ImportService {
                 .build();
     }
 
-    /**
-     * МОДУЛЬ ИМПОРТА: финализация после разрешения всех "жёлтых" строк на экране
-     * предпросмотра. decisions — решения администратора по rowIndex (LINK к
-     * существующему преподавателю или CREATE нового, при желании с обогащением данных).
-     * Строки без явного решения обрабатываются по умолчанию: EXACT/FUZZY со схожестью
-     * ~1.0 привязываются автоматически, остальные создаются как новые.
-     */
     public ImportReportDto confirmImport(MultipartFile file, Integer academicYear,
                                           Map<Integer, ImportRowDecisionDto> decisions) {
         ParseResult parsed = parseAndValidate(file);
@@ -319,17 +280,6 @@ public class ImportService {
                 .build();
     }
 
-    // ---- Доп. листы импорта (все необязательны, ищутся по заголовкам НЕЗАВИСИМО от
-    // порядка листов в книге — администратор может переставить/переименовать листы,
-    // добавить свои, программа всё равно найдёт нужные по содержимому шапки) ----
-    //
-    // "Преподаватели и дисциплины": какие дисциплины ведёт каждый преподаватель —
-    //   используется для автоподбора преподавателя в строках листа 1 без ФИО.
-    // "Группы": какие дисциплины изучает каждая группа — используется, чтобы завести
-    //   группу в БД, даже если она ещё не встретилась в строках основной нагрузки.
-    // "Аудитории": фонд аудиторий для автосоставления расписания — название (обязательно),
-    //   вместимость и закреплённые дисциплины (оба необязательны). Аудитория без явно
-    //   перечисленных дисциплин считается открытой для ЛЮБЫХ пар.
     private static final List<String> TEACHER_NAME_SYNONYMS = List.of(
             "фио преподавателя", "преподаватель", "фио", "педагог");
     private static final List<String> DISCIPLINES_LIST_SYNONYMS = List.of(
@@ -345,19 +295,12 @@ public class ImportService {
             "дисциплины", "предметы", "профиль", "специализация",
             "закреплённые дисциплины", "закрепленные дисциплины");
 
-    /** Лист книги, распознанный по заголовку: сырые строки + индексы найденных колонок. */
     private record SheetMatch(List<List<String>> rows, int headerRow, int colA, int colB) {
     }
 
-    /**
-     * Сканирует ВСЕ листы книги (в любом порядке) и возвращает первый, где в пределах
-     * первых 10 строк нашлась шапка с ОБЕИМИ колонками (по синонимам). CSV и файлы без
-     * подходящего листа — не ошибка, просто возвращается null, вызывающий код молча
-     * пропускает необязательный лист.
-     */
     private SheetMatch findSheetWithColumns(MultipartFile file, List<String> colASynonyms, List<String> colBSynonyms) {
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
-        if (filename.endsWith(".csv")) return null; // CSV не поддерживает несколько листов
+        if (filename.endsWith(".csv")) return null;
 
         try (InputStream is = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(is)) {
@@ -367,8 +310,6 @@ public class ImportService {
                 for (int i = 0; i < Math.min(rows.size(), 10); i++) {
                     int aCol = findColumn(rows.get(i), colASynonyms);
                     int bCol = findColumn(rows.get(i), colBSynonyms);
-                    // aCol != bCol: если обе колонки "нашлись" в одной и той же ячейке —
-                    // это случайное совпадение слов в пояснительном тексте, а не шапка.
                     if (aCol >= 0 && bCol >= 0 && aCol != bCol) {
                         return new SheetMatch(rows, i, aCol, bCol);
                     }
@@ -380,7 +321,6 @@ public class ImportService {
         return null;
     }
 
-    /** Читает лист целиком в виде текстовых ячеек (без интерпретации типов). */
     private List<List<String>> readSheetRows(Sheet sheet) {
         List<List<String>> rows = new ArrayList<>();
         DataFormatter formatter = new DataFormatter();
@@ -397,11 +337,6 @@ public class ImportService {
         return rows;
     }
 
-    /**
-     * Читает лист "Преподаватели и дисциплины" (необязательный, ищется по заголовку
-     * на любом листе книги) и возвращает ФИО преподавателя -> список дисциплин через
-     * запятую. Не бросает исключений — если подходящего листа нет, результат пуст.
-     */
     private Map<String, String> parseTeacherDisciplineSheet(MultipartFile file) {
         Map<String, String> result = new LinkedHashMap<>();
         SheetMatch match = findSheetWithColumns(file, TEACHER_NAME_SYNONYMS, DISCIPLINES_LIST_SYNONYMS);
@@ -418,11 +353,6 @@ public class ImportService {
         return result;
     }
 
-    /**
-     * Читает лист "Группы" (необязательный): название группы -> список дисциплин
-     * (информационно, для будущей сверки; главное — сам факт существования группы).
-     * Строки без названия группы пропускаются, дисциплины могут быть пустыми.
-     */
     private Map<String, String> parseGroupDisciplinesSheet(MultipartFile file) {
         Map<String, String> result = new LinkedHashMap<>();
         SheetMatch match = findSheetWithColumns(file, GROUP_NAME_SYNONYMS, DISCIPLINES_LIST_SYNONYMS);
@@ -444,17 +374,9 @@ public class ImportService {
         return result;
     }
 
-    /** Разобранная строка листа "Аудитории": имя обязательно, остальное — по возможности. */
     record ParsedClassroom(String name, Integer capacity, List<String> allowedDisciplines) {
     }
 
-    /**
-     * Читает лист "Аудитории" (необязательный, ищется по заголовку на любом листе книги,
-     * например "Аудитории"/"Аудитория"/"Кабинет"/"Помещения"). Обязательна только колонка
-     * с названием аудитории — вместимость и закреплённые дисциплины опциональны.
-     * Аудитория без указанных дисциплин (частый случай — просто список номеров без
-     * дополнительных колонок) считается открытой для ЛЮБЫХ пар.
-     */
     private List<ParsedClassroom> parseClassroomsSheet(MultipartFile file) {
         List<ParsedClassroom> result = new ArrayList<>();
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
@@ -477,7 +399,7 @@ public class ImportService {
                         break;
                     }
                 }
-                if (headerRow < 0) continue; // на этом листе аудиторий нет — пробуем следующий
+                if (headerRow < 0) continue;
 
                 for (int i = headerRow + 1; i < rows.size(); i++) {
                     List<String> row = rows.get(i);
@@ -490,7 +412,6 @@ public class ImportService {
                         try {
                             capacity = Integer.parseInt(row.get(capCol).trim());
                         } catch (NumberFormatException ignored) {
-                            // не число — оставляем вместимость неизвестной, не блокируем импорт
                         }
                     }
 
@@ -503,7 +424,7 @@ public class ImportService {
                     }
                     result.add(new ParsedClassroom(name.trim(), capacity, disciplines));
                 }
-                return result; // нашли и разобрали лист с аудиториями — остальные листы не нужны
+                return result;
             }
         } catch (Exception e) {
             log.debug("Лист с аудиториями не разобран: {}", e.getMessage());
@@ -522,12 +443,6 @@ public class ImportService {
         return -1;
     }
 
-    // ==================== Разбор нескольких значений в ячейке Группа/Дисциплина ====================
-    // Поддерживаем 2 формата в ОДНОЙ ячейке (третий — просто повторить строку с другой
-    // группой/дисциплиной — уже работает сам по себе, каждая строка файла и так
-    // обрабатывается независимо):
-    //   "ИБ-21, ИБ-22"   — через запятую
-    //   "ИБ-21; ИБ-22"   — через точку с запятой
     private static final java.util.regex.Pattern MULTI_VALUE_SPLIT = java.util.regex.Pattern.compile("[,;]+");
 
     private List<String> splitTokens(String raw) {
@@ -558,20 +473,6 @@ public class ImportService {
         return copy;
     }
 
-    /**
-     * Если ячейка Группа и/или Дисциплина содержит несколько значений через запятую
-     * или `;` — "размножает" строку на все комбинации (одинаковые часы/тип занятия
-     * достаются каждой копии: дисциплина преподаётся каждой группе в полном объёме).
-     * Если ячейка одна (без разделителей) — возвращает исходную строку без изменений.
-     *
-     * Уверенность в правильности разбиения оценивается по базе данных:
-     *  - все токены уже существуют как отдельные группы/дисциплины -> уверенно (не помечаем);
-     *  - НИ ОДИН токен не найден -> вероятно, всё верно (это просто новые группы/дисциплины
-     *    из ещё не импортированного файла), но помечаем на всякий случай;
-     *  - ЧАСТЬ токенов найдена, часть нет -> подозрительно: возможно, это одно название
-     *    с запятой внутри (например, "Методы, средства и технологии..."), а не список —
-     *    помечаем как требующее проверки администратором.
-     */
     private List<ParsedRow> expandMultiValueRows(ParsedRow raw) {
         List<String> groupTokens = isBlank(raw.groupName) ? Collections.singletonList(raw.groupName) : splitTokens(raw.groupName);
         List<String> disciplineTokens = isBlank(raw.disciplineName) ? Collections.singletonList(raw.disciplineName) : splitTokens(raw.disciplineName);
@@ -630,19 +531,13 @@ public class ImportService {
         return result;
     }
 
-    // ==================== Общий разбор + валидация (используется всеми тремя режимами) ====================
-
     private static class ParseResult {
         List<ParsedRow> validRows = new ArrayList<>();
         List<ImportRowErrorDto> errors = new ArrayList<>();
-        // Не ошибки — строки, где разбиение ячейки Группа/Дисциплина по запятой/`;`
-        // прошло, но программа не уверена, что это действительно несколько значений,
-        // а не одно название с запятой внутри. Строка всё равно импортируется
-        // (result.validRows), это просто явное указание админу перепроверить её.
         List<ImportRowErrorDto> splitNotices = new ArrayList<>();
         List<String> detectedColumns = new ArrayList<>();
         int totalDataRows = 0;
-        ImportReportDto fatalError; // заполняется, если разбор в принципе не удался
+        ImportReportDto fatalError;
     }
 
     private ParseResult parseAndValidate(MultipartFile file) {
@@ -699,20 +594,8 @@ public class ImportService {
             try {
                 ParsedRow rawParsed = parseRow(row, columnMap, excelRowNumber);
 
-                // РАЗБОР НЕСКОЛЬКИХ ГРУПП/ДИСЦИПЛИН В ОДНОЙ ЯЧЕЙКЕ.
-                // В файле значения могут быть перечислены через запятую ("ИБ-21, ИБ-22"),
-                // через точку с запятой ("ИБ-21; ИБ-22"), либо просто повторены отдельными
-                // строками (это и так уже работает — каждая строка обрабатывается независимо).
-                // Здесь разбираем первые два случая: если ячейка содержит несколько токенов,
-                // строка "размножается" на все комбинации группа×дисциплина с одинаковыми
-                // часами/типом занятия у каждой копии.
                 for (ParsedRow parsed : expandMultiValueRows(rawParsed)) {
 
-                    // ФИО преподавателя больше не обязательно: пустая ячейка означает
-                    // "преподаватель будет подобран автоматически" (см. TeacherAssignmentService).
-                    // Если в файле заполнена колонка "Возможные преподаватели" — подбор
-                    // ограничится этим списком, иначе берётся любой преподаватель, чья
-                    // специализация покрывает дисциплину этой строки.
                     if (isBlank(parsed.disciplineName)) {
                         result.errors.add(rowError(excelRowNumber, "Не указана дисциплина", row));
                         continue;
@@ -734,12 +617,6 @@ public class ImportService {
                         continue;
                     }
 
-                    // МАКСИМУМ 36 ЧАСОВ В НЕДЕЛЮ НА ОДНУ ДИСЦИПЛИНУ У ОДНОГО ПРЕПОДАВАТЕЛЯ
-                    // (18 пар — больше физически не размещается в недельном расписании).
-                    // Проверяем и явно указанное "часов в неделю", и то, что получится при
-                    // пересчёте из "часов за год" (÷36 недель) — именно так в файл ранее
-                    // попадали нереалистичные годовые часы (17784, 16000, 3000 и т.п.),
-                    // и генератор расписания потом просто не мог их разместить.
                     double effectiveHoursPerWeek = parsed.hoursPerWeek != null
                             ? parsed.hoursPerWeek
                             : (parsed.totalHours != null ? parsed.totalHours / 36.0 : 0);
@@ -751,10 +628,6 @@ public class ImportService {
                         continue;
                     }
 
-                    // Для строк с преподавателем дубликат — это тот же преподаватель на ту же
-                    // дисциплину/группу. Для строк БЕЗ преподавателя ("__AUTO__") дубликатом
-                    // считаем повторение группы+дисциплины+типа занятия — иначе две строки
-                    // "группа А, дисциплина Х, лекция" и "...практика" ошибочно бы схлопнулись.
                     String teacherKeyPart = isBlank(parsed.teacherName) ? "__AUTO__" : normalize(parsed.teacherName);
                     String dedupKey = teacherKeyPart + "|" + normalize(parsed.disciplineName)
                             + "|" + normalize(parsed.groupName) + "|" + normalize(parsed.lessonType);
@@ -777,14 +650,10 @@ public class ImportService {
             }
         }
 
-        // Дубликаты — первыми (проще сравнить их друг с другом), остальные ошибки —
-        // следом, в изначальном порядке (стабильная сортировка).
         result.errors.sort(Comparator.comparingInt(e -> e.getMessage() != null && e.getMessage().startsWith("Дубликат") ? 0 : 1));
 
         return result;
     }
-
-    // ==================== Нечёткое распознавание преподавателей ====================
 
     private static class MatchCandidate {
         Teacher teacher;
@@ -804,8 +673,6 @@ public class ImportService {
         return best;
     }
 
-    // ==================== Разбор файла ====================
-
     private List<List<String>> readAllRows(MultipartFile file) throws IOException {
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
         if (filename.endsWith(".csv")) {
@@ -814,12 +681,6 @@ public class ImportService {
         return readExcel(file.getInputStream());
     }
 
-    /**
-     * Читает основной лист нагрузки. Сначала пробует первый лист книги (обычный случай),
-     * и только если на нём НЕТ распознаваемой шапки (Дисциплина + Группа) — ищет её среди
-     * остальных листов книги. Так администратор может переставить листы местами или
-     * добавить дополнительные листы до основного, не сломав импорт.
-     */
     private List<List<String>> readExcel(InputStream is) throws IOException {
         try (Workbook workbook = WorkbookFactory.create(is)) {
             List<List<String>> firstSheetRows = readSheetRows(workbook.getSheetAt(0));
@@ -832,8 +693,6 @@ public class ImportService {
                     return rows;
                 }
             }
-            // Ни на одном листе не нашли подходящую шапку — возвращаем первый лист как
-            // раньше, чтобы дальше сработала понятная ошибка "не удалось распознать заголовки".
             return firstSheetRows;
         }
     }
@@ -879,10 +738,6 @@ public class ImportService {
                 bestRow = i;
             }
         }
-        // Требуем минимум дисциплину + группу. ФИО преподавателя теперь НЕОБЯЗАТЕЛЬНО:
-        // строка "группа + дисциплина" без преподавателя — это валидный способ описать
-        // нагрузку, преподавателя на неё подберёт модуль автосоставления расписания
-        // (см. TeacherAssignmentService) в момент генерации.
         if (bestRow >= 0) {
             Map<Field, Integer> map = detectColumns(rows.get(bestRow));
             if (!map.containsKey(Field.DISCIPLINE) || !map.containsKey(Field.GROUP)) {
@@ -898,7 +753,7 @@ public class ImportService {
             String cell = normalize(headerRow.get(col));
             if (cell.isEmpty()) continue;
             for (Map.Entry<Field, List<String>> entry : COLUMN_SYNONYMS.entrySet()) {
-                if (result.containsKey(entry.getKey())) continue; // первое совпадение побеждает
+                if (result.containsKey(entry.getKey())) continue;
                 for (String synonym : entry.getValue()) {
                     if (cell.contains(synonym)) {
                         result.put(entry.getKey(), col);

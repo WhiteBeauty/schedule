@@ -29,7 +29,6 @@
         </div>
     </div>
 
-    <!-- Модалка назначения экзамена/практики/вождения (ТЗ п.4-9) -->
     <div class="modal-overlay" id="specialEventModal">
         <div class="modal" style="max-width:640px;">
             <div class="modal-header">
@@ -83,7 +82,6 @@
         </div>
     </div>
 
-    <!-- Модалка экспорта расписания за месяц -->
     <div class="modal-overlay" id="exportMonthModal">
         <div class="modal">
             <div class="modal-header">
@@ -128,7 +126,6 @@
 
     <div th:replace="~{fragments/generation-modal :: panel}"></div>
 
-    <!-- Результат автосоставления расписания (устаревший блок, оставлен для совместимости) -->
     <div class="card" id="generationResultCard" style="display:none; margin-bottom:1.5rem;">
         <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
         <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
@@ -151,7 +148,6 @@
         </div>
     </div>
 
-    <!-- Year filter -->
     <div class="card" style="margin-bottom:1.5rem">
         <div class="filters">
             <label>Учебный год:
@@ -168,7 +164,6 @@
         </div>
     </div>
 
-    <!-- Stats -->
     <div class="grid" style="margin-bottom:1.5rem">
         <div class="stat">
             <div class="stat-label">Всего записей</div>
@@ -188,7 +183,6 @@
         </div>
     </div>
 
-    <!-- Search -->
     <div class="card" style="margin-bottom:1.5rem">
         <div class="filters">
             <input type="text" id="searchInput" placeholder="🔍 Поиск по преподавателю, дисциплине или группе..." oninput="filterTable()">
@@ -201,7 +195,6 @@
         </div>
     </div>
 
-    <!-- Schedule table -->
     <div class="card">
         <table id="scheduleTable">
             <thead>
@@ -223,7 +216,6 @@
     </div>
 </main>
 
-<!-- Modal Create/Edit -->
 <div class="modal-overlay" id="scheduleModal">
     <div class="modal">
         <div class="modal-header">
@@ -290,7 +282,6 @@
     </div>
 </div>
 
-<!-- Modal Confirm Delete -->
 <div class="modal-overlay" id="deleteModal">
     <div class="modal" style="max-width:400px">
         <div class="modal-header">
@@ -307,7 +298,6 @@
     </div>
 </div>
 
-<!-- Modal Wipe Schedule -->
 <div class="modal-overlay" id="wipeModal">
     <div class="modal">
         <div class="modal-header">
@@ -344,7 +334,6 @@
     </div>
 </div>
 
-<!-- Modal Groups -->
 <div class="modal-overlay" id="groupsModal">
     <div class="modal" style="max-width:700px">
         <div class="modal-header">
@@ -375,7 +364,6 @@
     </div>
 </div>
 
-<!-- Modal Disciplines -->
 <div class="modal-overlay" id="disciplinesModal">
     <div class="modal" style="max-width:700px">
         <div class="modal-header">

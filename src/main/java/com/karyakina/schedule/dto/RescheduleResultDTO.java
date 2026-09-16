@@ -4,11 +4,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
-/**
- * Итог автоматической реакции на больничный: что закрыли заменой, что перенесли,
- * что осталось на ручное решение. Возвращается администратору в интерфейсе,
- * а не только уходит в уведомления.
- */
 public record RescheduleResultDTO(
         Long sickLeaveId,
         Long teacherId,
@@ -23,7 +18,6 @@ public record RescheduleResultDTO(
         List<String> warnings
 ) {
 
-    /** Пара осталась на месте, преподавателя заменили. */
     public record Substitution(
             Long lessonInstanceId,
             String groupName,
@@ -38,7 +32,6 @@ public record RescheduleResultDTO(
     ) {
     }
 
-    /** Замены не нашлось — пара перенесена в свободное «окно» группы. */
     public record Moved(
             Long lessonInstanceId,
             String groupName,
@@ -51,7 +44,6 @@ public record RescheduleResultDTO(
     ) {
     }
 
-    /** Ни замены, ни переноса — решение за администратором. */
     public record Unresolved(
             Long lessonInstanceId,
             String groupName,

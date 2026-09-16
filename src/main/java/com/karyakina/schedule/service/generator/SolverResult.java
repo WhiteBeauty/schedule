@@ -3,10 +3,6 @@ package com.karyakina.schedule.service.generator;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Результат работы солвера. Исключений не бросает: то, что расставить не удалось,
- * лежит в {@link Unplaced} вместе с причиной — из неё сервис строит вопрос администратору.
- */
 public record SolverResult(
         List<PlacedPair> placed,
         List<Unplaced> unplaced,
@@ -14,7 +10,6 @@ public record SolverResult(
         Map<String, Integer> metrics
 ) {
 
-    /** Одна поставленная пара. */
     public record PlacedPair(
             long loadId,
             long groupId,
@@ -29,7 +24,6 @@ public record SolverResult(
         }
     }
 
-    /** Причина, по которой пара не встала (самая частая блокировка при переборе слотов). */
     public enum Reason {
         GROUP_BUSY("у группы нет свободных слотов в сетке"),
         TEACHER_BUSY("преподаватель занят во всех подходящих слотах"),
@@ -83,7 +77,6 @@ public record SolverResult(
         return unplaced.stream().mapToInt(Unplaced::missingPairs).sum();
     }
 
-    /** Меньше нерасставленных пар важнее; при равенстве — меньше штраф мягких ограничений. */
     public boolean betterThan(SolverResult other) {
         if (other == null) {
             return true;

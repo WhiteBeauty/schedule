@@ -6,18 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Штрафы за МЯГКИЕ ограничения — чем меньше значение, тем лучше расписание:
- * <ul>
- *   <li>«окна» у группы и у преподавателя;</li>
- *   <li>две одинаковые пары подряд у группы (защита от переутомления);</li>
- *   <li>неравномерная нагрузка по дням недели;</li>
- *   <li>повтор рисунка недели: тот же предмет на той же паре другого дня и та же
- *       последовательность «предмет → предмет», что уже была на другом дне;</li>
- *   <li>пожелания преподавателя по дням и парам;</li>
- *   <li>поздние пары и лишние переходы группы между аудиториями.</li>
- * </ul>
- */
 public final class SoftScorer {
 
     private final SolverConfig config;
@@ -30,7 +18,6 @@ public final class SoftScorer {
         this.weights = config.weights();
     }
 
-    /** Во сколько «обходится» постановка пары в конкретный слот (считается инкрементально). */
     public double placementPenalty(OccupancyIndex index,
                                    SolverInput.Demand demand,
                                    SolverInput.GroupRef group,
@@ -57,7 +44,6 @@ public final class SoftScorer {
             penalty += weights.preferredDayMiss() / 2;
         }
 
-        // ЗАЩИТА ОТ ПЕРЕУТОМЛЕНИЯ: соседняя пара той же дисциплины, тем более того же преподавателя.
         long[] disciplines = index.groupDisciplines(group.id());
         long[] teachers = index.groupTeachers(group.id());
         for (int neighbour : new int[]{pairIdx - 1, pairIdx + 1}) {
@@ -73,7 +59,6 @@ public final class SoftScorer {
             }
         }
 
-        // Равномерность по дням: квадратичное отклонение от целевого числа пар в день.
         int after = index.groupDayCount(group.id(), dayIdx) + 1;
         penalty += weights.dayImbalance()
                 * (sq(after - targetPairsPerDay) - sq(after - 1 - targetPairsPerDay));
@@ -94,7 +79,6 @@ public final class SoftScorer {
         return penalty;
     }
 
-    /** На сколько вырастет число «окон» в этом дне, если занять слот. */
     private int gapDelta(boolean[] line, int dayIdx, int flat) {
         int before = gapsInDay(line, dayIdx);
         line[flat] = true;
@@ -119,10 +103,6 @@ public final class SoftScorer {
         return first < 0 ? 0 : (last - first + 1) - busy;
     }
 
-    /**
-     * Повтор рисунка недели: 0 — уникально, 1–2 — совпадения с другими днями.
-     * Проверяем и «та же дисциплина на той же паре», и «та же пара дисциплин подряд».
-     */
     private int patternRepeats(long[] disciplines, int dayIdx, int pairIdx, long disciplineId) {
         int repeats = 0;
         for (int d = 0; d < days; d++) {
@@ -153,7 +133,6 @@ public final class SoftScorer {
         return repeats;
     }
 
-    /** Итоговая оценка готового решения + метрики для сводки администратору. */
     public Metrics evaluate(List<SolverResult.PlacedPair> placed) {
         int slots = GenerationGrid.slotCount();
         Map<Long, boolean[]> groupLines = new HashMap<>();
@@ -232,7 +211,6 @@ public final class SoftScorer {
         return count;
     }
 
-    /** Сколько дней недели у группы имеют полностью совпадающий набор и порядок дисциплин. */
     private int countDuplicateDays(long[] disciplines) {
         Set<String> seen = new HashSet<>();
         int duplicates = 0;

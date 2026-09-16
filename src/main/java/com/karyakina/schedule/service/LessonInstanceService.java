@@ -15,20 +15,6 @@ import java.time.temporal.WeekFields;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * МОДУЛЬ ТАРИФИКАЦИИ И УЧЁТА НАГРУЗКИ (ядро системы).
- *
- * {@link LessonInstance} — конкретное занятие на конкретную дату, порождённое шаблоном
- * {@link Schedule}. Именно операции над LessonInstance автоматически пересчитывают
- * фактическую нагрузку (readHours) преподавателя:
- *  - confirmInstance(...)  — пара проведена -> часы ПРИБАВЛЯЮТСЯ;
- *  - cancelInstance(...)   — пара отменена -> ранее начисленные часы ВЫЧИТАЮТСЯ;
- *  - replaceInstance(...)  — пара передана другому преподавателю -> часы переносятся:
- *        вычитаются у исходного (если были начислены) и прибавляются заменяющему.
- * Если у заменяющего преподавателя нет собственного резерва часов по этой
- * дисциплине/группе — создаётся запись TeacherLoad с флагом overload=true
- * ("переработка"), как того требует ТЗ.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -49,17 +35,8 @@ public class LessonInstanceService {
         return instanceRepository.findByOriginalTeacherIdAndDateRange(teacherId, from, to);
     }
 
-    /**
-     * Находит (или создаёт как PLANNED) конкретные занятия на указанную дату для всех
-     * шаблонов расписания, действующих в этот день недели / учебную неделю.
-     * Идемпотентно: повторный вызов на ту же дату не создаёт дублей (уникальный индекс
-     * schedule_id+lesson_date).
-     */
     @Transactional
     public List<LessonInstance> generateInstancesForDate(LocalDate date, Integer academicYear) {
-        // ТЗ п.1: расписание строго привязано к семестру — на каникулах занятий не бывает
-        // вообще, и шаблон одного семестра не должен материализовываться в другом (см. тот
-        // же комментарий в MonthScheduleService).
         if (com.karyakina.schedule.util.AcademicYearUtil.isVacation(date)) {
             return instanceRepository.findByLessonDate(date);
         }
@@ -93,7 +70,6 @@ public class LessonInstanceService {
         return instanceRepository.findByLessonDate(date);
     }
 
-    /** Пара проведена — начисляем часы преподавателю, указанному в teacherLoad занятия. */
     @Transactional
     public LessonInstance confirmInstance(Long instanceId, String changedBy) {
         LessonInstance instance = instanceRepository.findById(instanceId)
@@ -101,7 +77,7 @@ public class LessonInstanceService {
 
         if (instance.getStatus() == LessonInstance.Status.CONFIRMED
                 || instance.getStatus() == LessonInstance.Status.REPLACED) {
-            return instance; // уже учтено, повторно не начисляем
+            return instance;
         }
 
         addHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
@@ -112,7 +88,6 @@ public class LessonInstanceService {
         return instanceRepository.save(instance);
     }
 
-    /** Пара отменена. Если часы уже были начислены (CONFIRMED/REPLACED) — вычитаем их обратно. */
     @Transactional
     public LessonInstance cancelInstance(Long instanceId, String note, String changedBy) {
         LessonInstance instance = instanceRepository.findById(instanceId)
@@ -130,12 +105,6 @@ public class LessonInstanceService {
         return instanceRepository.save(instance);
     }
 
-    /**
-     * Пара не проводится очно — группе назначается самостоятельная работа (форс-мажор,
-     * когда ни замену, ни перенос на другой день найти не удалось). Как и при отмене,
-     * ранее начисленные часы (если пара уже была CONFIRMED/REPLACED) вычитаются обратно —
-     * фактически занятие не состоялось в обычном формате.
-     */
     @Transactional
     public LessonInstance markIndependentWork(Long instanceId, String note, String changedBy) {
         LessonInstance instance = instanceRepository.findById(instanceId)
@@ -154,12 +123,6 @@ public class LessonInstanceService {
         return instanceRepository.save(instance);
     }
 
-    /**
-     * Замена преподавателя на конкретном занятии (форс-мажор). Часы автоматически
-     * переносятся: списываются у исходного (если были начислены) и начисляются
-     * заменяющему преподавателю. Если у заменяющего нет собственной плановой нагрузки
-     * по этой дисциплине/группе, создаётся новая запись TeacherLoad с overload=true.
-     */
     @Transactional
     public LessonInstance replaceInstance(Long instanceId, Teacher substitute, String note, String changedBy) {
         LessonInstance instance = instanceRepository.findById(instanceId)
@@ -185,7 +148,6 @@ public class LessonInstanceService {
         return instanceRepository.save(instance);
     }
 
-    /** Находит нагрузку заменяющего преподавателя по той же дисциплине/группе/году, либо создаёт "переработку". */
     @Transactional
     public TeacherLoad findOrCreateSubstituteLoad(Teacher substitute, TeacherLoad originalLoad) {
         List<TeacherLoad> substituteLoads = loadRepository.findByTeacherIdAndAcademicYear(
@@ -215,8 +177,6 @@ public class LessonInstanceService {
         return !sickLeaveRepository.findByTeacherIdAndDateRange(teacherId, date).isEmpty();
     }
 
-    // ==================== Внутренняя бухгалтерия часов ====================
-
     private void addHours(TeacherLoad load, int hours, LocalDate date, String note, String changedBy) {
         load.setReadHours(load.getReadHours() + hours);
         loadRepository.save(load);
@@ -229,7 +189,6 @@ public class LessonInstanceService {
         upsertMonthly(load, date.getMonthValue(), -hours, note, changedBy);
     }
 
-    /** Обновляет (или создаёт) одну помесячную запись ФАКТИЧЕСКИ проведённых часов (не плана). */
     private void upsertMonthly(TeacherLoad load, int month, int deltaHours, String note, String changedBy) {
         List<MonthlyRecord> existing = monthlyRecordRepository.findByTeacherLoadId(load.getId());
         MonthlyRecord base = existing.stream()
@@ -260,24 +219,11 @@ public class LessonInstanceService {
         }
     }
 
-    /**
-     * Приблизительный номер учебной недели (1..~40) для сопоставления с Schedule.academicWeek.
-     * Отсчёт ведётся от 1 сентября учебного года.
-     */
     public int computeAcademicWeek(LocalDate date, Integer academicYear) {
         LocalDate start = LocalDate.of(academicYear, 9, 1);
         if (date.isBefore(start)) {
             start = LocalDate.of(academicYear - 1, 9, 1);
         }
-        // ВАЖНО: раньше здесь стоял WeekFields.of(Locale.getDefault()) — начало недели
-        // (и, соответственно, номер недели) зависело от системной локали сервера/JVM.
-        // Из-за этого номер недели, вычисленный здесь, мог не совпадать с тем, что
-        // реально записан в Schedule.academicWeek (заданным при генерации расписания
-        // в другом окружении/локали), и пары с непустым academicWeek переставали
-        // материализовываться (или пропадали из месячного календаря) — вплоть до того,
-        // что весь день недели (например, четверг) мог не появляться никогда.
-        // WeekFields.ISO фиксирует неделю с понедельника независимо от локали, поэтому
-        // номер недели теперь детерминирован и одинаков в любом окружении.
         WeekFields iso = WeekFields.ISO;
         long weeks = ChronoUnit.WEEKS.between(
                 start.with(iso.getFirstDayOfWeek()),

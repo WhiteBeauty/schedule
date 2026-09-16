@@ -2,17 +2,10 @@ package com.karyakina.schedule.util;
 
 import java.util.Locale;
 
-/**
- * Нечёткое сравнение строк для распознавания преподавателей при импорте: одно и то же
- * ФИО может быть записано как "Иванов Иван Иванович", "Иванов И.И." или "Иванов Иван".
- * Комбинируем расстояние Левенштейна (число правок) и Джаро-Винклера (чувствителен к
- * общему префиксу и порядку токенов) — берём среднее по итоговой похожести в [0..1].
- */
 public class StringSimilarity {
 
     private StringSimilarity() {}
 
-    /** Похожесть в диапазоне [0.0, 1.0], 1.0 — идентичные строки после нормализации. */
     public static double similarity(String a, String b) {
         if (a == null || b == null) return 0.0;
         String na = normalize(a);
@@ -24,8 +17,6 @@ public class StringSimilarity {
         double jaroWinklerSim = jaroWinkler(na, nb);
         double tokenSim = tokenOverlapSimilarity(na, nb);
 
-        // Токен-пересечение особенно хорошо ловит случаи вида "Иванов И.И." vs
-        // "Иванов Иван Иванович" — усиливаем итоговую оценку, если оно высокое.
         return Math.max((levenshteinSim + jaroWinklerSim) / 2.0, tokenSim);
     }
 
@@ -101,10 +92,6 @@ public class StringSimilarity {
                 + ((matches - transpositions) / matches)) / 3.0;
     }
 
-    /**
-     * Доля пересекающихся токенов (слов) между двумя ФИО, с учётом сокращений вида "И.И."
-     * против полного "Иван Иванович" (сравнение по первой букве токена).
-     */
     private static double tokenOverlapSimilarity(String a, String b) {
         String[] tokensA = a.split(" ");
         String[] tokensB = b.split(" ");

@@ -6,16 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * ИНТЕРАКТИВНЫЙ РЕЖИМ. Проблема, которую алгоритм НЕ решает молча и НЕ бросает исключением:
- * вместо падения возвращается вопрос администратору с готовыми вариантами действий,
- * а фронтенд показывает его модальным окном с кнопками (см. static/js/schedule-generation.js).
- *
- * <p>Пример сообщения:
- * «Для предмета "Математика" (ИС-21) расхождение по часам: в файле нагрузки 10 ч,
- * при ручном вводе указано 50 ч.» с вариантами:
- * 1) Утвердить часы из файла (10); 2) Утвердить часы из ручного ввода (50); 3) Указать своё количество часов.
- */
 public record MissingResourceRequest(
         String id,
         Code code,
@@ -27,40 +17,25 @@ public record MissingResourceRequest(
 ) {
 
     public enum Code {
-        /** Часы из файла нагрузки не совпадают с ручным вводом. */
         HOURS_MISMATCH,
-        /** Одна и та же тройка преподаватель+дисциплина+группа задана несколькими записями. */
         DUPLICATE_LOAD,
-        /** Часов в неделю больше, чем физически возможно (например, 50 ч на одну дисциплину). */
         HOURS_IMPLAUSIBLE,
-        /** Для нагрузки не удалось определить преподавателя. */
         NO_TEACHER_FOR_DISCIPLINE,
-        /** Недельная нагрузка преподавателя выше лимита (36 ч). */
         TEACHER_OVERLOAD,
-        /** У одной группы по одному предмету больше настроенного часового предела в неделю. */
         SUBJECT_GROUP_OVERLOAD,
-        /** Не хватает свободных аудиторий. */
         NO_ROOM_AVAILABLE,
-        /** Не хватает слотов в сетке у группы или преподавателя. */
         GRID_CAPACITY,
-        /** Упираемся в лимит пар одной дисциплины в день. */
         SUBJECT_LIMIT,
-        /** Часть пар не удалось расставить. */
         UNPLACED_LESSONS,
-        /** Не нашли замену заболевшему преподавателю. */
         SUBSTITUTE_NOT_FOUND,
-        /** Техническая ошибка — показываем текст, а не пустое окно. */
         DATA_ERROR
     }
 
     public enum Severity {
-        /** Без ответа администратора расписание останется неполным. */
         BLOCKING,
-        /** Можно продолжать; ответ улучшит результат. */
         WARNING
     }
 
-    /** Вариант действия. {@code input} != null, если пользователю нужно что-то ввести или выбрать. */
     public record ResolutionOption(String actionCode, String label, Map<String, Object> payload, InputSpec input) {
 
         public ResolutionOption {
@@ -80,7 +55,6 @@ public record MissingResourceRequest(
         }
     }
 
-    /** Описание поля ввода на фронтенде: NUMBER (число), SELECT (выбор из списка). */
     public record InputSpec(String type, String label, String field, Integer min, Integer max,
                             Object defaultValue, List<Choice> choices) {
 
@@ -97,7 +71,6 @@ public record MissingResourceRequest(
     public record Choice(String value, String label) {
     }
 
-    /** Коды действий: их же принимает {@link ResolutionDecision#actionCode()}. */
     public static final class Actions {
         public static final String USE_FILE_HOURS = "USE_FILE_HOURS";
         public static final String USE_MANUAL_HOURS = "USE_MANUAL_HOURS";

@@ -18,14 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * МОДУЛЬ ИМПОРТА ДАННЫХ (Excel / CSV). Доступен только администратору.
- *
- * Основной путь: /preview (распознавание преподавателей, ничего не сохраняет) →
- * администратор разрешает "жёлтые" (нечёткие совпадения) строки на экране →
- * /confirm (тот же файл + решения по каждой строке, сохраняет).
- * /loads оставлен для обратной совместимости — прямой импорт без экрана сверки.
- */
 @RestController
 @RequestMapping("/api/import")
 @RequiredArgsConstructor

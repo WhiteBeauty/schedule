@@ -14,10 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Сверка плановой и распределённой (по расписанию) нагрузки на неделю и месяц.
- * Цель: разница план − факт(в расписании) = 0.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -76,7 +72,6 @@ public class LoadBalanceService {
         return row;
     }
 
-    /** Часов в неделю по плану (явное поле или plannedHours / 36). */
     public int resolveHoursPerWeek(TeacherLoad load) {
         if (load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
             return load.getHoursPerWeek();
@@ -86,12 +81,6 @@ public class LoadBalanceService {
         return Math.max(1, (int) Math.round(planned / (double) WEEKS_PER_YEAR));
     }
 
-    /**
-     * Сумма длительностей пар в шаблоне расписания на одну учебную неделю.
-     * Пары с academicWeek == null считаются еженедельными;
-     * пары с конкретной неделей учитываются пропорционально (1/WEEKS_PER_YEAR),
-     * но для сверки «типовой недели» берём только еженедельные + среднюю долю разовых.
-     */
     public int computeScheduledHoursPerWeek(TeacherLoad load) {
         List<Schedule> schedules = scheduleRepository.findByTeacherLoadId(load.getId());
         double weekly = 0;
@@ -104,7 +93,6 @@ public class LoadBalanceService {
                 oneOffTotal += hours;
             }
         }
-        // Разовые пары равномерно разносятся по учебному году
         weekly += oneOffTotal / WEEKS_PER_YEAR;
         return (int) Math.round(weekly);
     }
@@ -114,10 +102,6 @@ public class LoadBalanceService {
         return Math.max(1.0, minutes / 60.0);
     }
 
-    /**
-     * После добавления/изменения пары убеждаемся, что hoursPerWeek задан,
-     * и возвращаем текущий баланс недели (для UI/валидации).
-     */
     @Transactional
     public Map<String, Object> refreshAfterScheduleChange(Long teacherLoadId) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)

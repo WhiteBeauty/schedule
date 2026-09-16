@@ -16,12 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Отдельный бин, отвечающий исключительно за запись валидированных строк импорта в БД
- * в рамках одной транзакции. Вынесен из {@link ImportService} в отдельный класс, чтобы
- * аннотация {@code @Transactional} гарантированно перехватывалась Spring-прокси
- * (при вызове "this.метод()" внутри одного и того же бина проксирование не срабатывает).
- */
 @Service
 @RequiredArgsConstructor
 public class ImportPersistenceService {
@@ -143,8 +137,6 @@ public class ImportPersistenceService {
             TeacherLoad existing = findExistingLoad(
                     teacher != null ? teacher.getId() : null, group.getId(), discipline.getId(), academicYear);
             if (existing != null) {
-                // Часы суммируются с текущей нагрузкой (тот же преподаватель мог уже вести
-                // эту пару — импорт "дозаписывает" часы, а не затирает их).
                 existing.setPlannedHours(nz(existing.getPlannedHours()) + totalHours);
                 existing.setFirstSemesterHours(nz(existing.getFirstSemesterHours()) + hours1);
                 existing.setSecondSemesterHours(nz(existing.getSecondSemesterHours()) + hours2);
@@ -181,11 +173,6 @@ public class ImportPersistenceService {
         return result;
     }
 
-    /**
-     * Определяет, к какому Teacher относить строку: явное решение администратора
-     * (LINK/CREATE) имеет приоритет; если решения нет — старое поведение (точный поиск
-     * по ФИО или создание нового).
-     */
     private Teacher resolveTeacherForRow(ImportService.ParsedRow row,
                                           com.karyakina.schedule.dto.ImportRowDecisionDto decision,
                                           java.util.Map<Long, Teacher> teacherById,
@@ -210,17 +197,10 @@ public class ImportPersistenceService {
             return saved;
         }
 
-        // Строка без ФИО преподавателя и без явного решения администратора — это
-        // "группа+дисциплина без преподавателя", подбор произойдёт позже, при
-        // автосоставлении расписания (TeacherAssignmentService). НЕ создаём Teacher
-        // с пустым ФИО.
         if (isBlank(row.teacherName)) {
             return null;
         }
 
-        // Нет явного решения — прежнее поведение: точный поиск по ФИО, иначе создать нового.
-        // Берём первого из найденных: в базе могут быть дубликаты по ФИО (без уникального
-        // ограничения), и getSingleResult выбрасывает NonUniqueResultException.
         List<Teacher> existing = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
         if (!existing.isEmpty()) {
             return existing.get(0);
@@ -233,7 +213,6 @@ public class ImportPersistenceService {
         return teacherRepository.save(t);
     }
 
-    /** Аналог resolveTeacherForRow для простого импорта (без экрана предпросмотра/решений). */
     private Teacher resolveExplicitTeacherOrNull(ImportService.ParsedRow row, ImportResult result) {
         if (isBlank(row.teacherName)) {
             return null;
@@ -254,13 +233,6 @@ public class ImportPersistenceService {
         return s == null || s.isBlank();
     }
 
-    /**
-     * Применяет данные листа "Группы": для каждой перечисленной группы, которой ещё нет
-     * в базе, создаёт запись StudyGroup (только по названию — вместимость/курс/специальность
-     * заполняются администратором вручную позже). Список дисциплин из этого листа сейчас
-     * не сохраняется отдельно — он используется только для того, чтобы группа появилась
-     * в системе, даже если ещё ни разу не встретилась в строках основной нагрузки.
-     */
     @Transactional
     public int applyGroupsSheet(java.util.Map<String, String> groupDisciplines) {
         int created = 0;
@@ -274,12 +246,6 @@ public class ImportPersistenceService {
         return created;
     }
 
-    /**
-     * Применяет данные листа "Аудитории": создаёт новые аудитории или дополняет уже
-     * существующие (по названию, без учёта регистра) вместимостью/списком закреплённых
-     * дисциплин, если они указаны в файле. Существующие значения не затираются пустыми —
-     * повторный импорт того же файла безопасен.
-     */
     @Transactional
     public int applyClassrooms(List<ImportService.ParsedClassroom> rooms) {
         int created = 0;
@@ -309,15 +275,6 @@ public class ImportPersistenceService {
         return created;
     }
 
-    /**
-     * Применяет данные второго листа импорта "Преподаватели и дисциплины": для каждого
-     * найденного по ФИО преподавателя добавляет перечисленные дисциплины в его
-     * specialization (без дублей), не трогая остальных. Один преподаватель может вести
-     * несколько дисциплин — они перечисляются через запятую; используется модулем
-     * автоподбора преподавателя (TeacherAssignmentService) при генерации расписания.
-     * Преподаватели, отсутствующие в базе (ещё не встретились в основном листе и не
-     * заведены вручную), молча пропускаются — этот лист только дополняет специализацию.
-     */
     @Transactional
     public int applyTeacherDisciplines(java.util.Map<String, String> disciplinesByTeacherName) {
         int updated = 0;
@@ -349,17 +306,6 @@ public class ImportPersistenceService {
         return updated;
     }
 
-    /**
-     * Применяет записи, разобранные {@link TarificationImportService} из файла
-     * "Тарификация" (годовая сводная таблица нагрузки по преподавателям/группам).
-     *
-     * В отличие от {@link #applyRows}, группы здесь ВСЕГДА создаются из файла (а не
-     * сопоставляются с уже существующими в базе) — так решил администратор для этого
-     * формата импорта: тарификация читается в начале учебного года и описывает состав
-     * групп заново. Единственное исключение — повторный импорт того же файла: тогда
-     * группа с таким же названием уже создана этим же импортом (или предыдущим его
-     * запуском) и переиспользуется, чтобы не упасть на уникальном ограничении по имени.
-     */
     @Transactional
     public ImportResult applyTarificationRows(List<TarificationImportService.TarificationRow> rows, Integer academicYear) {
         ImportResult result = new ImportResult();

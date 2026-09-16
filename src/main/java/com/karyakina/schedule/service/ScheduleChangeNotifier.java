@@ -13,15 +13,6 @@ import java.time.LocalDateTime;
 import java.time.format.TextStyle;
 import java.util.Locale;
 
-/**
- * Единая точка формирования и рассылки уведомлений о любом действии администратора,
- * влияющем на учебный процесс: создание/удаление пары, перенос времени/аудитории,
- * назначение замены, отмена занятия, изменение нагрузки. Каждое уведомление:
- *  - всегда попадает во внутренний центр уведомлений (счётчик у колокольчика);
- *  - дополнительно дублируется на email, если критично по времени (например, отмена
- *    пары менее чем за 24 часа до её начала).
- * Содержимое формируется по шаблону "что изменилось, когда, у кого, ссылка на запись".
- */
 @Service
 @RequiredArgsConstructor
 public class ScheduleChangeNotifier {
@@ -42,7 +33,6 @@ public class ScheduleChangeNotifier {
                 message, null, SCHEDULE_LINK, false);
     }
 
-    /** before/after — снимки ДО и ПОСЛЕ изменения (день/время/аудитория). */
     public void pairUpdated(Schedule before, Schedule after, String adminName) {
         TeacherLoad load = after.getTeacherLoad();
         Teacher teacher = load.getTeacher();
@@ -52,7 +42,7 @@ public class ScheduleChangeNotifier {
                 || !before.getEndTime().equals(after.getEndTime());
         boolean roomChanged = !safeEquals(before.getClassroom(), after.getClassroom());
 
-        if (!timeChanged && !roomChanged) return; // нечего сообщать
+        if (!timeChanged && !roomChanged) return;
 
         String message = String.format(
                 "Администратор %s перенёс вашу пару «%s» у группы %s с %s %s (ауд. %s) на %s %s (ауд. %s).",
@@ -93,8 +83,6 @@ public class ScheduleChangeNotifier {
                 message, null, "/time-sync", false);
     }
 
-    // ==================== Вспомогательное ====================
-
     private boolean safeEquals(String a, String b) {
         return a == null ? b == null : a.equals(b);
     }
@@ -107,10 +95,6 @@ public class ScheduleChangeNotifier {
         return s.getStartTime() + "–" + s.getEndTime();
     }
 
-    /**
-     * true, если ближайшее по расписанию занятие (для этого дня недели, начиная с
-     * сегодняшнего дня) наступит менее чем через 24 часа — критично для email-канала.
-     */
     private boolean isWithin24Hours(Schedule schedule) {
         LocalDateTime next = nextOccurrence(schedule);
         if (next == null) return false;
@@ -124,7 +108,7 @@ public class ScheduleChangeNotifier {
         LocalDate candidate = today.plusDays(daysUntil);
         LocalDateTime result = candidate.atTime(schedule.getStartTime());
         if (daysUntil == 0 && result.isBefore(LocalDateTime.now())) {
-            result = result.plusDays(7); // сегодняшнее время уже прошло — ближайшее через неделю
+            result = result.plusDays(7);
         }
         return result;
     }

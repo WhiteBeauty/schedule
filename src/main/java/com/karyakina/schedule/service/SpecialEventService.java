@@ -15,30 +15,12 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Движок автопереноса пар для экзаменов, учебной/производственной практики и вождения
- * (ТЗ п.4-9). Общая логика для всех четырёх случаев: на период [startDate, endDate] у
- * группы блокируются обычные пары, каждая конфликтующая пара автоматически переставляется
- * на ближайший свободный слот в БУДУЩЕМ (не раньше сегодня и не раньше исходной даты —
- * "назад" пары не переносятся), с учётом занятости преподавателя/аудитории, недельного
- * лимита группы (18 пар) и уже других запланированных у группы блокировок. То, что
- * перенести не удалось, возвращается администратору как список конфликтов — он либо
- * переносит вручную через обычное редактирование пары (валидация лимита уже есть), либо
- * позже перезапускает попытку.
- *
- * <p>Технически: исходная пара НЕ удаляется из недельного шаблона {@link Schedule} (она
- * по-прежнему действует в другие недели/годы) — блокируется только конкретное занятие
- * на эту дату через {@link LessonInstance} (см. {@link LessonInstanceService#cancelInstance}).
- * "Перенесённая" пара — это НОВАЯ запись {@link Schedule} с {@code academicWeek}, указывающим
- * ровно на одну неделю (разовое исключение), и {@code rescheduledFromDate} — для подсветки.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SpecialEventService {
 
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
-    /** Не искать слот дальше ~2 месяцев вперёд — иначе можно уйти за пределы семестра/года без пользы. */
     private static final int SEARCH_HORIZON_DAYS = 70;
 
     private final SpecialEventRepository specialEventRepository;
@@ -73,11 +55,6 @@ public class SpecialEventService {
                 .createdBy(adminName)
                 .note(buildNote(type, discipline))
                 .build();
-        // final — переменная используется внутри лямбд ниже (ifPresent), а лямбды в Java
-        // требуют, чтобы захваченная переменная не переприсваивалась НИГДЕ в её области
-        // видимости. Раньше здесь стояло `event = specialEventRepository.save(event)`
-        // (переприсваивание той же переменной) — компилятор совершенно справедливо не дал
-        // собраться ("must be final or effectively final").
         final SpecialEvent savedEvent = specialEventRepository.save(event);
 
         List<Schedule> allSchedules = scheduleRepository.findByAcademicYear(academicYear);
@@ -92,11 +69,7 @@ public class SpecialEventService {
         List<SpecialEventDtos.UnresolvedConflict> unresolved = new ArrayList<>();
 
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
-            if (GenerationGrid.dayIndex(date.getDayOfWeek()) < 0) continue; // воскресенье
-            // final — тот же самый повод, что и с savedEvent: `date` переприсваивается в
-            // заголовке цикла (date = date.plusDays(1)), поэтому саму переменную date нельзя
-            // захватывать в лямбде (см. фильтр ниже) — только независимую final-копию на
-            // каждую итерацию.
+            if (GenerationGrid.dayIndex(date.getDayOfWeek()) < 0) continue;
             final LocalDate currentDate = date;
             int week = lessonInstanceService.computeAcademicWeek(date, academicYear);
 
@@ -111,7 +84,6 @@ public class SpecialEventService {
                     .toList();
 
             for (Schedule s : dayConflicts) {
-                // Блокируем исходное занятие именно на эту дату (шаблон на другие недели/годы не трогаем).
                 lessonInstanceService.generateInstancesForDate(date, academicYear);
                 lessonInstanceRepository.findByScheduleIdAndLessonDate(s.getId(), date).ifPresent(li -> {
                     LessonInstance cancelled = lessonInstanceService.cancelInstance(li.getId(), savedEvent.getNote(), adminName);
@@ -182,12 +154,6 @@ public class SpecialEventService {
                 .build();
     }
 
-    /**
-     * Ручное разрешение одного конфликта, который не смог перенестись автоматически —
-     * та же проверка занятости, что и в обычном ручном добавлении пары
-     * ({@code ScheduleService.createSchedule}, включая лимит 18 пар/нед), плюс отметка
-     * "перенесено" для подсветки.
-     */
     @Transactional
     public Schedule resolveManually(Long eventId, Long teacherLoadId, LocalDate fromDate, LocalDate toDate,
                                     int pairIdx, String classroom) {
@@ -197,9 +163,6 @@ public class SpecialEventService {
                 .orElseThrow(() -> new IllegalArgumentException("Нагрузка не найдена: " + teacherLoadId));
         int week = lessonInstanceService.computeAcademicWeek(toDate, event.getAcademicYear());
 
-        // Та же проверка накладок, что и при обычном ручном добавлении/переносе пары
-        // (ScheduleService.validateNoConflict) — раньше её тут не было вовсе, и ручное
-        // разрешение конфликта могло создать НОВЫЙ конфликт незаметно для администратора.
         DayOfWeek targetDay = toDate.getDayOfWeek();
         java.time.LocalTime targetStart = GenerationGrid.start(pairIdx);
         Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
@@ -243,13 +206,6 @@ public class SpecialEventService {
         return specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
     }
 
-    /**
-     * Удаляет экзамен/практику/вождение и полностью откатывает его последствия:
-     * — отменённые из-за него занятия (LessonInstance.CANCELLED) возвращаются в PLANNED;
-     * — созданные им перенесённые копии пар (Schedule.specialEventId) удаляются.
-     * Оригинальный недельный шаблон пары при этом не трогался изначально (см. комментарий
-     * класса) — так что после отката расписание возвращается ровно к состоянию "как было".
-     */
     @Transactional
     public void deleteEvent(Long eventId) {
         SpecialEvent event = specialEventRepository.findById(eventId)
@@ -288,11 +244,6 @@ public class SpecialEventService {
         };
     }
 
-    /**
-     * Человекочитаемая причина неудачи поиска слота — по счётчикам из {@link SearchOutcome}.
-     * Раньше здесь было общее "не нашлось свободного слота", по которому нельзя было понять,
-     * реально ли слотов физически нет, или где-то в логике поиска ошибка.
-     */
     private String diagnosisMessage(SearchOutcome outcome) {
         StringBuilder sb = new StringBuilder("Не нашлось свободного слота в пределах "
                 + SEARCH_HORIZON_DAYS + " дней. Причины отказа: ");
@@ -322,7 +273,6 @@ public class SpecialEventService {
     private record Slot(LocalDate date, int pairIdx, String room, int week) {
     }
 
-    /** Результат поиска: либо слот, либо счётчики причин отказа (для диагностики администратору). */
     private record SearchOutcome(Slot slot, int datesSkippedBlocked, int datesSkippedWeekCap,
                                  int slotsTeacherBusy, int slotsGroupBusy, int slotsNoRoom) {
         boolean found() {
@@ -330,7 +280,6 @@ public class SpecialEventService {
         }
     }
 
-    /** Учёт занятости на время одного прогона переноса — линейный поиск по небольшому набору данных. */
     private static final class Tracker {
         private final List<Schedule> active;
         private final List<SpecialEvent> groupEvents;
@@ -346,13 +295,6 @@ public class SpecialEventService {
             active.add(s);
         }
 
-        /**
-         * Ищет первый подходящий свободный слот НАЧИНАЯ СО СЛЕДУЮЩЕГО ДНЯ после исходной
-         * даты, и не раньше сегодня. Если не нашёл — считает, СКОЛЬКО РАЗ и по какой именно
-         * причине отклонил кандидатов, чтобы администратор видел не просто "не нашлось",
-         * а что именно мешает (например: "преподаватель занят в 32 из 35 проверенных пар" —
-         * это явный сигнал, что у него в принципе почти нет окон, а не что где-то есть баг).
-         */
         SearchOutcome search(Schedule original, LocalDate originalDate, StudyGroup group) {
             long teacherId = original.getTeacherLoad().getTeacher() != null
                     ? original.getTeacherLoad().getTeacher().getId() : -1;
@@ -364,10 +306,8 @@ public class SpecialEventService {
             LocalDate searchFrom = originalDate.plusDays(1);
             LocalDate today = LocalDate.now();
             if (searchFrom.isBefore(today)) {
-                searchFrom = today; // "назад" не переносим — минимум с сегодня
+                searchFrom = today;
             }
-            // Не уходим за пределы ТОГО ЖЕ семестра, что и у исходной пары (ТЗ п.1) — искать
-            // слот в других каникулах/следующем семестре бессмысленно, туда пара переехать не должна.
             int originalSemester = original.getSemester() != null
                     ? original.getSemester() : AcademicYearUtil.semesterOfDate(originalDate);
             LocalDate semesterEnd = AcademicYearUtil.semesterEnd(originalSemester, academicYear);
@@ -405,8 +345,6 @@ public class SpecialEventService {
         }
 
         private int weekOf(LocalDate date, int academicYear) {
-            // Дублирует LessonInstanceService.computeAcademicWeek (см. там комментарий про
-            // ISO-неделю) — не хотим тянуть Spring-бин внутрь статического поиска слотов.
             LocalDate start = LocalDate.of(academicYear, 9, 1);
             if (date.isBefore(start)) {
                 start = LocalDate.of(academicYear - 1, 9, 1);

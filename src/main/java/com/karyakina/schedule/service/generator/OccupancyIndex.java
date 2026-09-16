@@ -3,24 +3,6 @@ package com.karyakina.schedule.service.generator;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Занятость ресурсов и проверка ЖЁСТКИХ ограничений. Всё на плоских массивах
- * длиной {@code дни * пары}, поэтому проверка одного варианта — несколько чтений массива.
- *
- * <p>Жёсткие ограничения, которые здесь никогда не нарушаются:
- * <ol>
- *   <li>преподаватель не ведёт две пары одновременно;</li>
- *   <li>группа не находится на двух парах одновременно;</li>
- *   <li>аудитория не занята двумя группами в одном слоте;</li>
- *   <li>недельная нагрузка преподавателя ≤ лимита (36 ч = 18 пар);</li>
- *   <li>пар в неделю у группы ≤ лимита (по ТЗ — 18);</li>
- *   <li>пар в день ≤ лимита у преподавателя и у группы;</li>
- *   <li>не более {@code maxSameSubjectInRow} одинаковых пар подряд (по умолчанию 3+ запрещены);</li>
- *   <li>не более {@code maxSameSubjectPerDay} пар одной дисциплины в день;</li>
- *   <li>обед и другие заблокированные слоты группы не занимаются;</li>
- *   <li>вместимость аудитории не меньше численности группы.</li>
- * </ol>
- */
 public final class OccupancyIndex {
 
     public enum Violation {
@@ -57,8 +39,6 @@ public final class OccupancyIndex {
     public OccupancyIndex(SolverConfig config) {
         this.config = config;
     }
-
-    // ------------------------------------------------------------------ проверка
 
     public Violation check(SolverInput.Demand demand,
                            SolverInput.GroupRef group,
@@ -106,7 +86,6 @@ public final class OccupancyIndex {
         return Violation.NONE;
     }
 
-    /** Длина серии одинаковой дисциплины, которая получится после постановки в этот слот. */
     private int subjectRunLength(long groupId, int dayIdx, int pairIdx, long disciplineId) {
         long[] line = groupDisciplineAt.get(groupId);
         if (line == null) {
@@ -144,8 +123,6 @@ public final class OccupancyIndex {
         return count;
     }
 
-    // ------------------------------------------------------------------ изменение состояния
-
     public void place(SolverResult.PlacedPair pair) {
         int flat = pair.flat();
         array(groupBusy, pair.groupId())[flat] = true;
@@ -178,10 +155,6 @@ public final class OccupancyIndex {
         pairArray(pair.groupId())[flat] = null;
     }
 
-    /**
-     * Пометить слот занятым «извне»: уже сохранённые в БД пары, которые перегенерировать
-     * не нужно, но которые реально занимают преподавателя, группу и аудиторию.
-     */
     public void occupyExternal(Long groupId, Long teacherId, String room, int flat) {
         if (flat < 0 || flat >= slots) {
             return;
@@ -202,7 +175,6 @@ public final class OccupancyIndex {
         }
     }
 
-    /** Дисциплина и преподаватель уже стоящей пары — чтобы учитывать «3 подряд» с учётом старых пар. */
     public void occupyExternalContent(Long groupId, Long teacherId, Long disciplineId, int flat) {
         if (groupId == null || flat < 0 || flat >= slots) {
             return;
@@ -214,8 +186,6 @@ public final class OccupancyIndex {
             longArray(groupTeacherAt, groupId)[flat] = teacherId;
         }
     }
-
-    // ------------------------------------------------------------------ чтение
 
     public boolean[] groupTimeline(long groupId) {
         return array(groupBusy, groupId);
@@ -249,13 +219,10 @@ public final class OccupancyIndex {
         return groupWeekPairs.getOrDefault(groupId, 0);
     }
 
-    /** Пара, занимающая слот у группы — нужна для «выталкивания» при перестановках. */
     public SolverResult.PlacedPair pairAt(long groupId, int flat) {
         SolverResult.PlacedPair[] arr = groupPairAt.get(groupId);
         return arr == null ? null : arr[flat];
     }
-
-    // ------------------------------------------------------------------ утилиты
 
     private boolean busy(Map<Long, boolean[]> map, long id, int flat) {
         boolean[] arr = map.get(id);

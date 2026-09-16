@@ -9,11 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalTime;
 import java.util.Optional;
 
-/**
- * Настройка обеда "для всего потока" (глобальный обеденный перерыв по умолчанию —
- * используется для групп, у которых свой обед не задан отдельно, см.
- * StudyGroup.lunchStart/lunchEnd). Хранится в AppSetting как две строки "HH:mm".
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -24,7 +19,6 @@ public class SettingsService {
 
     private final AppSettingRepository settingRepository;
 
-    /** Возвращает [начало, конец] общего обеда, либо null, если он не настроен вовсе. */
     public LocalTime[] getGlobalLunchWindow() {
         Optional<AppSetting> start = settingRepository.findBySettingKey(GLOBAL_LUNCH_START_KEY);
         Optional<AppSetting> end = settingRepository.findBySettingKey(GLOBAL_LUNCH_END_KEY);

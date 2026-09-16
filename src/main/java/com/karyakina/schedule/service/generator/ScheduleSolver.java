@@ -14,35 +14,11 @@ import java.util.Map;
 import java.util.Random;
 import java.util.function.Consumer;
 
-/**
- * ЯДРО АВТОСОСТАВЛЕНИЯ.
- *
- * <p>Прежняя версия ставила пары «первым подходящим по баллу» слотом и, если место
- * кончалось, просто записывала «не удалось разместить». Здесь четыре отличия:
- * <ol>
- *   <li><b>Раунды.</b> Нагрузки разворачиваются в отдельные пары и раскладываются по раундам:
- *       сначала по одной паре каждой нагрузки, потом вторые и т.д. Дисциплины расползаются
- *       по неделе сами, а не слипаются в первые два дня.</li>
- *   <li><b>Оценка кандидатов.</b> Для каждой пары перебираются все допустимые «слот + аудитория»,
- *       выбирается минимальный штраф мягких ограничений (см. {@link SoftScorer}) со случайным
- *       выбором среди нескольких лучших — это и даёт разнообразие между рестартами.</li>
- *   <li><b>Выталкивание (ejection).</b> Если места нет вообще, уже стоящая пара переносится,
- *       освобождая слот. Именно это чаще всего спасает «последние» пары плотной нагрузки.</li>
- *   <li><b>Локальное улучшение + рестарты.</b> Случайные переносы, уменьшающие штраф
- *       (окна, повторы рисунка недели, неравномерность), затем весь прогон повторяется
- *       с другим seed'ом; побеждает решение с наименьшим числом нерасставленных пар.</li>
- * </ol>
- *
- * <p>Исключений не бросает никогда: всё, что не встало, возвращается в
- * {@link SolverResult#unplaced()} с диагнозом, и вызывающий сервис превращает это
- * в вопрос администратору.
- */
 @Component
 public class ScheduleSolver {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduleSolver.class);
 
-    /** Из скольких лучших вариантов выбирается слот (рандомизация для рестартов). */
     private static final int TOP_CANDIDATES = 3;
 
     @Value("${schedule.solver.max-millis:20000}")
@@ -53,10 +29,6 @@ public class ScheduleSolver {
         });
     }
 
-    /**
-     * @param preOccupy сюда попадает свежий индекс до расстановки — чтобы отметить занятыми
-     *                  слоты уже существующих в БД пар
-     */
     public SolverResult solve(SolverInput input, Consumer<OccupancyIndex> preOccupy) {
         long deadline = System.currentTimeMillis() + Math.max(1000L, maxMillis);
         SolverResult best = null;
@@ -73,8 +45,6 @@ public class ScheduleSolver {
         }
         return best == null ? SolverResult.empty() : best;
     }
-
-    // ------------------------------------------------------------------ один прогон
 
     private SolverResult runOnce(SolverInput input, Consumer<OccupancyIndex> preOccupy,
                                  Random random, long deadline) {
@@ -105,9 +75,6 @@ public class ScheduleSolver {
 
             Placement placement = bestPlacement(index, scorer, demand, group, teacher, rooms, target, random, stats);
             if (placement == null && System.currentTimeMillis() < deadline) {
-                // Выталкивание — самая дорогая часть прохода, поэтому за пределами бюджета
-                // времени его не запускаем: лучше вернуть честный частичный результат,
-                // чем висеть на запросе.
                 placement = tryEject(index, scorer, input, demand, group, teacher, rooms,
                         targetPerDay, placed, roomsByDemand);
             }
@@ -132,8 +99,6 @@ public class ScheduleSolver {
         return new SolverResult(placed, unplaced, metrics.penalty(), metrics.values());
     }
 
-    // ------------------------------------------------------------------ выбор места
-
     private record Placement(int dayIdx, int pairIdx, GenerationGrid.Room room, double penalty) {
     }
 
@@ -149,7 +114,6 @@ public class ScheduleSolver {
         return bestPlacement(index, scorer, demand, group, teacher, rooms, targetPerDay, random, stats, -1, -1);
     }
 
-    /** {@code forbiddenDay}/{@code forbiddenPair} = -1, если запретов нет. */
     private Placement bestPlacement(OccupancyIndex index,
                                     SoftScorer scorer,
                                     SolverInput.Demand demand,
@@ -173,12 +137,11 @@ public class ScheduleSolver {
                         double penalty = scorer.placementPenalty(index, demand, group, teacher, room,
                                 day, pair, targetPerDay);
                         candidates.add(new Placement(day, pair, room, penalty));
-                        break; // аудитории отсортированы: берём минимальную достаточную
+                        break;
                     }
                     if (stats != null) {
                         stats.merge(violation, 1, Integer::sum);
                     }
-                    // Если слот закрыт не аудиторией — другие аудитории не помогут.
                     if (violation != OccupancyIndex.Violation.ROOM_BUSY
                             && violation != OccupancyIndex.Violation.ROOM_CAPACITY) {
                         break;
@@ -189,17 +152,6 @@ public class ScheduleSolver {
         if (candidates.isEmpty()) {
             return null;
         }
-        // ВАЖНО: List.sort() в Java — стабильная сортировка. При РАВНОМ штрафе (а в начале
-        // расстановки, пока сетка почти пустая, у множества слотов штраф буквально
-        // одинаковый) сохраняется порядок добавления в список — а слоты добавлялись по
-        // дням от понедельника к пятнице (см. цикл выше). Значит среди топ-N после
-        // сортировки систематически побеждал понедельник — не потому что он объективно
-        // лучше, а просто потому что оказался в списке первым. Это и есть настоящая
-        // причина перекоса "2 пары в один день, 4 в другой": ранние дни получали
-        // приоритет при каждой развязке, а dayImbalance должен был компенсировать это
-        // в одиночку на КАЖДОЙ отдельной паре. Перемешиваем список ПЕРЕД сортировкой —
-        // сортировка остаётся стабильной, но теперь стабилизирует уже случайный, а не
-        // систематически смещённый к понедельнику порядок.
         if (random != null) {
             java.util.Collections.shuffle(candidates, random);
         }
@@ -208,10 +160,6 @@ public class ScheduleSolver {
         return candidates.get(random == null ? 0 : random.nextInt(pool));
     }
 
-    /**
-     * Выталкивание глубины 1: освобождаем слот, перенося одну–две мешающие пары.
-     * Если пристроить их не удалось — полный откат, состояние не портится.
-     */
     private Placement tryEject(OccupancyIndex index,
                                SoftScorer scorer,
                                SolverInput input,
@@ -264,8 +212,6 @@ public class ScheduleSolver {
                         index.place(moved);
                         relocated.add(moved);
                     }
-                    // Перенесённая пара могла добрать дневной лимит той же группе или
-                    // преподавателю, поэтому целевой слот проверяем ещё раз — уже по факту.
                     if (ok && index.check(demand, group, teacher, room, day, pair)
                             != OccupancyIndex.Violation.NONE) {
                         ok = false;
@@ -299,23 +245,6 @@ public class ScheduleSolver {
         return blockers;
     }
 
-    // ------------------------------------------------------------------ локальное улучшение
-
-    /**
-     * Локальный поиск с принятием по Simulated Annealing (а не чистый hill climbing, как
-     * было раньше).
-     *
-     * <p>Раньше здесь принимался только строго лучший сосед (delta &lt; 0), что классически
-     * застревает в локальном оптимуме — ровно то поведение, что наблюдалось эмпирически:
-     * подкрутка весов "окон"/равномерности по дням непредсказуемо то улучшала, то резко
-     * ухудшала результат, потому что поиск каждый раз упирался в ближайший локальный
-     * минимум, а не в устойчиво лучшее решение. Simulated Annealing — стандартный приём
-     * именно для этого класса задач (school/university timetabling, см. например
-     * Abramson, Krishnamoorthy, Dang — "Simulated annealing cooling schedules for the
-     * school timetabling problem"): временно принимать И ухудшающие ходы, с вероятностью,
-     * убывающей по мере остывания "температуры", чтобы выбраться из локальной ямы вместо
-     * того, чтобы в ней застрять.
-     */
     private void localSearch(OccupancyIndex index,
                              SoftScorer scorer,
                              SolverInput input,
@@ -335,11 +264,6 @@ public class ScheduleSolver {
         input.rooms().forEach(r -> roomByName.put(r.name(), r));
 
         int totalIterations = Math.max(1, input.config().localSearchIterations());
-        // Начальная "температура" — порядка типичного штрафа за одно среднее нарушение
-        // (веса мягких ограничений в SolverConfig лежат в диапазоне ~1.5-60), чтобы вначале
-        // поиск был готов принимать заметные ухудшения; к концу остывает почти до нуля —
-        // последние итерации фактически превращаются в обычный hill climbing (это и есть
-        // стандартная схема геометрического охлаждения).
         final double initialTemperature = 18.0;
         final double finalTemperature = 0.05;
 
@@ -350,46 +274,131 @@ public class ScheduleSolver {
             double progress = totalIterations <= 1 ? 1.0 : (double) i / (totalIterations - 1);
             double temperature = initialTemperature * Math.pow(finalTemperature / initialTemperature, progress);
 
-            int idx = random.nextInt(placed.size());
-            SolverResult.PlacedPair current = placed.get(idx);
-            SolverInput.Demand demand = demandById.get(current.loadId());
-            SolverInput.GroupRef group = groups.get(current.groupId());
-            SolverInput.TeacherRef teacher = teachers.get(current.teacherId());
-            if (demand == null || group == null || teacher == null) {
-                continue;
-            }
-            double target = targetPerDay.getOrDefault(group.id(), 1.0);
-
-            index.remove(current);
-            double currentPenalty = scorer.placementPenalty(index, demand, group, teacher,
-                    roomByName.get(current.room()), current.dayIndex(), current.pairIndex(), target);
-
-            Placement alternative = bestPlacement(index, scorer, demand, group, teacher,
-                    roomsByDemand.getOrDefault(demand.loadId(), List.of()), target, random, null);
-
-            boolean accept;
-            if (alternative == null) {
-                accept = false;
+            if (placed.size() > 1 && random.nextInt(3) == 0) {
+                swapMove(index, scorer, demandById, groups, teachers, roomByName, targetPerDay, placed,
+                        random, temperature);
             } else {
-                double delta = alternative.penalty() - currentPenalty;
-                accept = delta < -0.001 || random.nextDouble() < Math.exp(-delta / temperature);
-            }
-
-            if (accept) {
-                SolverResult.PlacedPair moved = new SolverResult.PlacedPair(current.loadId(), current.groupId(),
-                        current.disciplineId(), current.teacherId(), alternative.room().name(),
-                        alternative.dayIdx(), alternative.pairIdx());
-                index.place(moved);
-                placed.set(idx, moved);
-            } else {
-                index.place(current);
+                relocateMove(index, scorer, demandById, groups, teachers, roomByName, roomsByDemand, targetPerDay,
+                        placed, random, temperature);
             }
         }
     }
 
-    // ------------------------------------------------------------------ подготовка
+    private void relocateMove(OccupancyIndex index,
+                              SoftScorer scorer,
+                              Map<Long, SolverInput.Demand> demandById,
+                              Map<Long, SolverInput.GroupRef> groups,
+                              Map<Long, SolverInput.TeacherRef> teachers,
+                              Map<String, GenerationGrid.Room> roomByName,
+                              Map<Long, List<GenerationGrid.Room>> roomsByDemand,
+                              Map<Long, Double> targetPerDay,
+                              List<SolverResult.PlacedPair> placed,
+                              Random random,
+                              double temperature) {
+        int idx = random.nextInt(placed.size());
+        SolverResult.PlacedPair current = placed.get(idx);
+        SolverInput.Demand demand = demandById.get(current.loadId());
+        SolverInput.GroupRef group = groups.get(current.groupId());
+        SolverInput.TeacherRef teacher = teachers.get(current.teacherId());
+        if (demand == null || group == null || teacher == null) {
+            return;
+        }
+        double target = targetPerDay.getOrDefault(group.id(), 1.0);
 
-    /** Разворачивает нагрузки в отдельные пары и раскладывает их по раундам. */
+        index.remove(current);
+        double currentPenalty = scorer.placementPenalty(index, demand, group, teacher,
+                roomByName.get(current.room()), current.dayIndex(), current.pairIndex(), target);
+
+        Placement alternative = bestPlacement(index, scorer, demand, group, teacher,
+                roomsByDemand.getOrDefault(demand.loadId(), List.of()), target, random, null);
+
+        boolean accept;
+        if (alternative == null) {
+            accept = false;
+        } else {
+            double delta = alternative.penalty() - currentPenalty;
+            accept = delta < -0.001 || random.nextDouble() < Math.exp(-delta / temperature);
+        }
+
+        if (accept) {
+            SolverResult.PlacedPair moved = new SolverResult.PlacedPair(current.loadId(), current.groupId(),
+                    current.disciplineId(), current.teacherId(), alternative.room().name(),
+                    alternative.dayIdx(), alternative.pairIdx());
+            index.place(moved);
+            placed.set(idx, moved);
+        } else {
+            index.place(current);
+        }
+    }
+
+    private void swapMove(OccupancyIndex index,
+                          SoftScorer scorer,
+                          Map<Long, SolverInput.Demand> demandById,
+                          Map<Long, SolverInput.GroupRef> groups,
+                          Map<Long, SolverInput.TeacherRef> teachers,
+                          Map<String, GenerationGrid.Room> roomByName,
+                          Map<Long, Double> targetPerDay,
+                          List<SolverResult.PlacedPair> placed,
+                          Random random,
+                          double temperature) {
+        int i = random.nextInt(placed.size());
+        int j = random.nextInt(placed.size());
+        if (i == j) {
+            return;
+        }
+        SolverResult.PlacedPair p1 = placed.get(i);
+        SolverResult.PlacedPair p2 = placed.get(j);
+        SolverInput.Demand d1 = demandById.get(p1.loadId());
+        SolverInput.Demand d2 = demandById.get(p2.loadId());
+        SolverInput.GroupRef g1 = groups.get(p1.groupId());
+        SolverInput.GroupRef g2 = groups.get(p2.groupId());
+        SolverInput.TeacherRef t1 = teachers.get(p1.teacherId());
+        SolverInput.TeacherRef t2 = teachers.get(p2.teacherId());
+        if (d1 == null || d2 == null || g1 == null || g2 == null || t1 == null || t2 == null) {
+            return;
+        }
+        GenerationGrid.Room room1 = roomByName.get(p1.room());
+        GenerationGrid.Room room2 = roomByName.get(p2.room());
+        double target1 = targetPerDay.getOrDefault(g1.id(), 1.0);
+        double target2 = targetPerDay.getOrDefault(g2.id(), 1.0);
+
+        index.remove(p1);
+        index.remove(p2);
+
+        double originalPenalty = scorer.placementPenalty(index, d1, g1, t1, room1,
+                p1.dayIndex(), p1.pairIndex(), target1)
+                + scorer.placementPenalty(index, d2, g2, t2, room2, p2.dayIndex(), p2.pairIndex(), target2);
+
+        OccupancyIndex.Violation v1 = index.check(d1, g1, t1, room2, p2.dayIndex(), p2.pairIndex());
+        OccupancyIndex.Violation v2 = index.check(d2, g2, t2, room1, p1.dayIndex(), p1.pairIndex());
+        if (v1 != OccupancyIndex.Violation.NONE || v2 != OccupancyIndex.Violation.NONE) {
+            index.place(p1);
+            index.place(p2);
+            return;
+        }
+
+        double swappedPenalty = scorer.placementPenalty(index, d1, g1, t1, room2,
+                p2.dayIndex(), p2.pairIndex(), target1)
+                + scorer.placementPenalty(index, d2, g2, t2, room1, p1.dayIndex(), p1.pairIndex(), target2);
+
+        double delta = swappedPenalty - originalPenalty;
+        boolean accept = delta < -0.001 || random.nextDouble() < Math.exp(-delta / temperature);
+
+        if (accept) {
+            SolverResult.PlacedPair moved1 = new SolverResult.PlacedPair(p1.loadId(), p1.groupId(),
+                    p1.disciplineId(), p1.teacherId(), room2.name(), p2.dayIndex(), p2.pairIndex());
+            SolverResult.PlacedPair moved2 = new SolverResult.PlacedPair(p2.loadId(), p2.groupId(),
+                    p2.disciplineId(), p2.teacherId(), room1.name(), p1.dayIndex(), p1.pairIndex());
+            index.place(moved1);
+            index.place(moved2);
+            placed.set(i, moved1);
+            placed.set(j, moved2);
+        } else {
+            index.place(p1);
+            index.place(p2);
+        }
+    }
+
     private List<SolverInput.Demand> orderUnits(SolverInput input, Random random) {
         Map<Long, Integer> teacherLoad = new HashMap<>();
         input.demands().forEach(d -> teacherLoad.merge(d.teacherId(), d.pairsPerWeek(), Integer::sum));
@@ -432,26 +441,17 @@ public class ScheduleSolver {
         return score;
     }
 
-    /** Подходящие аудитории для нагрузки: от минимальной достаточной к большим. */
     private Map<Long, List<GenerationGrid.Room>> suitableRooms(SolverInput input) {
         Map<Long, SolverInput.GroupRef> groups = input.groupsById();
         Map<Long, List<GenerationGrid.Room>> result = new HashMap<>();
         for (SolverInput.Demand demand : input.demands()) {
             SolverInput.GroupRef group = groups.get(demand.groupId());
             int students = group == null ? 0 : group.studentCount();
-            // Аудитория подходит, если хватает вместимости И (если у аудитории есть
-            // список закреплённых дисциплин) дисциплина нагрузки в этот список входит.
-            // Аудитория без явного списка дисциплин открыта для любых пар — так задаются
-            // обычные лекционные/семинарские аудитории, в отличие от специализированных
-            // лабораторий, для которых список дисциплин указан явно при импорте.
             List<GenerationGrid.Room> suitable = input.rooms().stream()
                     .filter(room -> room.capacity() <= 0 || students <= 0 || room.capacity() >= students)
                     .filter(room -> room.isOpenFor(demand.disciplineName()))
                     .sorted(Comparator.comparingInt(GenerationGrid.Room::capacity))
                     .toList();
-            // Если группа не влезает никуда — не оставляем её без вариантов совсем:
-            // отдаём самые большие ПОДХОДЯЩИЕ ПО ДИСЦИПЛИНЕ аудитории, а несоответствие
-            // по вместимости уйдёт в предупреждения.
             if (suitable.isEmpty()) {
                 suitable = input.rooms().stream()
                         .filter(room -> room.isOpenFor(demand.disciplineName()))
@@ -459,9 +459,6 @@ public class ScheduleSolver {
                         .limit(3)
                         .toList();
             }
-            // Если и дисциплина ни в одной аудитории явно не разрешена (например, все
-            // аудитории специализированы под другие предметы) — лучше дать хоть какой-то
-            // вариант, чем оставить нагрузку совсем без аудиторий.
             result.put(demand.loadId(), suitable.isEmpty()
                     ? input.rooms().stream()
                             .sorted(Comparator.comparingInt(GenerationGrid.Room::capacity).reversed())
@@ -472,7 +469,6 @@ public class ScheduleSolver {
         return result;
     }
 
-    /** Целевое число пар в день у группы — основа равномерного распределения по неделе. */
     private Map<Long, Double> targetPairsPerDay(SolverInput input) {
         Map<Long, Integer> totals = new HashMap<>();
         input.demands().forEach(d -> totals.merge(d.groupId(), d.pairsPerWeek(), Integer::sum));
@@ -480,8 +476,6 @@ public class ScheduleSolver {
         totals.forEach((groupId, total) -> target.put(groupId, total / (double) GenerationGrid.days()));
         return target;
     }
-
-    // ------------------------------------------------------------------ диагностика
 
     private void registerMissing(Map<Long, Integer> missing,
                                  Map<Long, Map<SolverResult.Reason, Integer>> blockStats,
@@ -493,13 +487,6 @@ public class ScheduleSolver {
 
     private SolverResult.Reason dominantReason(Map<OccupancyIndex.Violation, Integer> stats, boolean noRooms) {
         if (noRooms) {
-            // Различаем два разных случая, которые раньше показывали один и тот же текст:
-            // "аудиторий вообще нет ни одной подходящей" (проблема с данными — маленькая
-            // вместимость/не тот допуск у аудиторий) — и "аудитории есть, но заняты во все
-            // проверенные окна" (это уже не про нехватку аудиторий, а про то, что у
-            // преподавателя/группы почти нет общих свободных слотов вообще). Раньше оба
-            // случая писали "нет свободной аудитории", что сбивало с толку, если аудиторий
-            // на самом деле много.
             return SolverResult.Reason.NO_SUITABLE_ROOM_AT_ALL;
         }
         OccupancyIndex.Violation top = stats.entrySet().stream()

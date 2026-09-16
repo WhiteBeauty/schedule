@@ -23,7 +23,6 @@ import java.util.Map;
 @Slf4j
 public class MonthlyRecordService {
 
-    /** Часов за одну пару — используется тем же числом, что и в ScheduleGeneratorService. */
     private static final int HOURS_PER_LESSON = 2;
 
     private final MonthlyRecordRepository repository;
@@ -35,9 +34,6 @@ public class MonthlyRecordService {
         return repository.findByTeacherLoadId(loadId);
     }
 
-    /**
-     * Агрегирует записи помесячно (сумма hours), чтобы в UI был один ряд на месяц.
-     */
     public List<MonthlyRecord> findAggregatedByLoad(Long loadId) {
         List<MonthlyRecord> all = repository.findByTeacherLoadId(loadId);
         Map<String, MonthlyRecord> byMonth = new HashMap<>();
@@ -94,7 +90,6 @@ public class MonthlyRecordService {
 
     @Transactional
     public void createMonthlyRecordsForLoad(TeacherLoad load) {
-        // Создаём записи для всех 12 месяцев, если их ещё нет
         List<MonthlyRecord> existing = repository.findByTeacherLoadId(load.getId());
         if (existing.isEmpty()) {
             for (int month = 1; month <= 12; month++) {
@@ -132,21 +127,6 @@ public class MonthlyRecordService {
         log.info("Created monthly records for {} teacher loads", created);
     }
 
-    /**
-     * ПОМЕСЯЧНЫЙ УЧЁТ ПО РАСПИСАНИЮ — ПЛАНОВЫЕ часы (не фактические, см. MonthlyRecord.conductedHours).
-     *
-     * Раньше считало день-недели-вхождения слепо по всем 12 месяцам года, включая каникулы
-     * и месяцы ЧУЖОГО семестра (ТЗ п.1 требует хранить расписание строго по семестрам —
-     * см. тот же фикс в MonthlyScheduleService/LessonInstanceService.generateInstancesForDate).
-     * Теперь идём по реальным датам месяца и учитываем: каникулы (isVacation), семестр самой
-     * записи расписания (Schedule.semester — null = старые записи, действуют всегда, ради
-     * обратной совместимости) и, если задана конкретная учебная неделя (числитель/
-     * знаменатель) — совпадение с ней.
-     *
-     * adjustedHours (ручная корректировка администратора) НЕ трогается. conductedHours
-     * (фактически проведённые часы) тоже не трогается — это отдельное поле, обновляемое
-     * только через LessonInstanceService.confirmInstance/cancelInstance.
-     */
     @Transactional
     public void recalculateHoursForLoad(Long loadId) {
         TeacherLoad load = loadRepository.findById(loadId).orElse(null);
@@ -169,8 +149,6 @@ public class MonthlyRecordService {
 
         int academicYearStart = load.getAcademicYear();
         for (int month = 1; month <= 12; month++) {
-            // Учебный год начинается в сентябре: сентябрь-декабрь относятся к
-            // academicYearStart, январь-август — к следующему календарному году.
             int calendarYear = month >= 9 ? academicYearStart : academicYearStart + 1;
 
             int hours = plannedHoursInMonth(schedulesForLoad, calendarYear, month, academicYearStart);
@@ -183,7 +161,6 @@ public class MonthlyRecordService {
         }
     }
 
-    /** Плановые часы всех пар этой нагрузки в конкретном календарном месяце — по реальным датам, с учётом каникул/семестра/недели. */
     private int plannedHoursInMonth(List<Schedule> schedulesForLoad, int calendarYear, int month, int academicYear) {
         int hours = 0;
         LocalDate d = LocalDate.of(calendarYear, month, 1);

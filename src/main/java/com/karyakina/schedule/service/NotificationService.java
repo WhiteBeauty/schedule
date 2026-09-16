@@ -12,13 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Центр внутренних уведомлений + email-канал для критичных изменений. Каждое уведомление
- * всегда попадает в таблицу notifications (виден "колокольчик" в шапке у всех
- * затронутых пользователей); email дополнительно отправляется только когда
- * критичность явно запрошена вызывающим кодом (например: отмена пары менее чем за
- * 24 часа до начала — см. ScheduleChangeNotifier).
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -44,7 +37,6 @@ public class NotificationService {
         return notificationRepository.countUnreadForAdmins();
     }
 
-    /** Обратная совместимость со старыми вызовами (без ссылки и без email). */
     @Transactional
     public Notification notifyTeacher(Teacher teacher, Notification.Type type, String title,
                                        String message, Long substitutionRequestId) {
@@ -100,7 +92,6 @@ public class NotificationService {
         return notificationRepository.save(n);
     }
 
-    /** Помечает прочитанными все непрочитанные уведомления преподавателя. Возвращает сколько было изменено. */
     @Transactional
     public int markAllReadForTeacher(Long teacherId) {
         List<Notification> unread = notificationRepository.findByRecipientTeacherIdOrderByCreatedAtDesc(teacherId)
@@ -110,7 +101,6 @@ public class NotificationService {
         return unread.size();
     }
 
-    /** Помечает прочитанными все непрочитанные уведомления администраторов. Возвращает сколько было изменено. */
     @Transactional
     public int markAllReadForAdmins() {
         List<Notification> unread = notificationRepository.findByForAdminsTrueOrderByCreatedAtDesc()
@@ -120,12 +110,6 @@ public class NotificationService {
         return unread.size();
     }
 
-    /**
-     * Реальная отправка email через JavaMailSender (spring-boot-starter-mail). Бин
-     * существует всегда, если стартер подключён, но реально работает только если
-     * заданы spring.mail.host/username/password — при отсутствии конфигурации или
-     * недоступности SMTP просто логируем и не блокируем остальную логику.
-     */
     private void sendEmail(Teacher teacher, String title, String message) {
         if (teacher.getEmail() == null || teacher.getEmail().isBlank()) return;
         try {

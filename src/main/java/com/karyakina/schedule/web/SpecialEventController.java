@@ -15,10 +15,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Экзамен, учебная/производственная практика, вождение (ТЗ п.4-9) — назначение с
- * автопереносом конфликтующих пар. Только для администратора. См. {@link SpecialEventService}.
- */
 @RestController
 @RequestMapping("/api/special-events")
 @RequiredArgsConstructor
@@ -28,7 +24,7 @@ public class SpecialEventController {
     private final UserRepository userRepository;
 
     public record AssignRequest(
-            String type, // EXAM | PRODUCTION_PRACTICE | STUDY_PRACTICE | DRIVING
+            String type,
             Long groupId,
             Long disciplineId,
             Long teacherLoadId,
@@ -54,9 +50,6 @@ public class SpecialEventController {
 
         try {
             SpecialEvent.Type type = SpecialEvent.Type.valueOf(request.type());
-            // Экзамен — всегда один день. Даже если с фронтенда по ошибке придёт другая
-            // endDate (см. баг с незачищенным полем даты окончания в модалке), здесь это
-            // перестраховано: для EXAM конец периода всегда равен началу.
             LocalDate end = type == SpecialEvent.Type.EXAM ? request.startDate()
                     : (request.endDate() != null ? request.endDate() : request.startDate());
             Integer year = request.academicYear() != null

@@ -13,18 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/**
- * Три конкретных действия администратора над одним занятием ({@link LessonInstance}),
- * когда автоматика (SubstitutionService) не смогла ни найти замену, ни перенести пару
- * на другой день — ровно те варианты, которые уходят администратору в уведомлении
- * SUBSTITUTION_UNRESOLVED (см. SubstitutionService.resolveOrReportConflict):
- *   1) отменить занятие;
- *   2) назначить группе самостоятельную работу;
- *   3) назначить конкретного преподавателя вручную.
- *
- * До этого контроллера соответствующие методы LessonInstanceService существовали, но не
- * были доступны ни из одного REST-эндпоинта — у администратора не было способа их вызвать.
- */
 @RestController
 @RequestMapping("/api/lesson-instances")
 @RequiredArgsConstructor

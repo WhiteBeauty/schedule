@@ -49,7 +49,6 @@ public class ScheduleService {
     }
 
     public List<Schedule> findByTeacherId(Long teacherId) {
-        // Получить все TeacherLoad для преподавателя (текущий год), затем найти все Schedule для них
         Integer currentYear = java.time.Year.now().getValue();
         List<Schedule> result = new java.util.ArrayList<>();
         loadRepository.findByTeacherIdAndAcademicYear(teacherId, currentYear).forEach(load -> {
@@ -58,16 +57,8 @@ public class ScheduleService {
         return result;
     }
 
-    /** ТЗ: максимум 18 пар в неделю у одной группы — жёсткое ограничение при ручном добавлении/переносе. */
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
 
-    /**
-     * Считает, сколько пар в неделю (эту конкретную или "на каждую неделю") уже стоит у
-     * группы, и бросает исключение, если добавление ещё одной превысит лимит из ТЗ.
-     * Учитываются записи с {@code academicWeek == null} (действуют каждую неделю) и записи
-     * именно с тем номером недели, что и у добавляемой/переносимой пары — так же, как это
-     * уже трактуется при показе расписания на конкретную дату (см. ScheduleExportService).
-     */
     private void validateGroupWeeklyLimit(Long groupId, Integer academicWeek, Integer academicYear,
                                           Long excludeScheduleId) {
         long count = scheduleRepository.findByAcademicYear(academicYear).stream()
@@ -83,16 +74,6 @@ public class ScheduleService {
         }
     }
 
-    /**
-     * Проверка накладок: преподаватель/группа/аудитория не могут одновременно быть заняты
-     * другой парой. Раньше здесь проверялся ТОЛЬКО недельный лимит группы (18 пар) — саму
-     * возможность настоящей накладки (тот же преподаватель уже ведёт другую пару в это же
-     * время, или аудитория уже занята другой группой) при РУЧНОМ добавлении/переносе никто
-     * не проверял, хотя автосоставление это исключает всегда (см. OccupancyIndex.check).
-     * Учитываются записи с {@code academicWeek == null} (действуют каждую неделю) и записи
-     * именно с тем номером недели, что у добавляемой/переносимой пары — та же трактовка,
-     * что и в validateGroupWeeklyLimit.
-     */
     private void validateNoConflict(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
                                     String classroom, Integer academicWeek, Integer academicYear,
                                     Long excludeScheduleId) {
@@ -135,7 +116,7 @@ public class ScheduleService {
     }
 
     @Transactional
-    public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime, 
+    public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
                                    LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
@@ -143,7 +124,6 @@ public class ScheduleService {
         validateGroupWeeklyLimit(load.getGroup().getId(), academicWeek, academicYear, null);
         validateNoConflict(teacherLoadId, dayOfWeek, startTime, classroom, academicWeek, academicYear, null);
 
-        // Если плановых часов в неделю ещё нет — выводим из годового плана
         if (load.getHoursPerWeek() == null || load.getHoursPerWeek() <= 0) {
             int planned = load.getPlannedHours() != null ? load.getPlannedHours() : 0;
             int weekly = planned > 0
@@ -152,7 +132,7 @@ public class ScheduleService {
             load.setHoursPerWeek(weekly);
             loadRepository.save(load);
         }
-        
+
         Schedule schedule = Schedule.builder()
                 .teacherLoad(load)
                 .dayOfWeek(dayOfWeek)
@@ -162,7 +142,7 @@ public class ScheduleService {
                 .academicWeek(academicWeek)
                 .academicYear(academicYear)
                 .build();
-        
+
         return scheduleRepository.save(schedule);
     }
 
@@ -177,9 +157,6 @@ public class ScheduleService {
         Schedule schedule = scheduleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Schedule not found: " + id));
 
-        // Перенос пары на другой день/неделю — тоже "добавление" с точки зрения лимита
-        // группы на НОВОЙ неделе (сама пара при этом исключается из подсчёта, иначе она
-        // считала бы сама себя и лимит срабатывал бы на пустом месте).
         validateGroupWeeklyLimit(schedule.getTeacherLoad().getGroup().getId(), academicWeek,
                 schedule.getAcademicYear(), schedule.getId());
         validateNoConflict(schedule.getTeacherLoad().getId(), dayOfWeek, startTime, classroom,
@@ -199,19 +176,6 @@ public class ScheduleService {
         return !sickLeaves.isEmpty();
     }
 
-    /**
-     * Автоматический пересчёт фактической нагрузки: подтверждает СОСТОЯВШИЕСЯ пары —
-     * те, у которых реальное время уже прошло (сравниваем с {@code Schedule.endTime}).
-     *
-     * Раньше обрабатывался только "сегодня" — из-за этого пары за ВЧЕРА и более ранние дни
-     * семестра, которые почему-либо не подтвердились вовремя (сервер перезапускали, БД
-     * сносили во время тестирования, задача ещё не была починена и т.п.), так и оставались
-     * непроверенными навсегда — "проведено" по ним показывало 0, хотя время давно прошло.
-     * Теперь проходим ВЕСЬ период от начала текущего семестра по сегодня — это самоисправляющийся
-     * механизм: пропущенный день доберётся на следующий же прогон (каждые 15 минут), сколько
-     * бы времени ни прошло. Для дней РАНЕЕ сегодня время пары уже точно прошло — их
-     * подтверждаем без сверки часов; для СЕГОДНЯ — только те, чьё время действительно истекло.
-     */
     @Transactional
     public void autoDeductHours(Integer academicYear) {
         LocalDate today = LocalDate.now();
@@ -226,13 +190,13 @@ public class ScheduleService {
 
             for (LessonInstance instance : instances) {
                 if (instance.getStatus() != LessonInstance.Status.PLANNED) {
-                    continue; // уже подтверждено/отменено/заменено ранее
+                    continue;
                 }
                 if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) {
                     continue;
                 }
                 if (isToday && now.isBefore(instance.getSchedule().getEndTime())) {
-                    continue; // сегодняшняя пара ещё не закончилась по факту — рано подтверждать
+                    continue;
                 }
                 Long teacherId = instance.getOriginalTeacher().getId();
                 if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) {
@@ -246,19 +210,12 @@ public class ScheduleService {
         }
     }
 
-    /**
-     * Автоматическое подтверждение прошедших пар — раньше запускалось раз в сутки в 23:00
-     * (весь день сразу), теперь каждые 15 минут в течение дня, но подтверждает только те
-     * пары, чьё время УЖЕ прошло (см. autoDeductHours) — так "проведено" в сверке часов
-     * обновляется практически сразу после окончания пары, а не поздно вечером.
-     */
     @Scheduled(cron = "0 */15 6-23 * * *")
     @Transactional
     public void scheduledAutoDeduct() {
         log.info("Running scheduled auto-deduct hours...");
         try {
             Integer currentYear = LocalDate.now().getYear();
-            // Определяем учебный год: если сейчас январь-май, то учебный год начался в прошлом году
             int academicYear = LocalDate.now().getMonthValue() >= 9 ? currentYear : currentYear - 1;
             autoDeductHours(academicYear);
             log.info("Auto-deduct completed successfully");

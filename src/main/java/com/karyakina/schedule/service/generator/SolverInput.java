@@ -21,8 +21,7 @@ public record SolverInput(
         }
     }
 
-    public record TeacherRef(long id, String fullName, int maxPairsPerDay, int maxWeeklyPairs,
-                             Set<Integer> preferredDays) {
+    public record TeacherRef(long id, String fullName, Set<Integer> preferredDays) {
         public TeacherRef {
             preferredDays = preferredDays == null ? Set.of() : Set.copyOf(preferredDays);
         }

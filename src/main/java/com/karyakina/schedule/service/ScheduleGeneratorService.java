@@ -61,7 +61,6 @@ public class ScheduleGeneratorService {
     private final GenerationSessionStore sessionStore;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
-    private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
 
@@ -387,18 +386,16 @@ public class ScheduleGeneratorService {
             int hoursForPeriod = overridden ? hours : semesterHours(load, semester);
             int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, overridden);
             int maxPairs = GenerationGrid.slotCount();
-            if (pairs > config.teacherMaxWeeklyPairs() || pairs > maxPairs) {
-                int fitHours = config.pairsToHours(Math.min(config.teacherMaxWeeklyPairs(), maxPairs))
-                        * APPROX_WEEKS_PER_YEAR;
+            if (pairs > maxPairs) {
+                int fitHours = config.pairsToHours(maxPairs) * APPROX_WEEKS_PER_YEAR;
                 issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.HOURS_IMPLAUSIBLE,
                                 "Слишком много часов: " + describe(load))
                         .severity(MissingResourceRequest.Severity.BLOCKING)
                         .message(String.format(
                                 "По записи «%s» (%s) получается %d пар в неделю — это больше, чем есть слотов "
-                                        + "в сетке и чем допускает лимит %d ч/нед. Похоже, в часы попало суммарное "
+                                        + "в сетке (%d). Похоже, в часы попало суммарное "
                                         + "или годовое число по нескольким группам.",
-                                load.getDiscipline().getName(), load.getGroup().getName(), pairs,
-                                config.teacherMaxWeeklyHours()))
+                                load.getDiscipline().getName(), load.getGroup().getName(), pairs, maxPairs))
                         .context("loadId", load.getId())
                         .context("hours", hours)
                         .option(MissingResourceRequest.ResolutionOption.of(
@@ -594,11 +591,6 @@ public class ScheduleGeneratorService {
                                 "Разрешить группе больше пар в день",
                                 MissingResourceRequest.InputSpec.number("Пар в день", "pairsPerDay", 1,
                                         GenerationGrid.pairsPerDay(), GenerationGrid.pairsPerDay())));
-                case TEACHER_WEEK_LIMIT, TEACHER_DAY_LIMIT, TEACHER_BUSY -> builder.option(
-                        MissingResourceRequest.ResolutionOption.withInput(
-                                MissingResourceRequest.Actions.RAISE_TEACHER_LIMIT,
-                                "Поднять недельный лимит преподавателя",
-                                MissingResourceRequest.InputSpec.number("Часов в неделю", "hours", 36, 60, 40)));
                 default -> builder.option(MissingResourceRequest.ResolutionOption.withInput(
                         MissingResourceRequest.Actions.USE_CUSTOM_HOURS,
                         "Уменьшить часы этой дисциплины",
@@ -643,7 +635,6 @@ public class ScheduleGeneratorService {
         }
         MissingResourceRequest issue = session.getOpenIssues().get(decision.requestId());
         Long loadId = issue == null ? null : asLong(issue.context().get("loadId"));
-        Long teacherId = issue == null ? null : asLong(issue.context().get("teacherId"));
 
         switch (decision.actionCode()) {
             case MissingResourceRequest.Actions.USE_FILE_HOURS,
@@ -658,8 +649,6 @@ public class ScheduleGeneratorService {
                     if (hours >= 0) {
                         session.getApprovedHours().put(loadId, hours);
                     }
-                } else if (teacherId != null) {
-                    session.getAcknowledgedTeacherOverloads().add(teacherId);
                 }
             }
             case MissingResourceRequest.Actions.SUM_DUPLICATES -> {
@@ -682,14 +671,6 @@ public class ScheduleGeneratorService {
                 }
                 if (target != null) {
                     session.getSkippedLoads().add(target);
-                }
-            }
-            case MissingResourceRequest.Actions.RAISE_TEACHER_LIMIT -> {
-                int hours = decision.intValue("hours", 0);
-                if (teacherId != null && hours > 0) {
-                    session.getTeacherHourLimits().put(teacherId, hours);
-                } else if (hours > 0) {
-                    session.setTeacherMaxWeeklyHours(hours);
                 }
             }
             case MissingResourceRequest.Actions.INCREASE_PAIRS_PER_DAY -> {
@@ -736,9 +717,6 @@ public class ScheduleGeneratorService {
                 : (grid == null ? DEFAULT_GROUP_MAX_PAIRS_PER_DAY : grid.maxPairsPerDayGroup());
         return config.with(
                 maxPairsPerDayGroup == null ? DEFAULT_GROUP_MAX_PAIRS_PER_DAY : maxPairsPerDayGroup,
-                session.getTeacherMaxWeeklyHours() != null
-                        ? session.getTeacherMaxWeeklyHours()
-                        : (grid == null ? null : grid.teacherMaxWeeklyHours()),
                 grid == null ? null : grid.maxSameSubjectInRow(),
                 session.getMaxSameSubjectPerDay() != null
                         ? session.getMaxSameSubjectPerDay()
@@ -779,11 +757,7 @@ public class ScheduleGeneratorService {
 
         List<SolverInput.TeacherRef> result = new ArrayList<>();
         for (Teacher teacher : unique.values()) {
-            int maxWeeklyPairs = GenerationGrid.slotCount();
-            int maxPerDay = teacher.getMaxPairsPerDay() != null && teacher.getMaxPairsPerDay() > 0
-                    ? teacher.getMaxPairsPerDay() : DEFAULT_TEACHER_MAX_PAIRS_PER_DAY;
-            result.add(new SolverInput.TeacherRef(teacher.getId(), teacher.getFullName(),
-                    maxPerDay, maxWeeklyPairs, Set.of()));
+            result.add(new SolverInput.TeacherRef(teacher.getId(), teacher.getFullName(), Set.of()));
         }
         return result;
     }

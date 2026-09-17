@@ -2,8 +2,6 @@ package com.karyakina.schedule.service.generator;
 
 public record SolverConfig(
         int academicHoursPerPair,
-        int teacherMaxWeeklyHours,
-        int teacherDefaultMaxPairsPerDay,
         int maxSameSubjectInRow,
         int maxSameSubjectPerDay,
         int maxPairsPerDayGroup,
@@ -33,8 +31,6 @@ public record SolverConfig(
 
     public SolverConfig {
         academicHoursPerPair = clamp(academicHoursPerPair, 1, 4);
-        teacherMaxWeeklyHours = clamp(teacherMaxWeeklyHours, 2, 200);
-        teacherDefaultMaxPairsPerDay = clamp(teacherDefaultMaxPairsPerDay, 1, GenerationGrid.pairsPerDay());
         maxSameSubjectInRow = clamp(maxSameSubjectInRow, 1, GenerationGrid.pairsPerDay());
         maxSameSubjectPerDay = clamp(maxSameSubjectPerDay, 1, GenerationGrid.pairsPerDay());
         maxPairsPerDayGroup = clamp(maxPairsPerDayGroup, 1, GenerationGrid.pairsPerDay());
@@ -47,11 +43,7 @@ public record SolverConfig(
     }
 
     public static SolverConfig defaults() {
-        return new SolverConfig(2, 36, 4, 2, 2, 5, 8, 30, 60000, 20260501L, Weights.defaults());
-    }
-
-    public int teacherMaxWeeklyPairs() {
-        return Math.max(1, teacherMaxWeeklyHours / academicHoursPerPair);
+        return new SolverConfig(2, 2, 2, 5, 8, 30, 60000, 20260501L, Weights.defaults());
     }
 
     public int hoursToPairs(int academicHours) {
@@ -63,21 +55,18 @@ public record SolverConfig(
     }
 
     public SolverConfig withSeed(long seed) {
-        return new SolverConfig(academicHoursPerPair, teacherMaxWeeklyHours, teacherDefaultMaxPairsPerDay,
+        return new SolverConfig(academicHoursPerPair,
                 maxSameSubjectInRow, maxSameSubjectPerDay, maxPairsPerDayGroup, maxWeeklyHoursPerSubjectPerGroup,
                 restarts, localSearchIterations, seed, weights);
     }
 
     public SolverConfig with(Integer maxPairsPerDayGroupOverride,
-                             Integer teacherMaxWeeklyHoursOverride,
                              Integer maxSameSubjectInRowOverride,
                              Integer maxSameSubjectPerDayOverride,
                              Integer restartsOverride,
                              Integer maxWeeklyHoursPerSubjectPerGroupOverride) {
         return new SolverConfig(
                 academicHoursPerPair,
-                teacherMaxWeeklyHoursOverride == null ? teacherMaxWeeklyHours : teacherMaxWeeklyHoursOverride,
-                teacherDefaultMaxPairsPerDay,
                 maxSameSubjectInRowOverride == null ? maxSameSubjectInRow : maxSameSubjectInRowOverride,
                 maxSameSubjectPerDayOverride == null ? maxSameSubjectPerDay : maxSameSubjectPerDayOverride,
                 maxPairsPerDayGroupOverride == null ? maxPairsPerDayGroup : maxPairsPerDayGroupOverride,

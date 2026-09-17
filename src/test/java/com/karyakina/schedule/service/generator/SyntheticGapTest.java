@@ -51,7 +51,7 @@ public class SyntheticGapTest {
 
         for (int[] set : sharedGroupSets) {
             long tId = teacherId++;
-            teachers.add(new SolverInput.TeacherRef(tId, "SharedTeacher" + tId, 4, 18, Set.of()));
+            teachers.add(new SolverInput.TeacherRef(tId, "SharedTeacher" + tId, Set.of()));
             long dId = disciplineId++;
             for (int gid : set) {
                 demands.add(new SolverInput.Demand(loadId++, gid, dId, "SharedDisc" + dId, tId,
@@ -68,7 +68,7 @@ public class SyntheticGapTest {
                 int pairs = Math.min(remaining, s == subjects - 1 ? remaining : 3);
                 long tId = teacherId++;
                 long dId = disciplineId++;
-                teachers.add(new SolverInput.TeacherRef(tId, "OwnTeacher" + tId, 4, 18, Set.of()));
+                teachers.add(new SolverInput.TeacherRef(tId, "OwnTeacher" + tId, Set.of()));
                 demands.add(new SolverInput.Demand(loadId++, g, dId, "OwnDisc" + dId, tId,
                         pairs, pairs * 18, Set.of(), Set.of(), null));
                 remaining -= pairs;

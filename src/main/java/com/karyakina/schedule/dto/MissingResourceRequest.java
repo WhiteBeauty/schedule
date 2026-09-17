@@ -80,7 +80,6 @@ public record MissingResourceRequest(
         public static final String ASSIGN_TEACHER = "ASSIGN_TEACHER";
         public static final String SKIP_LOAD = "SKIP_LOAD";
         public static final String REDUCE_HOURS_TO_FIT = "REDUCE_HOURS_TO_FIT";
-        public static final String RAISE_TEACHER_LIMIT = "RAISE_TEACHER_LIMIT";
         public static final String INCREASE_PAIRS_PER_DAY = "INCREASE_PAIRS_PER_DAY";
         public static final String RELAX_SUBJECT_PER_DAY = "RELAX_SUBJECT_PER_DAY";
         public static final String KEEP_AS_IS = "KEEP_AS_IS";

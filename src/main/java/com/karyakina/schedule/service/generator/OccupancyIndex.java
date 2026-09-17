@@ -13,8 +13,6 @@ public final class OccupancyIndex {
         GROUP_SLOT_BLOCKED,
         GROUP_DAY_LIMIT,
         GROUP_WEEK_LIMIT,
-        TEACHER_DAY_LIMIT,
-        TEACHER_WEEK_LIMIT,
         ROOM_CAPACITY,
         SUBJECT_ROW_LIMIT,
         SUBJECT_DAY_LIMIT
@@ -31,8 +29,6 @@ public final class OccupancyIndex {
     private final Map<Long, long[]> groupTeacherAt = new HashMap<>();
     private final Map<Long, String[]> groupRoomAt = new HashMap<>();
     private final Map<Long, int[]> groupDayCount = new HashMap<>();
-    private final Map<Long, int[]> teacherDayCount = new HashMap<>();
-    private final Map<Long, Integer> teacherWeekPairs = new HashMap<>();
     private final Map<Long, Integer> groupWeekPairs = new HashMap<>();
     private final Map<Long, SolverResult.PlacedPair[]> groupPairAt = new HashMap<>();
 
@@ -70,12 +66,6 @@ public final class OccupancyIndex {
         }
         if (group.maxWeeklyPairs() > 0 && weekPairsGroup(group.id()) >= group.maxWeeklyPairs()) {
             return Violation.GROUP_WEEK_LIMIT;
-        }
-        if (teacher != null && dayCount(teacherDayCount, teacher.id(), dayIdx) >= teacher.maxPairsPerDay()) {
-            return Violation.TEACHER_DAY_LIMIT;
-        }
-        if (teacher != null && weekPairs(teacher.id()) >= teacher.maxWeeklyPairs()) {
-            return Violation.TEACHER_WEEK_LIMIT;
         }
         if (subjectRunLength(group.id(), dayIdx, pairIdx, demand.disciplineId()) > config.maxSameSubjectInRow()) {
             return Violation.SUBJECT_ROW_LIMIT;
@@ -132,8 +122,6 @@ public final class OccupancyIndex {
         longArray(groupTeacherAt, pair.groupId())[flat] = pair.teacherId();
         stringArray(pair.groupId())[flat] = pair.room();
         intArray(groupDayCount, pair.groupId())[pair.dayIndex()]++;
-        intArray(teacherDayCount, pair.teacherId())[pair.dayIndex()]++;
-        teacherWeekPairs.merge(pair.teacherId(), 1, Integer::sum);
         groupWeekPairs.merge(pair.groupId(), 1, Integer::sum);
         pairArray(pair.groupId())[flat] = pair;
     }
@@ -148,9 +136,6 @@ public final class OccupancyIndex {
         stringArray(pair.groupId())[flat] = null;
         int[] groupDays = intArray(groupDayCount, pair.groupId());
         groupDays[pair.dayIndex()] = Math.max(0, groupDays[pair.dayIndex()] - 1);
-        int[] teacherDays = intArray(teacherDayCount, pair.teacherId());
-        teacherDays[pair.dayIndex()] = Math.max(0, teacherDays[pair.dayIndex()] - 1);
-        teacherWeekPairs.merge(pair.teacherId(), -1, (a, b) -> Math.max(0, a + b));
         groupWeekPairs.merge(pair.groupId(), -1, (a, b) -> Math.max(0, a + b));
         pairArray(pair.groupId())[flat] = null;
     }
@@ -167,8 +152,6 @@ public final class OccupancyIndex {
         }
         if (teacherId != null) {
             array(teacherBusy, teacherId)[flat] = true;
-            intArray(teacherDayCount, teacherId)[dayIdx]++;
-            teacherWeekPairs.merge(teacherId, 1, Integer::sum);
         }
         if (room != null && !room.isBlank()) {
             roomArray(room)[flat] = true;
@@ -209,10 +192,6 @@ public final class OccupancyIndex {
 
     public int groupDayCount(long groupId, int dayIdx) {
         return dayCount(groupDayCount, groupId, dayIdx);
-    }
-
-    public int weekPairs(long teacherId) {
-        return teacherWeekPairs.getOrDefault(teacherId, 0);
     }
 
     public int weekPairsGroup(long groupId) {

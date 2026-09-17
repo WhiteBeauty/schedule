@@ -27,7 +27,6 @@ public record GenerationRequestDTO(
             Integer pairsPerDay,
             Integer workingDays,
             Integer maxPairsPerDayGroup,
-            Integer teacherMaxWeeklyHours,
             Integer maxSameSubjectInRow,
             Integer maxSameSubjectPerDay,
             Integer restarts,

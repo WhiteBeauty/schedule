@@ -666,6 +666,9 @@ public class ScheduleSolver {
         if (noRooms) {
             return SolverResult.Reason.NO_SUITABLE_ROOM_AT_ALL;
         }
+        if (stats.getOrDefault(OccupancyIndex.Violation.GROUP_WEEK_LIMIT, 0) > 0) {
+            return SolverResult.Reason.GROUP_WEEK_LIMIT;
+        }
         OccupancyIndex.Violation top = stats.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
@@ -679,8 +682,6 @@ public class ScheduleSolver {
             case GROUP_DAY_LIMIT -> SolverResult.Reason.GROUP_DAY_LIMIT;
             case GROUP_WEEK_LIMIT -> SolverResult.Reason.GROUP_WEEK_LIMIT;
             case TEACHER_BUSY -> SolverResult.Reason.TEACHER_BUSY;
-            case TEACHER_DAY_LIMIT -> SolverResult.Reason.TEACHER_DAY_LIMIT;
-            case TEACHER_WEEK_LIMIT -> SolverResult.Reason.TEACHER_WEEK_LIMIT;
             case ROOM_BUSY -> SolverResult.Reason.NO_ROOM;
             case ROOM_CAPACITY -> SolverResult.Reason.ROOM_CAPACITY;
             case SUBJECT_ROW_LIMIT, SUBJECT_DAY_LIMIT -> SolverResult.Reason.SUBJECT_LIMIT;

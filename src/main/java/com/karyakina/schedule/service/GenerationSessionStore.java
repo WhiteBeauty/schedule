@@ -36,12 +36,9 @@ public class GenerationSessionStore {
         private final Map<Long, Integer> approvedHours = new HashMap<>();
         private final Map<Long, Long> assignedTeachers = new HashMap<>();
         private final Set<Long> skippedLoads = new HashSet<>();
-        private final Map<Long, Integer> teacherHourLimits = new HashMap<>();
-        private final Set<Long> acknowledgedTeacherOverloads = new HashSet<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
-        private Integer teacherMaxWeeklyHours;
 
         private final Map<String, MissingResourceRequest> openIssues = new LinkedHashMap<>();
         private final List<SolverResult.PlacedPair> draft = new ArrayList<>();
@@ -86,14 +83,6 @@ public class GenerationSessionStore {
             return skippedLoads;
         }
 
-        public Map<Long, Integer> getTeacherHourLimits() {
-            return teacherHourLimits;
-        }
-
-        public Set<Long> getAcknowledgedTeacherOverloads() {
-            return acknowledgedTeacherOverloads;
-        }
-
         public Integer getMaxPairsPerDayGroup() {
             return maxPairsPerDayGroup;
         }
@@ -108,14 +97,6 @@ public class GenerationSessionStore {
 
         public void setMaxSameSubjectPerDay(Integer value) {
             this.maxSameSubjectPerDay = value;
-        }
-
-        public Integer getTeacherMaxWeeklyHours() {
-            return teacherMaxWeeklyHours;
-        }
-
-        public void setTeacherMaxWeeklyHours(Integer value) {
-            this.teacherMaxWeeklyHours = value;
         }
 
         public Map<String, MissingResourceRequest> getOpenIssues() {
@@ -163,7 +144,6 @@ public class GenerationSessionStore {
         if (request != null && request.grid() != null) {
             session.setMaxPairsPerDayGroup(request.grid().maxPairsPerDayGroup());
             session.setMaxSameSubjectPerDay(request.grid().maxSameSubjectPerDay());
-            session.setTeacherMaxWeeklyHours(request.grid().teacherMaxWeeklyHours());
         }
         sessions.put(session.getId(), session);
         return session;

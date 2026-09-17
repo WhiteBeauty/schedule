@@ -29,7 +29,14 @@ public final class SoftScorer {
         int flat = GenerationGrid.flat(dayIdx, pairIdx);
         double penalty = 0;
 
-        penalty += weights.groupGap() * gapDelta(index.groupTimeline(group.id()), dayIdx, flat);
+        boolean[] groupLine = index.groupTimeline(group.id());
+        penalty += weights.groupGap() * gapDelta(groupLine, dayIdx, flat);
+        penalty += weights.dayStartGap() * startDelta(groupLine, dayIdx, flat);
+        boolean adjacentToOwnGroup = (pairIdx > 0 && groupLine[GenerationGrid.flat(dayIdx, pairIdx - 1)])
+                || (pairIdx < pairsPerDay - 1 && groupLine[GenerationGrid.flat(dayIdx, pairIdx + 1)]);
+        if (adjacentToOwnGroup) {
+            penalty -= weights.adjacencyBonus();
+        }
 
         if (teacher != null) {
             penalty += weights.teacherGap() * gapDelta(index.teacherTimeline(teacher.id()), dayIdx, flat);
@@ -79,12 +86,58 @@ public final class SoftScorer {
         return penalty;
     }
 
-    private int gapDelta(boolean[] line, int dayIdx, int flat) {
-        int before = gapsInDay(line, dayIdx);
+    private double gapDelta(boolean[] line, int dayIdx, int flat) {
+        double before = gapPenalty(line, dayIdx);
         line[flat] = true;
-        int after = gapsInDay(line, dayIdx);
+        double after = gapPenalty(line, dayIdx);
         line[flat] = false;
         return after - before;
+    }
+
+    private double gapPenalty(boolean[] line, int dayIdx) {
+        int first = -1;
+        int last = -1;
+        for (int p = 0; p < pairsPerDay; p++) {
+            if (line[GenerationGrid.flat(dayIdx, p)]) {
+                if (first < 0) {
+                    first = p;
+                }
+                last = p;
+            }
+        }
+        if (first < 0) {
+            return 0;
+        }
+        double internal = 0;
+        int run = 0;
+        for (int p = first; p <= last; p++) {
+            if (line[GenerationGrid.flat(dayIdx, p)]) {
+                if (run > 0) {
+                    internal += Math.pow(2, run) - 1;
+                    run = 0;
+                }
+            } else {
+                run++;
+            }
+        }
+        return internal;
+    }
+
+    private int startDelta(boolean[] line, int dayIdx, int flat) {
+        int before = firstBusy(line, dayIdx);
+        line[flat] = true;
+        int after = firstBusy(line, dayIdx);
+        line[flat] = false;
+        return after - before;
+    }
+
+    private int firstBusy(boolean[] line, int dayIdx) {
+        for (int p = 0; p < pairsPerDay; p++) {
+            if (line[GenerationGrid.flat(dayIdx, p)]) {
+                return p;
+            }
+        }
+        return 0;
     }
 
     public int gapsInDay(boolean[] line, int dayIdx) {

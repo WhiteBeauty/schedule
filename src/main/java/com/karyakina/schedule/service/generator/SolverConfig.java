@@ -22,10 +22,12 @@ public record SolverConfig(
             double patternRepeat,
             double preferredDayMiss,
             double lateSlot,
-            double roomChange
+            double roomChange,
+            double dayStartGap,
+            double adjacencyBonus
     ) {
         public static Weights defaults() {
-            return new Weights(38, 16, 60, 10, 20, 8, 1.5, 2);
+            return new Weights(38, 16, 60, 10, 20, 8, 1.5, 2, 6, 4);
         }
     }
 

@@ -330,6 +330,10 @@ public class ScheduleSolver {
             double progress = totalIterations <= 1 ? 1.0 : (double) i / (totalIterations - 1);
             double temperature = initialTemperature * Math.pow(finalTemperature / initialTemperature, progress);
 
+            if (placed.size() > 1 && random.nextInt(50) == 0) {
+                compactDayMove(index, scorer, demandById, groups, teachers, roomByName, roomsByDemand, targetPerDay,
+                        placed, random, temperature);
+            }
             if (placed.size() > 1 && random.nextInt(3) == 0) {
                 swapMove(index, scorer, demandById, groups, teachers, roomByName, targetPerDay, placed,
                         random, temperature);
@@ -337,6 +341,123 @@ public class ScheduleSolver {
                 relocateMove(index, scorer, demandById, groups, teachers, roomByName, roomsByDemand, targetPerDay,
                         placed, random, temperature);
             }
+        }
+    }
+
+    private void compactDayMove(OccupancyIndex index,
+                                SoftScorer scorer,
+                                Map<Long, SolverInput.Demand> demandById,
+                                Map<Long, SolverInput.GroupRef> groups,
+                                Map<Long, SolverInput.TeacherRef> teachers,
+                                Map<String, GenerationGrid.Room> roomByName,
+                                Map<Long, List<GenerationGrid.Room>> roomsByDemand,
+                                Map<Long, Double> targetPerDay,
+                                List<SolverResult.PlacedPair> placed,
+                                Random random,
+                                double temperature) {
+        List<SolverResult.PlacedPair> dayPairs = null;
+        int first = 0;
+        for (int attempt = 0; attempt < 6; attempt++) {
+            SolverResult.PlacedPair anchor = placed.get(random.nextInt(placed.size()));
+            long candidateGroupId = anchor.groupId();
+            int candidateDayIdx = anchor.dayIndex();
+            List<SolverResult.PlacedPair> candidateDayPairs = new ArrayList<>();
+            for (SolverResult.PlacedPair p : placed) {
+                if (p.groupId() == candidateGroupId && p.dayIndex() == candidateDayIdx) {
+                    candidateDayPairs.add(p);
+                }
+            }
+            if (candidateDayPairs.size() < 2) {
+                continue;
+            }
+            candidateDayPairs.sort(Comparator.comparingInt(SolverResult.PlacedPair::pairIndex));
+            int candidateFirst = candidateDayPairs.get(0).pairIndex();
+            int candidateSpan = candidateDayPairs.get(candidateDayPairs.size() - 1).pairIndex() - candidateFirst + 1;
+            if (candidateSpan == candidateDayPairs.size()) {
+                continue;
+            }
+            dayPairs = candidateDayPairs;
+            first = candidateFirst;
+            break;
+        }
+        if (dayPairs == null) {
+            return;
+        }
+        long groupId = dayPairs.get(0).groupId();
+        int dayIdx = dayPairs.get(0).dayIndex();
+
+        SolverInput.GroupRef group = groups.get(groupId);
+        if (group == null) {
+            return;
+        }
+        double target = targetPerDay.getOrDefault(groupId, 1.0);
+
+        for (SolverResult.PlacedPair p : dayPairs) {
+            if (demandById.get(p.loadId()) == null || teachers.get(p.teacherId()) == null) {
+                return;
+            }
+        }
+
+        dayPairs.forEach(index::remove);
+
+        double before = 0;
+        for (SolverResult.PlacedPair p : dayPairs) {
+            SolverInput.Demand demand = demandById.get(p.loadId());
+            SolverInput.TeacherRef teacher = teachers.get(p.teacherId());
+            before += scorer.placementPenalty(index, demand, group, teacher, roomByName.get(p.room()),
+                    p.dayIndex(), p.pairIndex(), target);
+            index.place(p);
+        }
+        dayPairs.forEach(index::remove);
+
+        List<SolverResult.PlacedPair> compacted = new ArrayList<>();
+        boolean ok = true;
+        double after = 0;
+        for (int i = 0; i < dayPairs.size(); i++) {
+            SolverResult.PlacedPair original = dayPairs.get(i);
+            int targetPairIdx = first + i;
+            SolverInput.Demand demand = demandById.get(original.loadId());
+            SolverInput.TeacherRef teacher = teachers.get(original.teacherId());
+            GenerationGrid.Room preferredRoom = roomByName.get(original.room());
+            GenerationGrid.Room room = preferredRoom != null
+                    && index.check(demand, group, teacher, preferredRoom, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE
+                    ? preferredRoom : null;
+            if (room == null) {
+                for (GenerationGrid.Room candidate : roomsByDemand.getOrDefault(original.loadId(), List.of())) {
+                    if (index.check(demand, group, teacher, candidate, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE) {
+                        room = candidate;
+                        break;
+                    }
+                }
+            }
+            if (room == null) {
+                ok = false;
+                break;
+            }
+            after += scorer.placementPenalty(index, demand, group, teacher, room, dayIdx, targetPairIdx, target);
+            SolverResult.PlacedPair moved = new SolverResult.PlacedPair(original.loadId(), original.groupId(),
+                    original.disciplineId(), original.teacherId(), room.name(), dayIdx, targetPairIdx);
+            index.place(moved);
+            compacted.add(moved);
+        }
+
+        if (!ok) {
+            compacted.forEach(index::remove);
+            dayPairs.forEach(index::place);
+            return;
+        }
+
+        double delta = after - before;
+        boolean accept = delta < -0.001 || random.nextDouble() < Math.exp(-delta / temperature);
+
+        if (accept) {
+            for (int i = 0; i < dayPairs.size(); i++) {
+                placed.remove(dayPairs.get(i));
+                placed.add(compacted.get(i));
+            }
+        } else {
+            compacted.forEach(index::remove);
+            dayPairs.forEach(index::place);
         }
     }
 

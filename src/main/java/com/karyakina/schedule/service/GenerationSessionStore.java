@@ -36,6 +36,7 @@ public class GenerationSessionStore {
         private final Map<Long, Integer> approvedHours = new HashMap<>();
         private final Map<Long, Long> assignedTeachers = new HashMap<>();
         private final Set<Long> skippedLoads = new HashSet<>();
+        private final Map<Long, Integer> groupWeekLimitOverrides = new HashMap<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
@@ -81,6 +82,10 @@ public class GenerationSessionStore {
 
         public Set<Long> getSkippedLoads() {
             return skippedLoads;
+        }
+
+        public Map<Long, Integer> getGroupWeekLimitOverrides() {
+            return groupWeekLimitOverrides;
         }
 
         public Integer getMaxPairsPerDayGroup() {

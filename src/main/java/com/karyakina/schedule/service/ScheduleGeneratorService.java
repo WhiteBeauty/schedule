@@ -560,7 +560,7 @@ public class ScheduleGeneratorService {
         }
     }
 
-    private List<MissingResourceRequest> unplacedIssues(SolverResult solution,
+    List<MissingResourceRequest> unplacedIssues(SolverResult solution,
                                                         Map<Long, TeacherLoad> loadById,
                                                         GenerationSessionStore.Session session) {
         List<MissingResourceRequest> result = new ArrayList<>();
@@ -576,10 +576,17 @@ public class ScheduleGeneratorService {
                             unplaced.missingPairs(), load.getDiscipline().getName(),
                             load.getGroup().getName(), unplaced.reason().ru()))
                     .context("loadId", load.getId())
+                    .context("groupId", load.getGroup().getId())
                     .context("missingPairs", unplaced.missingPairs())
                     .context("reason", unplaced.reason().name());
 
             switch (unplaced.reason()) {
+                case GROUP_WEEK_LIMIT -> builder.option(MissingResourceRequest.ResolutionOption.withInput(
+                        MissingResourceRequest.Actions.RAISE_GROUP_WEEK_LIMIT,
+                        "Поднять недельный лимит группы",
+                        MissingResourceRequest.InputSpec.number("Пар в неделю", "pairsPerWeek",
+                                GROUP_MAX_WEEKLY_PAIRS, GenerationGrid.slotCount(),
+                                Math.min(GenerationGrid.slotCount(), GROUP_MAX_WEEKLY_PAIRS + unplaced.missingPairs()))));
                 case SUBJECT_LIMIT -> builder.option(MissingResourceRequest.ResolutionOption.withInput(
                         MissingResourceRequest.Actions.RELAX_SUBJECT_PER_DAY,
                         "Разрешить больше пар этой дисциплины в день",
@@ -629,12 +636,13 @@ public class ScheduleGeneratorService {
                 .toList();
     }
 
-    private void applyDecision(GenerationSessionStore.Session session, ResolutionDecision decision) {
+    void applyDecision(GenerationSessionStore.Session session, ResolutionDecision decision) {
         if (decision == null || decision.actionCode() == null) {
             return;
         }
         MissingResourceRequest issue = session.getOpenIssues().get(decision.requestId());
         Long loadId = issue == null ? null : asLong(issue.context().get("loadId"));
+        Long groupId = issue == null ? null : asLong(issue.context().get("groupId"));
 
         switch (decision.actionCode()) {
             case MissingResourceRequest.Actions.USE_FILE_HOURS,
@@ -677,6 +685,12 @@ public class ScheduleGeneratorService {
                 int pairsPerDay = decision.intValue("pairsPerDay", 0);
                 if (pairsPerDay > 0) {
                     session.setMaxPairsPerDayGroup(pairsPerDay);
+                }
+            }
+            case MissingResourceRequest.Actions.RAISE_GROUP_WEEK_LIMIT -> {
+                int pairsPerWeek = decision.intValue("pairsPerWeek", 0);
+                if (groupId != null && pairsPerWeek > 0) {
+                    session.getGroupWeekLimitOverrides().put(groupId, pairsPerWeek);
                 }
             }
             case MissingResourceRequest.Actions.RELAX_SUBJECT_PER_DAY -> {
@@ -725,7 +739,7 @@ public class ScheduleGeneratorService {
                 grid == null ? null : grid.maxWeeklyHoursPerSubjectPerGroup());
     }
 
-    private List<SolverInput.GroupRef> buildGroups(List<TeacherLoad> loads, SolverConfig config,
+    List<SolverInput.GroupRef> buildGroups(List<TeacherLoad> loads, SolverConfig config,
                                                    GenerationSessionStore.Session session) {
         Map<Long, StudyGroup> groups = new LinkedHashMap<>();
         loads.forEach(l -> groups.putIfAbsent(l.getGroup().getId(), l.getGroup()));
@@ -743,9 +757,11 @@ public class ScheduleGeneratorService {
                     }
                 }
             }
+            int maxWeeklyPairs = session.getGroupWeekLimitOverrides()
+                    .getOrDefault(group.getId(), GROUP_MAX_WEEKLY_PAIRS);
             result.add(new SolverInput.GroupRef(group.getId(), group.getName(),
                     group.getStudentCount() == null ? 0 : group.getStudentCount(),
-                    config.maxPairsPerDayGroup(), GROUP_MAX_WEEKLY_PAIRS, blocked));
+                    config.maxPairsPerDayGroup(), maxWeeklyPairs, blocked));
         }
         return result;
     }

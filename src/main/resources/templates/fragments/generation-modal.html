@@ -32,6 +32,25 @@
             }
         </style>
 
+        <div class="card" id="genSettingsCard" style="margin-bottom:1rem;">
+            <div class="card-header"><span class="card-title">Источник данных для автосоставления</span></div>
+            <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+                <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+                    Тарификация
+                    <select id="genTarificationSelect" class="gen-input" style="min-width:280px;">
+                        <option value="">Загрузка…</option>
+                    </select>
+                </label>
+                <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+                    Семестр
+                    <select id="genSemesterSelect" class="gen-input">
+                        <option value="1">1 (осень)</option>
+                        <option value="2">2 (весна)</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
         <div class="card" id="genResultCard" style="display:none; margin-bottom:1.5rem;">
             <div class="card-header"><span class="card-title">🧮 Автосоставление расписания</span></div>
             <div id="genSummary" style="margin-bottom:0.75rem;"></div>

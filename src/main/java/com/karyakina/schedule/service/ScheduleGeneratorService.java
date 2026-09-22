@@ -13,6 +13,7 @@ import com.karyakina.schedule.dto.ResolutionDecision;
 import com.karyakina.schedule.dto.ScheduleGenerationResultDto;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.ClassroomRepository;
+import com.karyakina.schedule.repository.TarificationRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
@@ -59,6 +60,7 @@ public class ScheduleGeneratorService {
     private final SettingsService settingsService;
     private final ScheduleSolver solver;
     private final GenerationSessionStore sessionStore;
+    private final TarificationRepository tarificationRepository;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
@@ -186,8 +188,23 @@ public class ScheduleGeneratorService {
         List<String> warnings = new ArrayList<>();
         Map<String, Integer> metrics = new LinkedHashMap<>();
         try {
+            Long tarificationId = session.getRequest() == null ? null : session.getRequest().tarificationId();
             Integer year = session.getAcademicYear();
-            List<TeacherLoad> allLoads = loadRepository.findByAcademicYear(year);
+            List<TeacherLoad> allLoads;
+            if (tarificationId != null) {
+                var tarification = tarificationRepository.findById(tarificationId).orElse(null);
+                if (tarification == null) {
+                    warnings.add("Выбранная тарификация не найдена — возможно, она была удалена.");
+                    session.getDraft().clear();
+                    return new GenerationResultDTO(session.getId(), GenerationResultDTO.Status.PARTIAL, false,
+                            List.of(), List.of(), warnings, metrics);
+                }
+                year = tarification.getAcademicYear();
+                session.setAcademicYear(year);
+                allLoads = loadRepository.findByTarificationId(tarificationId);
+            } else {
+                allLoads = loadRepository.findByAcademicYear(year);
+            }
             if (allLoads.isEmpty()) {
                 warnings.add("За " + year + " учебный год нет ни одной записи нагрузки — "
                         + "импортируйте файл нагрузки или добавьте записи вручную.");

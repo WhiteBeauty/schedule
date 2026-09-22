@@ -48,6 +48,10 @@ public class TeacherLoad {
     @Column(nullable = false)
     private Integer academicYear;
 
+    @ManyToOne(optional = true)
+    @JoinColumn(name = "tarification_id", nullable = true)
+    private Tarification tarification;
+
     private Integer hoursPerWeek;
 
     private String lessonType;

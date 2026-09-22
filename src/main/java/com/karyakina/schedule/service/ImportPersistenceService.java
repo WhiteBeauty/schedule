@@ -3,6 +3,7 @@ package com.karyakina.schedule.service;
 import com.karyakina.schedule.domain.Classroom;
 import com.karyakina.schedule.domain.Discipline;
 import com.karyakina.schedule.domain.StudyGroup;
+import com.karyakina.schedule.domain.Tarification;
 import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.repository.ClassroomRepository;
@@ -307,8 +308,10 @@ public class ImportPersistenceService {
     }
 
     @Transactional
-    public ImportResult applyTarificationRows(List<TarificationImportService.TarificationRow> rows, Integer academicYear) {
+    public ImportResult applyTarificationRows(List<TarificationImportService.TarificationRow> rows,
+                                              Tarification tarification) {
         ImportResult result = new ImportResult();
+        Integer academicYear = tarification.getAcademicYear();
 
         for (TarificationImportService.TarificationRow row : rows) {
             List<Teacher> existingTeachers = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
@@ -341,33 +344,23 @@ public class ImportPersistenceService {
             int hours2 = nz(row.hours2);
             int totalHours = hours1 + hours2;
 
-            TeacherLoad existing = findExistingLoad(teacher.getId(), group.getId(), discipline.getId(), academicYear);
-            if (existing != null) {
-                existing.setPlannedHours(totalHours);
-                existing.setFirstSemesterHours(hours1);
-                existing.setSecondSemesterHours(hours2);
-                if (row.control1 != null) existing.setControlPointType1(row.control1);
-                if (row.control2 != null) existing.setControlPointType2(row.control2);
-                loadRepository.save(existing);
-                result.updatedLoads++;
-            } else {
-                TeacherLoad load = TeacherLoad.builder()
-                        .teacher(teacher)
-                        .group(group)
-                        .discipline(discipline)
-                        .plannedHours(totalHours)
-                        .firstSemesterHours(hours1)
-                        .secondSemesterHours(hours2)
-                        .controlPointType1(row.control1)
-                        .controlPointType2(row.control2)
-                        .readHours(0)
-                        .academicYear(academicYear)
-                        .overload(false)
-                        .build();
-                TeacherLoad savedLoad = loadRepository.save(load);
-                result.createdLoads++;
-                monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
-            }
+            TeacherLoad load = TeacherLoad.builder()
+                    .teacher(teacher)
+                    .group(group)
+                    .discipline(discipline)
+                    .plannedHours(totalHours)
+                    .firstSemesterHours(hours1)
+                    .secondSemesterHours(hours2)
+                    .controlPointType1(row.control1)
+                    .controlPointType2(row.control2)
+                    .readHours(0)
+                    .academicYear(academicYear)
+                    .tarification(tarification)
+                    .overload(false)
+                    .build();
+            TeacherLoad savedLoad = loadRepository.save(load);
+            result.createdLoads++;
+            monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
             result.processedLoads++;
         }
         return result;

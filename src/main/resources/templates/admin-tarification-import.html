@@ -48,6 +48,11 @@
             <input type="number" id="academicYearInput" th:value="${year}" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:160px; margin-top:0.35rem;">
         </div>
 
+        <div style="margin-bottom:1rem;">
+            <label class="text-muted" style="font-size:0.85rem;">Название тарификации (необязательно — по умолчанию берётся имя файла). Каждая загрузка сохраняется отдельно и не смешивается с предыдущими:</label><br>
+            <input type="text" id="tarificationNameInput" placeholder="например, Тарификация ЕТ 2026-2027 (черновик 2)" style="padding:0.5rem; border:1px solid var(--border); border-radius:0.5rem; width:100%; max-width:420px; margin-top:0.35rem;">
+        </div>
+
         <div class="dropzone" id="dropzone">
             <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
             <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls)</div>
@@ -172,11 +177,16 @@
         importBtn.textContent = 'Импортируем...';
 
         const year = document.getElementById('academicYearInput').value;
+        const name = document.getElementById('tarificationNameInput').value;
         const formData = new FormData();
         formData.append('file', selectedFile);
 
         try {
-            const res = await fetch('/api/import/tarification?academicYear=' + encodeURIComponent(year), {
+            let url = '/api/import/tarification?academicYear=' + encodeURIComponent(year);
+            if (name && name.trim()) {
+                url += '&name=' + encodeURIComponent(name.trim());
+            }
+            const res = await fetch(url, {
                 method: 'POST',
                 body: formData
             });

@@ -4,6 +4,7 @@ import java.util.List;
 
 public record GenerationRequestDTO(
         Integer academicYear,
+        Long tarificationId,
         List<Long> groupIds,
         List<ManualLoadEntry> manualLoad,
         GridSettings grid,
@@ -40,6 +41,6 @@ public record GenerationRequestDTO(
     }
 
     public static GenerationRequestDTO forYear(Integer academicYear, boolean persist) {
-        return new GenerationRequestDTO(academicYear, List.of(), List.of(), null, persist, null);
+        return new GenerationRequestDTO(academicYear, null, List.of(), List.of(), null, persist, null);
     }
 }

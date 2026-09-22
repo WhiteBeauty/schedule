@@ -59,17 +59,47 @@
     async function generate() {
         const yearSelect = document.getElementById('yearSelect');
         const academicYear = yearSelect ? Number(yearSelect.value) : null;
+        const tarificationSelect = document.getElementById('genTarificationSelect');
+        const tarificationId = tarificationSelect && tarificationSelect.value ? Number(tarificationSelect.value) : null;
+        const semesterSelect = document.getElementById('genSemesterSelect');
+        const semester = semesterSelect ? Number(semesterSelect.value) : null;
         setBusy(true, 'Считаем расписание...');
 
         const manualLoad = typeof window.collectManualLoad === 'function' ? window.collectManualLoad() : [];
         const result = await post(API + '/run', {
             academicYear: academicYear,
+            tarificationId: tarificationId,
+            semester: semester,
             groupIds: [],
             manualLoad: manualLoad,
             persist: false
         });
         setBusy(false);
         handleResult(result);
+    }
+
+    async function loadTarifications() {
+        const select = document.getElementById('genTarificationSelect');
+        if (!select) {
+            return;
+        }
+        try {
+            const res = await fetch('/api/tarifications');
+            const tarifications = await res.json();
+            select.innerHTML = '';
+            if (!tarifications.length) {
+                select.innerHTML = '<option value="">Нет загруженных тарификаций</option>';
+                return;
+            }
+            tarifications.forEach(function (t) {
+                const option = document.createElement('option');
+                option.value = t.id;
+                option.textContent = t.name + ' (' + t.academicYear + '/' + (t.academicYear + 1) + ')';
+                select.appendChild(option);
+            });
+        } catch (e) {
+            select.innerHTML = '<option value="">Список тарификаций недоступен</option>';
+        }
     }
 
     async function commit() {
@@ -456,6 +486,7 @@
         bind('genIssueCloseBtn', closeModal);
         bind('sickSubmitBtn', submitSickLeave);
         loadTeachers();
+        loadTarifications();
     });
 
     function bind(id, handler) {

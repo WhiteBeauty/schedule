@@ -16,6 +16,11 @@ public interface TeacherLoadRepository extends JpaRepository<TeacherLoad, Long> 
     List<TeacherLoad> findByAcademicYear(Integer academicYear);
 
     @EntityGraph(attributePaths = {"teacher", "group", "discipline"})
+    List<TeacherLoad> findByTarificationId(Long tarificationId);
+
+    List<TeacherLoad> findByTarificationIsNull();
+
+    @EntityGraph(attributePaths = {"teacher", "group", "discipline"})
     List<TeacherLoad> findByTeacherIdAndAcademicYear(Long teacherId, Integer academicYear);
 
     @EntityGraph(attributePaths = {"teacher", "group", "discipline"})

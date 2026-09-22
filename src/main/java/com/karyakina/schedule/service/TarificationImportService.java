@@ -1,11 +1,14 @@
 package com.karyakina.schedule.service;
 
+import com.karyakina.schedule.domain.Tarification;
 import com.karyakina.schedule.dto.ImportReportDto;
 import com.karyakina.schedule.dto.ImportRowErrorDto;
+import com.karyakina.schedule.repository.TarificationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -21,6 +24,7 @@ import java.util.regex.Pattern;
 public class TarificationImportService {
 
     private final ImportPersistenceService persistenceService;
+    private final TarificationRepository tarificationRepository;
 
     private static final int GROUP_BLOCK_WIDTH = 4;
     private static final Pattern LEADING_NUMBER = Pattern.compile("(\\d+)");
@@ -45,7 +49,9 @@ public class TarificationImportService {
         public String fatalError;
     }
 
-    public ImportReportDto importFile(MultipartFile file, Integer academicYear) {
+    @Transactional
+    public ImportReportDto importFile(MultipartFile file, Integer academicYear, String tarificationName,
+                                      String importedBy) {
         ParseResult parsed = parse(file);
         if (parsed.fatalError != null) {
             return ImportReportDto.builder()
@@ -59,14 +65,25 @@ public class TarificationImportService {
                     .build();
         }
 
+        String originalFileName = file.getOriginalFilename();
+        String name = tarificationName != null && !tarificationName.isBlank()
+                ? tarificationName.trim()
+                : (originalFileName != null ? originalFileName : "Тарификация " + academicYear);
+        Tarification tarification = tarificationRepository.save(Tarification.builder()
+                .name(name)
+                .academicYear(academicYear)
+                .sourceFileName(originalFileName)
+                .importedBy(importedBy)
+                .build());
+
         ImportPersistenceService.ImportResult result =
-                persistenceService.applyTarificationRows(parsed.rows, academicYear);
+                persistenceService.applyTarificationRows(parsed.rows, tarification);
 
         String summary = String.format(Locale.ROOT,
-                "Обработано записей: %d. Создано: преподавателей — %d, дисциплин — %d, групп — %d, "
-                        + "нагрузок — %d, обновлено нагрузок — %d.%s",
-                parsed.rows.size(), result.createdTeachers, result.createdDisciplines, result.createdGroups,
-                result.createdLoads, result.updatedLoads,
+                "Создана тарификация «%s». Обработано записей: %d. Создано: преподавателей — %d, дисциплин — %d, "
+                        + "групп — %d, нагрузок — %d.%s",
+                tarification.getName(), parsed.rows.size(), result.createdTeachers, result.createdDisciplines,
+                result.createdGroups, result.createdLoads,
                 parsed.warnings.isEmpty() ? "" : " Предупреждений: " + parsed.warnings.size() + ".");
 
         return ImportReportDto.builder()
@@ -80,6 +97,8 @@ public class TarificationImportService {
                 .createdGroups(result.createdGroups)
                 .createdLoads(result.createdLoads)
                 .updatedLoads(result.updatedLoads)
+                .tarificationId(tarification.getId())
+                .tarificationName(tarification.getName())
                 .errors(List.of())
                 .splitNotices(parsed.warnings)
                 .detectedColumns(List.of("Преподаватель", "Предмет", "Группы (по блокам колонок)", "Семестр I/II"))

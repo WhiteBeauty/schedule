@@ -18,6 +18,8 @@ public class ImportReportDto {
     private int createdLoads;
     private int updatedLoads;
     private int createdClassrooms;
+    private Long tarificationId;
+    private String tarificationName;
     private List<ImportRowErrorDto> errors;
     private List<ImportRowErrorDto> splitNotices;
     private List<String> detectedColumns;

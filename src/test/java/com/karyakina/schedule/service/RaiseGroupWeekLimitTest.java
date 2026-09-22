@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class RaiseGroupWeekLimitTest {
 
     private final ScheduleGeneratorService service = new ScheduleGeneratorService(
-            null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
     @Test
     void adminCanRaiseGroupWeekLimitAndItAppliesToBuildGroups() {

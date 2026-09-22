@@ -29,7 +29,7 @@
                     </label>
                     <label style="display:block; margin-bottom:0.75rem;">
                         Группа
-                        <select id="seGroup" style="width:100%; margin-top:0.25rem;"></select>
+                        <select id="seGroup" style="width:100%; margin-top:0.25rem;" onchange="onSeGroupChange()"></select>
                     </label>
                     <label id="seDisciplineWrap" style="display:block; margin-bottom:0.75rem;">
                         Предмет (для экзамена)
@@ -89,18 +89,13 @@
                 document.getElementById('seResult').innerHTML = '';
                 let loaded = Promise.resolve();
                 if (!seGroupsLoaded) {
-                    loaded = Promise.all([
-                        fetch('/api/groups').then(r => r.json()),
-                        fetch('/api/disciplines').then(r => r.json())
-                    ]).then(([groups, disciplines]) => {
+                    loaded = fetch('/api/groups').then(r => r.json()).then(groups => {
                         const gSel = document.getElementById('seGroup');
                         gSel.innerHTML = '';
                         (groups || []).forEach(g => gSel.add(new Option(
                             g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
-                        const dSel = document.getElementById('seDiscipline');
-                        dSel.innerHTML = '<option value="">—</option>';
-                        (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
                         seGroupsLoaded = true;
+                        return onSeGroupChange();
                     }).catch(() => {});
                 }
                 onSeTypeChange();
@@ -116,8 +111,28 @@
                     }
                     if (presetGroupId) {
                         document.getElementById('seGroup').value = presetGroupId;
+                        return onSeGroupChange();
                     }
                 });
+            }
+
+            function onSeGroupChange() {
+                const groupId = document.getElementById('seGroup').value;
+                const dSel = document.getElementById('seDiscipline');
+                if (!groupId) {
+                    dSel.innerHTML = '<option value="">—</option>';
+                    return Promise.resolve();
+                }
+                dSel.innerHTML = '<option value="">Загрузка…</option>';
+                return fetch('/api/disciplines?groupId=' + encodeURIComponent(groupId))
+                    .then(r => r.json())
+                    .then(disciplines => {
+                        dSel.innerHTML = '<option value="">—</option>';
+                        (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
+                    })
+                    .catch(() => {
+                        dSel.innerHTML = '<option value="">—</option>';
+                    });
             }
 
             function closeSpecialEventModal() {
@@ -232,6 +247,22 @@
                 }
 
                 el.innerHTML = html;
+            }
+
+            async function cancelSpecialEvent(id, label) {
+                if (!confirm('Отменить «' + label + '»? Перенесённые и отменённые из-за него пары вернутся на место.')) {
+                    return;
+                }
+                try {
+                    const res = await fetch('/api/special-events/' + id, {method: 'DELETE'});
+                    if (!res.ok) {
+                        alert('Не удалось отменить (код ' + res.status + ')');
+                        return;
+                    }
+                    refreshAfterSpecialEvent();
+                } catch (e) {
+                    alert('Ошибка сети: ' + e.message);
+                }
             }
 
             function openUnresolvedCloudModal() {

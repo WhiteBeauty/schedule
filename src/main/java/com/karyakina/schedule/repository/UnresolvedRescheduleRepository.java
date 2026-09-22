@@ -10,4 +10,6 @@ import java.util.List;
 public interface UnresolvedRescheduleRepository extends JpaRepository<UnresolvedReschedule, Long> {
 
     List<UnresolvedReschedule> findByAcademicYearOrderByOriginalDateAsc(Integer academicYear);
+
+    void deleteBySpecialEventId(Long specialEventId);
 }

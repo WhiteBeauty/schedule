@@ -774,8 +774,10 @@ public class ScheduleGeneratorService {
                     }
                 }
             }
+            int groupDefault = group.getMaxWeeklyPairs() != null && group.getMaxWeeklyPairs() > 0
+                    ? group.getMaxWeeklyPairs() : GROUP_MAX_WEEKLY_PAIRS;
             int maxWeeklyPairs = session.getGroupWeekLimitOverrides()
-                    .getOrDefault(group.getId(), GROUP_MAX_WEEKLY_PAIRS);
+                    .getOrDefault(group.getId(), groupDefault);
             result.add(new SolverInput.GroupRef(group.getId(), group.getName(),
                     group.getStudentCount() == null ? 0 : group.getStudentCount(),
                     config.maxPairsPerDayGroup(), maxWeeklyPairs, blocked));

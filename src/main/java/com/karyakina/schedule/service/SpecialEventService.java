@@ -44,6 +44,19 @@ public class SpecialEventService {
         Discipline discipline = disciplineId != null ? disciplineRepository.findById(disciplineId).orElse(null) : null;
         TeacherLoad ownLoad = teacherLoadId != null ? loadRepository.findById(teacherLoadId).orElse(null) : null;
 
+        List<SpecialEvent> groupEvents = specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
+        SpecialEvent overlapping = groupEvents.stream()
+                .filter(e -> !e.getEndDate().isBefore(startDate) && !e.getStartDate().isAfter(endDate))
+                .findFirst().orElse(null);
+        if (overlapping != null) {
+            throw new IllegalArgumentException("У группы «" + group.getName() + "» уже назначено «"
+                    + typeLabel(overlapping.getType()) + "» на "
+                    + (overlapping.getStartDate().equals(overlapping.getEndDate())
+                            ? overlapping.getStartDate().toString()
+                            : overlapping.getStartDate() + " — " + overlapping.getEndDate())
+                    + ". Сначала отмените его, если нужно назначить другое событие на эти даты.");
+        }
+
         SpecialEvent event = SpecialEvent.builder()
                 .group(group)
                 .type(type)
@@ -56,9 +69,9 @@ public class SpecialEventService {
                 .note(buildNote(type, discipline))
                 .build();
         final SpecialEvent savedEvent = specialEventRepository.save(event);
+        groupEvents.add(savedEvent);
 
         List<Schedule> allSchedules = scheduleRepository.findByAcademicYear(academicYear);
-        List<SpecialEvent> groupEvents = specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
         List<GenerationGrid.Room> rooms = GenerationGrid.rooms(classroomRepository.findAll());
         Tracker tracker = new Tracker(new ArrayList<>(allSchedules), groupEvents, rooms);
 
@@ -96,7 +109,7 @@ public class SpecialEventService {
                     String teacherName = s.getTeacherLoad().getTeacher() != null
                             ? s.getTeacherLoad().getTeacher().getFullName() : "Не назначен";
                     String dayName = GenerationGrid.dayName(GenerationGrid.dayIndex(date.getDayOfWeek()));
-                    String reason = diagnosisMessage(outcome);
+                    String reason = diagnosisMessage(outcome, resolveWeekCap(group));
                     unresolved.add(SpecialEventDtos.UnresolvedConflict.builder()
                             .teacherLoadId(s.getTeacherLoad().getId())
                             .disciplineName(s.getTeacherLoad().getDiscipline().getName())
@@ -248,6 +261,8 @@ public class SpecialEventService {
         List<Schedule> movedByThis = scheduleRepository.findBySpecialEventId(eventId);
         scheduleRepository.deleteAll(movedByThis);
 
+        unresolvedRescheduleRepository.deleteBySpecialEventId(eventId);
+
         specialEventRepository.delete(event);
     }
 
@@ -269,7 +284,12 @@ public class SpecialEventService {
         };
     }
 
-    private String diagnosisMessage(SearchOutcome outcome) {
+    static int resolveWeekCap(StudyGroup group) {
+        return group.getMaxWeeklyPairs() != null && group.getMaxWeeklyPairs() > 0
+                ? group.getMaxWeeklyPairs() : GROUP_MAX_WEEKLY_PAIRS;
+    }
+
+    private String diagnosisMessage(SearchOutcome outcome, int weekCap) {
         StringBuilder sb = new StringBuilder("Не нашлось свободного слота до конца семестра. Причины отказа: ");
         List<String> parts = new ArrayList<>();
         if (outcome.slotsTeacherBusy() > 0) {
@@ -282,7 +302,7 @@ public class SpecialEventService {
             parts.add("нет подходящей свободной аудитории (" + outcome.slotsNoRoom() + " раз)");
         }
         if (outcome.datesSkippedWeekCap() > 0) {
-            parts.add("у группы лимит " + GROUP_MAX_WEEKLY_PAIRS + " пар/нед уже выбран ("
+            parts.add("у группы лимит " + weekCap + " пар/нед уже выбран ("
                     + outcome.datesSkippedWeekCap() + " недель)");
         }
         if (outcome.datesSkippedBlocked() > 0) {
@@ -345,7 +365,7 @@ public class SpecialEventService {
                 if (AcademicYearUtil.isVacation(d)) continue;
                 if (isGroupBlocked(groupId, d)) { datesSkippedBlocked++; continue; }
                 int week = weekOf(d, academicYear);
-                if (groupWeekCount(groupId, week) >= GROUP_MAX_WEEKLY_PAIRS) { datesSkippedWeekCap++; continue; }
+                if (groupWeekCount(groupId, week) >= resolveWeekCap(group)) { datesSkippedWeekCap++; continue; }
 
                 for (int pairIdx = 0; pairIdx < GenerationGrid.pairsPerDay(); pairIdx++) {
                     if (isTeacherBusy(teacherId, d.getDayOfWeek(), pairIdx, week)) { slotsTeacherBusy++; continue; }

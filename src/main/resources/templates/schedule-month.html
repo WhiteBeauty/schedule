@@ -59,6 +59,12 @@
             margin-bottom: 0.3rem;
         }
         .cal-event div { font-weight: 500; font-size: 0.7rem; }
+        .cal-event { position: relative; }
+        .cal-event-cancel {
+            position: absolute; top: 0.15rem; right: 0.25rem; cursor: pointer;
+            font-weight: 700; color: #991b1b; line-height: 1;
+        }
+        .cal-event-cancel:hover { color: #7f1d1d; }
         .cal-lesson-time { font-weight: 600; }
         .month-nav { display: flex; align-items: center; gap: 0.75rem; }
         .month-nav h2 { margin: 0; min-width: 12rem; text-align: center; }
@@ -250,8 +256,11 @@ function renderCalendar(lessons, events) {
                 const eventsHtml = dayEvents.map(e => {
                     const icon = EVENT_ICONS[e.type] || '📌';
                     const subject = e.disciplineName ? ': ' + escapeHtml(e.disciplineName) : '';
+                    const cancelBtn = isAdmin
+                        ? `<span class="cal-event-cancel" title="Отменить" onclick="event.stopPropagation(); cancelSpecialEvent(${e.id}, '${escapeHtml(e.typeLabel)}${subject ? ' ' + escapeHtml(subject) : ''}')">×</span>`
+                        : '';
                     return `<div class="cal-event" title="${escapeHtml(e.groupName)}">` +
-                        `${icon} ${escapeHtml(e.typeLabel)}${subject}<div>${escapeHtml(e.groupName)}</div></div>`;
+                        `${cancelBtn}${icon} ${escapeHtml(e.typeLabel)}${subject}<div>${escapeHtml(e.groupName)}</div></div>`;
                 }).join('');
 
                 const dayLessons = (byDate[dateStr] || []).slice().sort((a, b) => a.startTime.localeCompare(b.startTime));

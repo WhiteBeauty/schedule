@@ -304,7 +304,7 @@
                 <button class="btn btn-primary" onclick="addGroup()">➕</button>
             </div>
             <table id="groupsTable">
-                <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Обед группы</th><th>Действия</th></tr></thead>
+                <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Обед группы</th><th>Лимит пар/нед</th><th>Действия</th></tr></thead>
                 <tbody id="groupsBody"></tbody>
             </table>
         </div>
@@ -917,11 +917,13 @@ function loadGroups() {
             data.forEach(g => {
                 const tr = document.createElement('tr');
                 const lunch = (g.lunchStart && g.lunchEnd) ? (g.lunchStart.substring(0,5) + '–' + g.lunchEnd.substring(0,5)) : '<span class="text-muted">общий поток</span>';
+                const weeklyLimit = g.maxWeeklyPairs ? g.maxWeeklyPairs : '<span class="text-muted">18 (по умолчанию)</span>';
                 tr.innerHTML = `
                     <td>${g.name}</td>
                     <td>${g.course}</td>
                     <td>${g.specialty || '-'}</td>
                     <td>${lunch} <button class="btn btn-sm btn-outline" onclick="editGroupLunch(${g.id}, '${g.lunchStart || ''}', '${g.lunchEnd || ''}')" title="Изменить обед этой группы">✏️</button></td>
+                    <td>${weeklyLimit} <button class="btn btn-sm btn-outline" onclick="editGroupWeeklyLimit(${g.id}, ${g.maxWeeklyPairs || 18})" title="Изменить недельный лимит пар этой группы">✏️</button></td>
                     <td>
                         <button class="btn btn-sm btn-outline" onclick="editGroup(${g.id}, '${g.name}', ${g.course}, '${g.specialty || ''}')">✏️</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})" style="background:var(--danger);color:#fff">🗑️</button>
@@ -947,6 +949,24 @@ function editGroupLunch(id, currentStart, currentEnd) {
     }).then(r => {
         if (r.ok) loadGroups();
         else alert('Ошибка обновления обеда');
+    });
+}
+
+function editGroupWeeklyLimit(id, current) {
+    const value = prompt('Максимум пар в неделю у этой группы (по умолчанию 18):', current);
+    if (value === null) return;
+    const trimmed = value.trim();
+    if (trimmed !== '' && (isNaN(trimmed) || Number(trimmed) < 1)) {
+        alert('Введите число больше нуля или оставьте пусто, чтобы вернуть значение по умолчанию (18)');
+        return;
+    }
+    fetch(`/api/admin/groups/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({maxWeeklyPairs: trimmed === '' || Number(trimmed) === 18 ? null : Number(trimmed)})
+    }).then(r => {
+        if (r.ok) loadGroups();
+        else alert('Ошибка обновления лимита');
     });
 }
 

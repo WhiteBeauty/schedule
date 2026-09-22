@@ -255,8 +255,17 @@ public class ApiController {
     }
 
     @GetMapping("/disciplines")
-    public ResponseEntity<List<Discipline>> disciplines() {
-        return ResponseEntity.ok(disciplineRepository.findAll());
+    public ResponseEntity<List<Discipline>> disciplines(@RequestParam(required = false) Long groupId) {
+        if (groupId == null) {
+            return ResponseEntity.ok(disciplineRepository.findAll());
+        }
+        List<Discipline> groupDisciplines = loadRepository.findByGroupId(groupId).stream()
+                .map(com.karyakina.schedule.domain.TeacherLoad::getDiscipline)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted(java.util.Comparator.comparing(Discipline::getName))
+                .toList();
+        return ResponseEntity.ok(groupDisciplines);
     }
 
     @GetMapping("/classrooms")
@@ -1177,6 +1186,11 @@ public class ApiController {
             if ((group.getLunchStart() == null) != (group.getLunchEnd() == null)) {
                 return ResponseEntity.badRequest().build();
             }
+        }
+        if (body.containsKey("maxWeeklyPairs")) {
+            Object value = body.get("maxWeeklyPairs");
+            group.setMaxWeeklyPairs(value == null || value.toString().isBlank()
+                    ? null : Integer.valueOf(value.toString()));
         }
 
         return ResponseEntity.ok(groupRepository.save(group));

@@ -20,4 +20,6 @@ public class StudyGroup {
 
     private java.time.LocalTime lunchStart;
     private java.time.LocalTime lunchEnd;
+
+    private Integer maxWeeklyPairs;
 }

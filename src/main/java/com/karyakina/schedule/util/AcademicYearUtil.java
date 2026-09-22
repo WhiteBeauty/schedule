@@ -1,10 +1,25 @@
 package com.karyakina.schedule.util;
 
 import java.time.LocalDate;
+import java.time.MonthDay;
+import java.util.Set;
 
 public class AcademicYearUtil {
 
     private AcademicYearUtil() {}
+
+    private static final Set<MonthDay> STATE_HOLIDAYS = Set.of(
+            MonthDay.of(2, 23),
+            MonthDay.of(3, 8),
+            MonthDay.of(5, 1),
+            MonthDay.of(5, 9),
+            MonthDay.of(6, 12),
+            MonthDay.of(11, 4)
+    );
+
+    public static boolean isHoliday(LocalDate date) {
+        return STATE_HOLIDAYS.contains(MonthDay.from(date));
+    }
 
     public static int[] getCurrentAcademicYear() {
         int year = LocalDate.now().getYear();
@@ -30,7 +45,7 @@ public class AcademicYearUtil {
     public static final java.time.MonthDay SEM2_END = java.time.MonthDay.of(6, 30);
 
     public static boolean isVacation(LocalDate date) {
-        return semesterOf(date, false) == 0;
+        return semesterOf(date, false) == 0 || isHoliday(date);
     }
 
     private static int semesterOf(LocalDate date, boolean upcomingIfVacation) {

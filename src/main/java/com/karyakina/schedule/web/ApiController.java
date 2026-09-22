@@ -1368,7 +1368,7 @@ public class ApiController {
     }
 
     @GetMapping("/schedule/month")
-    public ResponseEntity<List<com.karyakina.schedule.dto.MonthLessonDto>> getMonthSchedule(
+    public ResponseEntity<com.karyakina.schedule.dto.MonthScheduleDto> getMonthSchedule(
             @RequestParam int year,
             @RequestParam int month,
             @RequestParam(required = false) Integer academicYear,

@@ -1,6 +1,7 @@
 package com.karyakina.schedule.web;
 
 import com.karyakina.schedule.domain.SpecialEvent;
+import com.karyakina.schedule.domain.UnresolvedReschedule;
 import com.karyakina.schedule.domain.User;
 import com.karyakina.schedule.dto.SpecialEventDtos;
 import com.karyakina.schedule.repository.UserRepository;
@@ -89,6 +90,21 @@ public class SpecialEventController {
             @RequestParam(required = false) Integer academicYear) {
         Integer year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         return ResponseEntity.ok(specialEventService.findForGroup(groupId, year));
+    }
+
+    @GetMapping("/unresolved")
+    public ResponseEntity<List<UnresolvedReschedule>> unresolved(
+            @RequestParam(required = false) Integer academicYear) {
+        Integer year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
+        return ResponseEntity.ok(specialEventService.findUnresolved(year));
+    }
+
+    @DeleteMapping("/unresolved/{id}")
+    public ResponseEntity<?> dismissUnresolved(@PathVariable Long id, Authentication authentication) {
+        User user = requireAdmin(authentication);
+        if (user == null) return ResponseEntity.status(403).build();
+        specialEventService.dismissUnresolved(id);
+        return ResponseEntity.ok(Map.of("deleted", true));
     }
 
     @DeleteMapping("/{eventId}")

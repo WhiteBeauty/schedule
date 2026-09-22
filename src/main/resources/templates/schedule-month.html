@@ -26,6 +26,8 @@
             width: 14.28%;
         }
         .month-calendar td.other-month { background: #fafbfc; color: var(--muted); }
+        .month-calendar td.cal-day-clickable { cursor: pointer; }
+        .month-calendar td.cal-day-clickable:hover { background: #eff6ff; outline: 2px solid var(--primary); outline-offset: -2px; }
         /* Задача 1: текущий день подсвечивается ЗЕЛЁНЫМ (было светло-синим). */
         .month-calendar td.today { background: #dcfce7; border: 2px solid #16a34a; }
         .month-calendar td.today .cal-day-num { color: #15803d; }
@@ -45,6 +47,18 @@
             background: var(--substitute-bg);
         }
         .cal-lesson.status-cancelled { opacity: 0.5; text-decoration: line-through; }
+        .cal-event {
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.3;
+            padding: 0.3rem 0.4rem;
+            border-radius: 0.3rem;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+            margin-bottom: 0.3rem;
+        }
+        .cal-event div { font-weight: 500; font-size: 0.7rem; }
         .cal-lesson-time { font-weight: 600; }
         .month-nav { display: flex; align-items: center; gap: 0.75rem; }
         .month-nav h2 { margin: 0; min-width: 12rem; text-align: center; }
@@ -60,12 +74,17 @@
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <div class="page-header">
-        <h1 class="page-title" style="margin:0;">🗓️ Расписание на месяц</h1>
-        <p class="page-subtitle">
-            Календарь занятий за месяц. Пары с заменой преподавателя выделены
-            <span class="legend-dot" style="background: var(--substitute);"></span>фиолетовым — наведите на пару, чтобы увидеть, кто заменяет.
-        </p>
+    <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap;">
+        <div>
+            <h1 class="page-title" style="margin:0;">🗓️ Расписание на месяц</h1>
+            <p class="page-subtitle">
+                Календарь занятий за месяц. Пары с заменой преподавателя выделены
+                <span class="legend-dot" style="background: var(--substitute);"></span>фиолетовым — наведите на пару, чтобы увидеть, кто заменяет.
+            </p>
+        </div>
+        <div th:if="${isAdmin}" style="display:flex; gap:0.5rem;">
+            <div th:replace="~{fragments/special-event-modal :: modal}"></div>
+        </div>
     </div>
 
     <div class="card" style="margin-bottom:1.25rem;">
@@ -185,17 +204,23 @@ function buildUrl() {
 function loadMonth() {
     document.getElementById('monthTitle').textContent = MONTH_NAMES[calendarMonth - 1] + ' ' + calendarYear;
     fetch(buildUrl())
-        .then(r => r.ok ? r.json() : [])
-        .then(lessons => {
-            renderCalendar(lessons);
-            renderSubstitutions(lessons);
+        .then(r => r.ok ? r.json() : {lessons: [], events: []})
+        .then(data => {
+            renderCalendar(data.lessons || [], data.events || []);
+            renderSubstitutions(data.lessons || []);
         })
         .catch(() => {
             document.getElementById('calendarBody').innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить расписание</td></tr>';
         });
 }
 
-function renderCalendar(lessons) {
+const EVENT_ICONS = {EXAM: '🎓', PRODUCTION_PRACTICE: '🏭', STUDY_PRACTICE: '📘', DRIVING: '🚗'};
+
+function eventsForDate(events, dateStr) {
+    return events.filter(e => e.startDate <= dateStr && e.endDate >= dateStr);
+}
+
+function renderCalendar(lessons, events) {
     const byDate = {};
     lessons.forEach(l => {
         (byDate[l.date] = byDate[l.date] || []).push(l);
@@ -221,6 +246,14 @@ function renderCalendar(lessons) {
                 const dateStr = `${calendarYear}-${String(calendarMonth).padStart(2,'0')}-${String(dayCounter).padStart(2,'0')}`;
                 if (dateStr === todayStr) td.classList.add('today');
 
+                const dayEvents = eventsForDate(events, dateStr);
+                const eventsHtml = dayEvents.map(e => {
+                    const icon = EVENT_ICONS[e.type] || '📌';
+                    const subject = e.disciplineName ? ': ' + escapeHtml(e.disciplineName) : '';
+                    return `<div class="cal-event" title="${escapeHtml(e.groupName)}">` +
+                        `${icon} ${escapeHtml(e.typeLabel)}${subject}<div>${escapeHtml(e.groupName)}</div></div>`;
+                }).join('');
+
                 const dayLessons = (byDate[dateStr] || []).slice().sort((a, b) => a.startTime.localeCompare(b.startTime));
                 const lessonsHtml = dayLessons.map(l => {
                     const cls = ['cal-lesson'];
@@ -237,7 +270,17 @@ function renderCalendar(lessons) {
                         `</div>`;
                 }).join('');
 
-                td.innerHTML = `<div class="cal-day-num">${dayCounter}</div><div class="cal-lessons">${lessonsHtml}</div>`;
+                td.innerHTML = `<div class="cal-day-num">${dayCounter}</div>${eventsHtml}<div class="cal-lessons">${lessonsHtml}</div>`;
+
+                if (isAdmin) {
+                    td.classList.add('cal-day-clickable');
+                    td.title = 'Нажмите, чтобы назначить экзамен/практику/вождение на этот день';
+                    const clickDate = dateStr;
+                    td.addEventListener('click', () => {
+                        const groupFilter = document.getElementById('filterGroup');
+                        openSpecialEventModalForDate(clickDate, groupFilter ? groupFilter.value : null);
+                    });
+                }
             }
             tr.appendChild(td);
             dayCounter++;

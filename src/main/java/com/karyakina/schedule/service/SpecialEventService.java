@@ -21,7 +21,6 @@ import java.util.List;
 public class SpecialEventService {
 
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
-    private static final int SEARCH_HORIZON_DAYS = 70;
 
     private final SpecialEventRepository specialEventRepository;
     private final ScheduleRepository scheduleRepository;
@@ -31,6 +30,7 @@ public class SpecialEventService {
     private final ClassroomRepository classroomRepository;
     private final LessonInstanceService lessonInstanceService;
     private final LessonInstanceRepository lessonInstanceRepository;
+    private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
 
     @Transactional
     public SpecialEventDtos.Result assignEvent(SpecialEvent.Type type, Long groupId, Long disciplineId,
@@ -93,15 +93,31 @@ public class SpecialEventService {
 
                 SearchOutcome outcome = tracker.search(s, date, group);
                 if (!outcome.found()) {
+                    String teacherName = s.getTeacherLoad().getTeacher() != null
+                            ? s.getTeacherLoad().getTeacher().getFullName() : "Не назначен";
+                    String dayName = GenerationGrid.dayName(GenerationGrid.dayIndex(date.getDayOfWeek()));
+                    String reason = diagnosisMessage(outcome);
                     unresolved.add(SpecialEventDtos.UnresolvedConflict.builder()
                             .teacherLoadId(s.getTeacherLoad().getId())
                             .disciplineName(s.getTeacherLoad().getDiscipline().getName())
-                            .teacherName(s.getTeacherLoad().getTeacher() != null
-                                    ? s.getTeacherLoad().getTeacher().getFullName() : "Не назначен")
+                            .teacherName(teacherName)
                             .originalDate(date)
-                            .originalDayOfWeek(GenerationGrid.dayName(GenerationGrid.dayIndex(date.getDayOfWeek())))
+                            .originalDayOfWeek(dayName)
                             .originalStartTime(s.getStartTime())
-                            .reason(diagnosisMessage(outcome))
+                            .reason(reason)
+                            .build());
+                    unresolvedRescheduleRepository.save(UnresolvedReschedule.builder()
+                            .specialEventId(savedEvent.getId())
+                            .teacherLoadId(s.getTeacherLoad().getId())
+                            .groupId(group.getId())
+                            .groupName(group.getName())
+                            .disciplineName(s.getTeacherLoad().getDiscipline().getName())
+                            .teacherName(teacherName)
+                            .originalDate(date)
+                            .originalDayOfWeek(dayName)
+                            .originalStartTime(s.getStartTime())
+                            .reason(reason)
+                            .academicYear(academicYear)
                             .build());
                     continue;
                 }
@@ -206,6 +222,15 @@ public class SpecialEventService {
         return specialEventRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
     }
 
+    public List<UnresolvedReschedule> findUnresolved(Integer academicYear) {
+        return unresolvedRescheduleRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear);
+    }
+
+    @Transactional
+    public void dismissUnresolved(Long id) {
+        unresolvedRescheduleRepository.deleteById(id);
+    }
+
     @Transactional
     public void deleteEvent(Long eventId) {
         SpecialEvent event = specialEventRepository.findById(eventId)
@@ -245,8 +270,7 @@ public class SpecialEventService {
     }
 
     private String diagnosisMessage(SearchOutcome outcome) {
-        StringBuilder sb = new StringBuilder("Не нашлось свободного слота в пределах "
-                + SEARCH_HORIZON_DAYS + " дней. Причины отказа: ");
+        StringBuilder sb = new StringBuilder("Не нашлось свободного слота до конца семестра. Причины отказа: ");
         List<String> parts = new ArrayList<>();
         if (outcome.slotsTeacherBusy() > 0) {
             parts.add("преподаватель занят (" + outcome.slotsTeacherBusy() + " раз)");
@@ -258,7 +282,8 @@ public class SpecialEventService {
             parts.add("нет подходящей свободной аудитории (" + outcome.slotsNoRoom() + " раз)");
         }
         if (outcome.datesSkippedWeekCap() > 0) {
-            parts.add("у группы лимит 18 пар/нед уже выбран (" + outcome.datesSkippedWeekCap() + " недель)");
+            parts.add("у группы лимит " + GROUP_MAX_WEEKLY_PAIRS + " пар/нед уже выбран ("
+                    + outcome.datesSkippedWeekCap() + " недель)");
         }
         if (outcome.datesSkippedBlocked() > 0) {
             parts.add("день занят другим экзаменом/практикой (" + outcome.datesSkippedBlocked() + " дней)");
@@ -310,11 +335,7 @@ public class SpecialEventService {
             }
             int originalSemester = original.getSemester() != null
                     ? original.getSemester() : AcademicYearUtil.semesterOfDate(originalDate);
-            LocalDate semesterEnd = AcademicYearUtil.semesterEnd(originalSemester, academicYear);
-            LocalDate searchTo = originalDate.plusDays(SEARCH_HORIZON_DAYS);
-            if (semesterEnd.isBefore(searchTo)) {
-                searchTo = semesterEnd;
-            }
+            LocalDate searchTo = AcademicYearUtil.semesterEnd(originalSemester, academicYear);
 
             int datesSkippedBlocked = 0, datesSkippedWeekCap = 0;
             int slotsTeacherBusy = 0, slotsGroupBusy = 0, slotsNoRoom = 0;

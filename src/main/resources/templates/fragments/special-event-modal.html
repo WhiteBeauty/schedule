@@ -1,0 +1,284 @@
+<div xmlns:th="http://www.thymeleaf.org">
+
+    <div th:fragment="modal">
+        <button class="btn btn-outline" onclick="openSpecialEventModal()">🎓 Экзамен/практика/вождение</button>
+        <button class="btn btn-outline" onclick="openUnresolvedCloudModal()">☁️ Не вставшие пары</button>
+
+        <div class="modal-overlay" id="specialEventModal">
+            <div class="modal" style="max-width:640px;">
+                <div class="modal-header">
+                    <h3 style="margin:0;">🎓 Назначить экзамен / практику / вождение</h3>
+                    <button class="close-btn" type="button" onclick="closeSpecialEventModal()" aria-label="Закрыть">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+                        В указанный период у группы блокируются обычные пары — система сама
+                        попробует перенести их на ближайшие свободные слоты до конца текущего
+                        семестра (с учётом занятости преподавателей/аудиторий и лимита пар/нед
+                        у группы). То, что перенести не удалось, попадёт в «облако не вставших
+                        пар» — посмотреть его можно кнопкой ниже.
+                    </p>
+                    <label style="display:block; margin-bottom:0.75rem;">
+                        Тип
+                        <select id="seType" style="width:100%; margin-top:0.25rem;" onchange="onSeTypeChange()">
+                            <option value="EXAM">Экзамен (один день)</option>
+                            <option value="STUDY_PRACTICE">Учебная практика</option>
+                            <option value="PRODUCTION_PRACTICE">Производственная практика</option>
+                            <option value="DRIVING">Вождение</option>
+                        </select>
+                    </label>
+                    <label style="display:block; margin-bottom:0.75rem;">
+                        Группа
+                        <select id="seGroup" style="width:100%; margin-top:0.25rem;"></select>
+                    </label>
+                    <label id="seDisciplineWrap" style="display:block; margin-bottom:0.75rem;">
+                        Предмет (для экзамена)
+                        <select id="seDiscipline" style="width:100%; margin-top:0.25rem;"><option value="">—</option></select>
+                    </label>
+                    <label id="seLoadWrap" style="display:none; margin-bottom:0.75rem;">
+                        Нагрузка практики/вождения из тарификации (необязательно)
+                        <select id="seLoad" style="width:100%; margin-top:0.25rem;"><option value="">—</option></select>
+                    </label>
+                    <div style="display:flex; gap:0.75rem;">
+                        <label style="flex:1;">
+                            <span id="seStartLabel">Дата</span>
+                            <input type="date" id="seStartDate" style="width:100%; margin-top:0.25rem;">
+                        </label>
+                        <label id="seEndWrap" style="flex:1; display:none;">
+                            Дата окончания
+                            <input type="date" id="seEndDate" style="width:100%; margin-top:0.25rem;">
+                        </label>
+                    </div>
+                    <div id="seResult" style="margin-top:1rem;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" type="button" onclick="closeSpecialEventModal()">Закрыть</button>
+                    <button class="btn btn-primary" type="button" id="seSubmitBtn" onclick="submitSpecialEvent()">Назначить и перенести</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="unresolvedCloudModal">
+            <div class="modal" style="max-width:720px;">
+                <div class="modal-header">
+                    <h3 style="margin:0;">☁️ Не вставшие пары</h3>
+                    <button class="close-btn" type="button" onclick="closeUnresolvedCloudModal()" aria-label="Закрыть">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+                        Пары, которые не удалось автоматически перенести при назначении экзамена/практики/вождения.
+                        Перенесите их вручную через редактирование пары на самом расписании.
+                    </p>
+                    <table class="table" style="width:100%; font-size:0.85rem;">
+                        <thead>
+                        <tr><th>Дата</th><th>Дисциплина</th><th>Группа</th><th>Преподаватель</th><th>Причина</th><th></th></tr>
+                        </thead>
+                        <tbody id="unresolvedCloudBody"><tr><td colspan="6" class="text-muted">Загрузка…</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" type="button" onclick="closeUnresolvedCloudModal()">Закрыть</button>
+                </div>
+            </div>
+        </div>
+
+        <script th:inline="none">
+            let seGroupsLoaded = false;
+
+            function openSpecialEventModal() {
+                document.getElementById('seResult').innerHTML = '';
+                let loaded = Promise.resolve();
+                if (!seGroupsLoaded) {
+                    loaded = Promise.all([
+                        fetch('/api/groups').then(r => r.json()),
+                        fetch('/api/disciplines').then(r => r.json())
+                    ]).then(([groups, disciplines]) => {
+                        const gSel = document.getElementById('seGroup');
+                        gSel.innerHTML = '';
+                        (groups || []).forEach(g => gSel.add(new Option(
+                            g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
+                        const dSel = document.getElementById('seDiscipline');
+                        dSel.innerHTML = '<option value="">—</option>';
+                        (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
+                        seGroupsLoaded = true;
+                    }).catch(() => {});
+                }
+                onSeTypeChange();
+                document.getElementById('specialEventModal').classList.add('active');
+                return loaded;
+            }
+
+            function openSpecialEventModalForDate(dateStr, presetGroupId) {
+                openSpecialEventModal().then(() => {
+                    document.getElementById('seStartDate').value = dateStr;
+                    if (document.getElementById('seType').value !== 'EXAM') {
+                        document.getElementById('seEndDate').value = dateStr;
+                    }
+                    if (presetGroupId) {
+                        document.getElementById('seGroup').value = presetGroupId;
+                    }
+                });
+            }
+
+            function closeSpecialEventModal() {
+                document.getElementById('specialEventModal').classList.remove('active');
+            }
+
+            function onSeTypeChange() {
+                const type = document.getElementById('seType').value;
+                const isExam = type === 'EXAM';
+                document.getElementById('seDisciplineWrap').style.display = isExam ? 'block' : 'none';
+                document.getElementById('seLoadWrap').style.display = isExam ? 'none' : 'block';
+                document.getElementById('seEndWrap').style.display = isExam ? 'none' : 'block';
+                document.getElementById('seStartLabel').textContent = isExam ? 'Дата экзамена' : 'Дата начала';
+                if (isExam) {
+                    document.getElementById('seEndDate').value = '';
+                }
+            }
+
+            function resolveAcademicYearForSpecialEvent() {
+                if (typeof window.DEFAULT_ACADEMIC_YEAR !== 'undefined') {
+                    return window.DEFAULT_ACADEMIC_YEAR;
+                }
+                if (typeof calendarYear !== 'undefined' && typeof calendarMonth !== 'undefined') {
+                    return calendarMonth >= 9 ? calendarYear : calendarYear - 1;
+                }
+                return new Date().getFullYear();
+            }
+
+            function refreshAfterSpecialEvent() {
+                if (typeof loadSchedule === 'function') loadSchedule();
+                if (typeof loadMonth === 'function') loadMonth();
+            }
+
+            async function submitSpecialEvent() {
+                const type = document.getElementById('seType').value;
+                const groupId = document.getElementById('seGroup').value;
+                const disciplineId = document.getElementById('seDiscipline').value || null;
+                const startDate = document.getElementById('seStartDate').value;
+                const endDate = document.getElementById('seEndDate').value || startDate;
+                const resultEl = document.getElementById('seResult');
+
+                if (!groupId || !startDate) {
+                    alert('Укажите группу и дату');
+                    return;
+                }
+                if (type === 'EXAM' && !disciplineId) {
+                    alert('Для экзамена укажите предмет');
+                    return;
+                }
+
+                const btn = document.getElementById('seSubmitBtn');
+                btn.disabled = true;
+                btn.textContent = 'Переносим...';
+                resultEl.innerHTML = '';
+
+                try {
+                    const res = await fetch('/api/special-events', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            type, groupId: Number(groupId),
+                            disciplineId: disciplineId ? Number(disciplineId) : null,
+                            startDate, endDate,
+                            academicYear: resolveAcademicYearForSpecialEvent()
+                        })
+                    });
+                    const body = await res.json();
+                    if (!res.ok) {
+                        resultEl.innerHTML = '<div class="text-danger">Ошибка: ' + (body.error || res.status) + '</div>';
+                        return;
+                    }
+                    renderSeResult(body);
+                    refreshAfterSpecialEvent();
+                } catch (e) {
+                    resultEl.innerHTML = '<div class="text-danger">Ошибка сети: ' + e.message + '</div>';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Назначить и перенести';
+                }
+            }
+
+            function renderSeResult(result) {
+                const el = document.getElementById('seResult');
+                let html = '<p style="font-weight:600;">Готово: <span style="color:#2563eb;">' + result.typeLabel + '</span>'
+                    + (result.disciplineName ? ' — ' + result.disciplineName : '') + ', группа ' + result.groupName + ', '
+                    + result.startDate + (result.endDate !== result.startDate ? ' — ' + result.endDate : '') + '</p>';
+
+                if (result.moved && result.moved.length) {
+                    html += '<p style="font-weight:600; color:#16a34a;">Перенесено автоматически (' + result.moved.length + '):</p>';
+                    html += '<table style="width:100%; font-size:0.85rem;"><tbody>';
+                    result.moved.forEach(m => {
+                        html += '<tr><td>' + m.disciplineName + ' (' + m.teacherName + ')</td>' +
+                            '<td>' + m.fromDayOfWeek + ' ' + m.fromDate + ' ' + m.fromStartTime + '</td>' +
+                            '<td>→</td>' +
+                            '<td>' + m.toDayOfWeek + ' ' + m.toDate + ' ' + m.toStartTime + '-' + m.toEndTime + ', ауд. ' + m.classroom + '</td></tr>';
+                    });
+                    html += '</tbody></table>';
+                }
+
+                if (result.unresolved && result.unresolved.length) {
+                    html += '<p style="font-weight:600; color:#dc2626; margin-top:0.75rem;">Не удалось перенести автоматически (' + result.unresolved.length + ') — они добавлены в «облако не вставших пар».</p>';
+                    html += '<ul style="font-size:0.85rem;">';
+                    result.unresolved.forEach(u => {
+                        html += '<li>' + u.disciplineName + ' (' + u.teacherName + '), было ' + u.originalDayOfWeek + ' ' + u.originalDate
+                            + ' ' + u.originalStartTime + ' — ' + u.reason + '</li>';
+                    });
+                    html += '</ul>';
+                }
+
+                if ((!result.moved || !result.moved.length) && (!result.unresolved || !result.unresolved.length)) {
+                    html += '<p class="text-muted">В этот период у группы других пар не было — переносить нечего.</p>';
+                }
+
+                el.innerHTML = html;
+            }
+
+            function openUnresolvedCloudModal() {
+                document.getElementById('unresolvedCloudModal').classList.add('active');
+                loadUnresolvedCloud();
+            }
+
+            function closeUnresolvedCloudModal() {
+                document.getElementById('unresolvedCloudModal').classList.remove('active');
+            }
+
+            async function loadUnresolvedCloud() {
+                const tbody = document.getElementById('unresolvedCloudBody');
+                tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Загрузка…</td></tr>';
+                try {
+                    const res = await fetch('/api/special-events/unresolved?academicYear=' + resolveAcademicYearForSpecialEvent());
+                    const items = await res.json();
+                    if (!items.length) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Пусто — всё перенесено</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = '';
+                    items.forEach(u => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = '<td>' + u.originalDate + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.disciplineName) + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.groupName) + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.teacherName) + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.reason) + '</td>' +
+                            '<td><button class="btn btn-sm btn-outline" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
+                        tbody.appendChild(tr);
+                    });
+                } catch (e) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-danger">Не удалось загрузить</td></tr>';
+                }
+            }
+
+            async function dismissUnresolved(id) {
+                await fetch('/api/special-events/unresolved/' + id, {method: 'DELETE'});
+                loadUnresolvedCloud();
+            }
+
+            function escapeHtmlSafe(s) {
+                const div = document.createElement('div');
+                div.textContent = s == null ? '' : s;
+                return div.innerHTML;
+            }
+        </script>
+    </div>
+</div>

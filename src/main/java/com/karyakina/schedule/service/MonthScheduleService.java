@@ -2,9 +2,13 @@ package com.karyakina.schedule.service;
 
 import com.karyakina.schedule.domain.LessonInstance;
 import com.karyakina.schedule.domain.Schedule;
+import com.karyakina.schedule.domain.SpecialEvent;
+import com.karyakina.schedule.dto.MonthEventDto;
 import com.karyakina.schedule.dto.MonthLessonDto;
+import com.karyakina.schedule.dto.MonthScheduleDto;
 import com.karyakina.schedule.repository.LessonInstanceRepository;
 import com.karyakina.schedule.repository.ScheduleRepository;
+import com.karyakina.schedule.repository.SpecialEventRepository;
 import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,9 +24,10 @@ public class MonthScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final LessonInstanceRepository instanceRepository;
     private final LessonInstanceService lessonInstanceService;
+    private final SpecialEventRepository specialEventRepository;
 
-    public List<MonthLessonDto> getMonth(int calendarYear, int calendarMonth, Integer academicYear,
-                                          Long teacherId, Long groupId) {
+    public MonthScheduleDto getMonth(int calendarYear, int calendarMonth, Integer academicYear,
+                                      Long teacherId, Long groupId) {
         LocalDate from = LocalDate.of(calendarYear, calendarMonth, 1);
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
 
@@ -88,6 +93,32 @@ public class MonthScheduleService {
         }
 
         result.sort(Comparator.comparing(MonthLessonDto::date).thenComparing(MonthLessonDto::startTime));
-        return result;
+
+        List<SpecialEvent> events = specialEventRepository.findByAcademicYear(resolvedAcademicYear).stream()
+                .filter(e -> !e.getEndDate().isBefore(from) && !e.getStartDate().isAfter(to))
+                .filter(e -> groupId == null || e.getGroup().getId().equals(groupId))
+                .toList();
+        List<MonthEventDto> eventDtos = events.stream()
+                .map(e -> new MonthEventDto(
+                        e.getId(),
+                        e.getType().name(),
+                        typeLabel(e.getType()),
+                        e.getGroup().getId(),
+                        e.getGroup().getName(),
+                        e.getDiscipline() != null ? e.getDiscipline().getName() : null,
+                        e.getStartDate(),
+                        e.getEndDate()))
+                .toList();
+
+        return new MonthScheduleDto(result, eventDtos);
+    }
+
+    private String typeLabel(SpecialEvent.Type type) {
+        return switch (type) {
+            case EXAM -> "Экзамен";
+            case PRODUCTION_PRACTICE -> "Производственная практика";
+            case STUDY_PRACTICE -> "Учебная практика";
+            case DRIVING -> "Вождение";
+        };
     }
 }

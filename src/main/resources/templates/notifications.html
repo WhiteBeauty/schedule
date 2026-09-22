@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Уведомления</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .notif-card {
-            background: #fff; border: 1px solid var(--border); border-radius: 0.75rem;
+            background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md);
             padding: 1rem 1.25rem; margin-bottom: 0.85rem;
-            transition: opacity 0.25s ease, transform 0.25s ease;
+            transition: opacity 0.2s ease, transform 0.2s ease;
         }
         .notif-card.unread { border-left: 4px solid var(--primary); }
         .notif-card.removing { opacity: 0; transform: translateX(12px); }
@@ -18,12 +19,12 @@
         .notif-time { font-size: 0.75rem; color: var(--muted); margin-top: 0.4rem; }
         .notif-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
         .notif-mark-btn { margin-top: 0.75rem; }
-        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
         .tab-btn {
-            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
-            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+            padding: 0.6rem 1rem; border: none; border-bottom: 2px solid transparent;
+            background: transparent; cursor: pointer; font-size: 0.87rem; font-weight: 500; color: var(--muted);
         }
-        .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .tab-btn.active { color: var(--primary-dark); border-bottom-color: var(--primary); font-weight: 700; }
     </style>
 </head>
 <body>
@@ -31,7 +32,7 @@
 
 <main class="main">
     <div class="page-header">
-        <h1 class="page-title" style="margin:0;">🔔 Уведомления</h1>
+        <h1 class="page-title" style="margin:0;">Уведомления</h1>
         <p class="page-subtitle">Заявки на замену и системные сообщения модуля форс-мажоров и импорта.</p>
     </div>
 
@@ -40,7 +41,7 @@
             <button class="tab-btn active" id="tabUnread" onclick="switchTab('unread')">Непрочитанные</button>
             <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Все</button>
         </div>
-        <button class="btn btn-sm btn-outline" id="markAllBtn" onclick="markAllRead(this)">✓✓ Отметить все прочитанным</button>
+        <button class="btn btn-sm btn-secondary" id="markAllBtn" onclick="markAllRead(this)">Отметить все прочитанным</button>
     </div>
 
     <div id="list"><p class="text-muted">Загрузка...</p></div>
@@ -69,8 +70,8 @@
         list.innerHTML = '';
         if (!items.length) {
             list.innerHTML = currentTab === 'unread'
-                ? '<p class="text-muted">Непрочитанных уведомлений нет.</p>'
-                : '<p class="text-muted">Уведомлений пока нет.</p>';
+                ? '<div class="empty-state"><p class="empty-state-title">Непрочитанных уведомлений нет</p></div>'
+                : '<div class="empty-state"><p class="empty-state-title">Уведомлений пока нет</p></div>';
             return;
         }
         items.forEach(n => list.appendChild(buildCard(n)));
@@ -84,13 +85,13 @@
         let actions = '';
         if (n.type === 'SUBSTITUTION_REQUEST' && !n.isRead) {
             actions = '<div class="notif-actions">' +
-                '<button class="btn btn-sm" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">✅ Подтвердить замену</button>' +
-                '<button class="btn btn-sm btn-outline" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">❌ Отклонить</button>' +
+                '<button class="btn btn-sm btn-primary" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">Подтвердить замену</button>' +
+                '<button class="btn btn-sm btn-secondary" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">Отклонить</button>' +
                 '</div>';
         }
 
         const markBtn = !n.isRead
-            ? '<div class="notif-mark-btn"><button class="btn btn-sm btn-outline" onclick="markRead(' + n.id + ', this)">✓ Отметить прочитанным</button></div>'
+            ? '<div class="notif-mark-btn"><button class="btn btn-sm btn-secondary" onclick="markRead(' + n.id + ', this)">Отметить прочитанным</button></div>'
             : '';
 
         card.innerHTML =
@@ -151,13 +152,13 @@
         try {
             const res = await fetch('/api/substitutions/' + requestId + '/' + action, { method: 'POST' });
             if (!res.ok) {
-                alert('Не удалось выполнить действие');
+                showToast('Не удалось выполнить действие', 'danger');
                 btn.disabled = false;
                 return;
             }
             await load();
         } catch (e) {
-            alert('Ошибка: ' + e.message);
+            showToast('Ошибка: ' + e.message, 'danger');
             btn.disabled = false;
         }
     }

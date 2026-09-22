@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Личный кабинет - Расписание</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .productivity-bar {
             display: flex;
@@ -30,14 +31,13 @@
             align-items: center;
             gap: 1.5rem;
             padding: 1.5rem;
-            background: #fff;
-            border-radius: 0.75rem;
+            background: var(--card);
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             cursor: pointer;
-            transition: .15s;
         }
         .teacher-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-color: var(--primary);
         }
         .teacher-avatar {
             width: 60px;
@@ -50,6 +50,8 @@
             justify-content: center;
             font-size: 1.5rem;
             font-weight: 700;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            flex-shrink: 0;
         }
         .teacher-info h3 {
             margin: 0 0 0.25rem;
@@ -65,22 +67,11 @@
         }
         .load-table th {
             white-space: nowrap;
-            cursor: pointer;
-            user-select: none;
         }
-        .load-table th:hover {
-            background: #e5e7eb;
-        }
-        .sort-icon::after {
-            content: ' ⇅';
-            font-size: 0.8rem;
-            color: var(--muted);
-        }
-        .sort-asc::after { content: ' ▲'; color: var(--primary); }
-        .sort-desc::after { content: ' ▼'; color: var(--primary); }
         .remaining-warning {
-            background: #fef2f2;
-            color: #dc2626;
+            background: var(--danger-bg);
+            color: var(--danger);
+            font-weight: 600;
         }
         .filter-bar {
             display: flex;
@@ -103,10 +94,19 @@
             font-weight: 500;
             transition: .15s;
         }
-        .tab:hover { background: #f3f4f6; }
+        .tab:hover { background: var(--bg); }
         .tab.active {
             background: var(--primary);
             color: #fff;
+        }
+        .dashboard-toolbar {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
         }
     </style>
 </head>
@@ -114,9 +114,8 @@
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <div th:if="${teacher != null}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
+    <div th:if="${teacher != null}" class="dashboard-toolbar">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-secondary">Главное меню</a>
 
         <div class="productivity-bar" style="flex: 1; margin: 0; padding: 0.5rem 1rem;">
             <div class="productivity-indicator" th:classappend="${productivity != null && productivity.level == 'HIGH' ? 'productivity-high' : (productivity != null && productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
@@ -136,35 +135,33 @@
             </div>
         </div>
 
-        <a th:href="@{/schedule}" class="btn btn-sm">📅 Моё расписание</a>
-        <button th:if="${teacher != null}" onclick="openSickLeaveModal('sick')" class="btn btn-sm btn-outline">🤒 Заболел</button>
-        <button th:if="${teacher != null}" onclick="openSickLeaveModal('force')" class="btn btn-sm btn-outline" style="border-color:#ea580c;color:#ea580c;">⚡ Форс-мажор</button>
+        <a th:href="@{/schedule}" class="btn btn-sm">Моё расписание</a>
+        <button th:if="${teacher != null}" onclick="openSickLeaveModal('sick')" class="btn btn-sm btn-secondary">Заболел</button>
+        <button th:if="${teacher != null}" onclick="openSickLeaveModal('force')" class="btn btn-sm btn-secondary" style="border-color:var(--warning);color:var(--warning);">Форс-мажор</button>
     </div>
 
-    <div th:if="${teacher == null && isAdmin}" style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">🎓 Просмотр всех учителей</a>
-        <a th:href="@{/logout}" class="btn btn-sm btn-outline" style="margin-left:auto;color:var(--danger);border-color:var(--danger);">🚪 Выйти</a>
+    <div th:if="${teacher == null && isAdmin}" class="dashboard-toolbar">
+        <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">Просмотр всех преподавателей</a>
+        <a th:href="@{/logout}" class="btn btn-sm btn-ghost" style="margin-left:auto;color:var(--danger);">Выйти</a>
     </div>
 
     <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
-    <h1 class="page-title" th:if="${teacher == null && isAdmin}">📊 Панель администратора</h1>
+    <h1 class="page-title" th:if="${teacher == null && isAdmin}">Панель администратора</h1>
 
         <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher != null ? teacher.id : null}" th:if="${teacher != null}">
             <div class="teacher-avatar" th:text="${teacher.fullName != null ? teacher.fullName.substring(0, 1).toUpperCase() : '?'}">?</div>
             <div class="teacher-info">
                 <h3 th:text="${teacher.fullName}">ФИО преподавателя</h3>
                 <p class="teacher-detail">
-                    📱 <span th:text="${teacher.phone ?: 'Нет'}">+7xxx</span>
+                    <span th:text="${teacher.phone ?: 'Нет'}">+7xxx</span>
                     &nbsp;|&nbsp;
-                    ✉️ <span th:text="${teacher.email ?: 'Нет'}">email</span>
+                    <span th:text="${teacher.email ?: 'Нет'}">email</span>
                 </p>
                 <p class="teacher-detail">
-                    🎂 Дата рождения: <span th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">dd.mm.yyyy</span>
+                    Дата рождения: <span th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">dd.mm.yyyy</span>
                 </p>
                 <p class="text-muted" style="font-size: 0.8rem; margin-top: 0.5rem;">
-                    👆 Нажмите на ФИО для просмотра полной информации
+                    Нажмите на карточку для просмотра полной информации
                 </p>
             </div>
         </div>
@@ -193,14 +190,14 @@
                 <table class="load-table">
                     <thead>
                         <tr>
-                            <th class="sort-icon" data-sort="discipline">Дисциплина</th>
+                            <th class="sortable" data-sort="discipline">Дисциплина</th>
                             <th>КОНТ. 1-пл</th>
                             <th>КОНТ. 2-пл</th>
-                            <th class="sort-icon" data-sort="hours1">часов 1-пл</th>
-                            <th class="sort-icon" data-sort="hours2">часов 2-пл</th>
-                            <th class="sort-icon" data-sort="yearTotal">За год</th>
-                            <th class="sort-icon" data-sort="remaining">Осталось</th>
-                            <th class="sort-icon" data-sort="read">Вычитано</th>
+                            <th class="sortable" data-sort="hours1">часов 1-пл</th>
+                            <th class="sortable" data-sort="hours2">часов 2-пл</th>
+                            <th class="sortable" data-sort="yearTotal">За год</th>
+                            <th class="sortable" data-sort="remaining">Осталось</th>
+                            <th class="sortable" data-sort="read">Вычитано</th>
                             <th>Группа</th>
                         </tr>
                     </thead>
@@ -219,7 +216,7 @@
                         </tr>
                     </tbody>
                     <tfoot>
-                        <tr style="font-weight: 600; background: #f9fafb;">
+                        <tr style="font-weight: 600; background: var(--bg);">
                             <td colspan="3" th:text="'Всего дисциплин: ' + ${totalDisciplines}">Всего: 0</td>
                             <td th:text="${totalHours1}">0</td>
                             <td th:text="${totalHours2}">0</td>
@@ -236,11 +233,13 @@
         <div th:if="${teacher == null && isAdmin}">
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">🎓 Преподаватели системы</h2>
+                    <h2 class="card-title">Преподаватели системы</h2>
                     <a th:href="@{/admin/teachers}" class="btn btn-primary">Посмотреть всех</a>
                 </div>
                 <div id="adminTeacherList">
-                    <p class="text-muted">Загрузка...</p>
+                    <span class="skeleton skeleton-row"></span>
+                    <span class="skeleton skeleton-row"></span>
+                    <span class="skeleton skeleton-row"></span>
                 </div>
             </div>
         </div>
@@ -343,25 +342,25 @@
     <div class="modal-overlay" id="sickLeaveModal" th:if="${teacher != null}">
         <div class="modal">
             <div class="modal-header">
-                <h3 style="margin: 0;" id="sickModalTitle">🤒 Больничный лист</h3>
+                <h3 id="sickModalTitle">Больничный лист</h3>
                 <button class="close-btn" onclick="closeSickLeaveModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дата начала *</label>
-                    <input type="date" id="sickStart" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <div class="field">
+                    <label>Дата начала *</label>
+                    <input type="date" id="sickStart" required>
                 </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дата конца *</label>
-                    <input type="date" id="sickEnd" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <div class="field">
+                    <label>Дата конца *</label>
+                    <input type="date" id="sickEnd" required>
                 </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Причина (необязательно)</label>
-                    <input type="text" id="sickReason" placeholder="Например: ОРВИ" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <div class="field">
+                    <label>Причина (необязательно)</label>
+                    <input type="text" id="sickReason" placeholder="Например: ОРВИ">
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeSickLeaveModal()">Отмена</button>
+                <button class="btn btn-ghost" onclick="closeSickLeaveModal()">Отмена</button>
                 <button class="btn btn-primary" onclick="submitSickLeave()">Отправить</button>
             </div>
         </div>
@@ -396,15 +395,13 @@
 
         // Sorting
         let sortDir = {};
-        document.querySelectorAll('.sort-icon').forEach(th => {
+        document.querySelectorAll('th.sortable').forEach(th => {
             th.addEventListener('click', () => {
                 const column = th.dataset.sort;
                 sortDir[column] = sortDir[column] === 'desc' ? 'asc' : 'desc';
-                document.querySelectorAll('.sort-icon').forEach(c => {
+                document.querySelectorAll('th.sortable').forEach(c => {
                     c.classList.remove('sort-asc', 'sort-desc');
-                    if (c.dataset.sort !== column) c.classList.add('sort-icon');
                 });
-                th.classList.remove('sort-icon');
                 th.classList.add(sortDir[column] === 'asc' ? 'sort-asc' : 'sort-desc');
                 sortTable(column, sortDir[column]);
             });
@@ -444,11 +441,11 @@
             document.getElementById('sickEnd').value = today;
 
             if (sickLeaveMode === 'force') {
-                title.textContent = '⚡ Форс-мажор';
+                title.textContent = 'Форс-мажор';
                 reason.placeholder = 'Например: авария, срочный вызов';
                 if (!reason.value) reason.value = 'Форс-мажор';
             } else {
-                title.textContent = '🤒 Больничный лист';
+                title.textContent = 'Больничный лист';
                 reason.placeholder = 'Например: ОРВИ';
                 if (reason.value === 'Форс-мажор') reason.value = '';
             }
@@ -468,7 +465,7 @@
             }
 
             if (!startDate || !endDate) {
-                alert('Выберите даты начала и конца');
+                showToast('Выберите даты начала и конца', 'danger');
                 return;
             }
 
@@ -483,12 +480,12 @@
                 })
             }).then(r => {
                 if (r.ok) {
-                    alert(sickLeaveMode === 'force'
+                    showToast(sickLeaveMode === 'force'
                         ? 'Форс-мажор зарегистрирован. Идёт поиск замены.'
-                        : 'Больничный лист зарегистрирован. Идёт поиск замены.');
+                        : 'Больничный лист зарегистрирован. Идёт поиск замены.', 'success', 'Сохранено');
                     closeSickLeaveModal();
                 } else {
-                    alert('Ошибка регистрации');
+                    showToast('Ошибка регистрации', 'danger');
                 }
             });
         }
@@ -528,7 +525,7 @@
                 .then(r => r.json())
                 .then(teachers => {
                     if (teachers.length === 0) {
-                        listContainer.innerHTML = '<p class="text-muted">Преподаватели не найдены</p>';
+                        listContainer.innerHTML = '<div class="empty-state"><p class="empty-state-title">Преподаватели не найдены</p><p class="empty-state-text">Добавьте преподавателей через раздел импорта нагрузки.</p></div>';
                         return;
                     }
 
@@ -537,8 +534,8 @@
                             <div class="teacher-avatar" style="width: 50px; height: 50px; font-size: 1.25rem;">${getInitials(t.fullName)}</div>
                             <div class="teacher-info">
                                 <h3 style="font-size: 1rem; margin: 0 0 0.25rem;">${t.fullName}</h3>
-                                <p class="teacher-detail" style="font-size: 0.8rem;">📧 ${t.email || '-'}</p>
-                                <p class="teacher-detail" style="font-size: 0.8rem;">🏛️ ${t.department || '-'} | ${t.position || '-'}</p>
+                                <p class="teacher-detail" style="font-size: 0.8rem;">${t.email || '-'}</p>
+                                <p class="teacher-detail" style="font-size: 0.8rem;">${t.department || '-'} | ${t.position || '-'}</p>
                             </div>
                         </div>
                     `).join('');
@@ -567,7 +564,7 @@
                         <div class="modal-overlay active" id="adminTeacherModal">
                             <div class="modal">
                                 <div class="modal-header">
-                                    <h3 style="margin: 0;">${p.fullName}</h3>
+                                    <h3>${p.fullName}</h3>
                                     <button class="close-btn" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">×</button>
                                 </div>
                                 <div class="modal-body">
@@ -583,7 +580,7 @@
                                         <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
                                         <tbody>${loadsHtml}</tbody>
                                     </table>
-                                    <div style="margin-top: 1rem; padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
+                                    <div style="margin-top: 1rem; padding: 1rem; background: var(--bg); border-radius: var(--radius-sm);">
                                         <strong>Продуктивность:</strong> ${p.avgProductivity}%
                                         <span class="badge ${p.avgProductivity >= 90 ? 'badge-success' : (p.avgProductivity >= 70 ? 'badge-warning' : 'badge-danger')}">
                                             ${p.avgProductivity >= 90 ? 'Высокая' : (p.avgProductivity >= 70 ? 'Средняя' : 'Низкая')}
@@ -591,7 +588,7 @@
                                     </div>
                                 </div>
                                 <div class="modal-footer">
-                                    <button class="btn btn-outline" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">Закрыть</button>
+                                    <button class="btn btn-secondary" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">Закрыть</button>
                                 </div>
                             </div>
                         </div>

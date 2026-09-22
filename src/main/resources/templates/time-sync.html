@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Сверка часов</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .sync-layout {
             display: flex;
@@ -17,30 +18,24 @@
         .diff-zero { color: var(--muted); }
         .status-badge {
             display: inline-block;
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-            font-size: 0.75rem;
-            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            border-radius: var(--radius-pill);
+            font-size: 0.72rem;
+            font-weight: 700;
         }
-        .status-ok { background: #dcfce7; color: #166534; }
-        .status-warning { background: #fef9c3; color: #854d0e; }
-        .status-danger { background: #fee2e2; color: #991b1b; }
+        .status-ok { background: var(--success-bg); color: #0f5c2c; }
+        .status-warning { background: var(--warning-bg); color: #7c3a08; }
+        .status-danger { background: var(--danger-bg); color: #7d160d; }
         .action-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
         #syncTable { font-size: 0.85rem; }
         #syncTable th, #syncTable td { white-space: nowrap; }
     </style>
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">⏱️ Сверка часов</h2>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">⏱️ Сверка плановых и фактических часов</h1>
+    <h1 class="page-title">Сверка плановых и фактических часов</h1>
     <p class="text-muted" style="margin-bottom: 1.5rem;">
         При постановке пар в расписание часы вычитаются из плановых на неделю и месяц.
         Цель распределения — <strong>разница = 0</strong> (план полностью закрыт расписанием).
@@ -74,7 +69,7 @@
         <div class="card-header">
             <h2 class="card-title">Детальная сверка по дисциплинам</h2>
             <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-sm btn-outline" onclick="loadData()">🔄 Обновить</button>
+                <button class="btn btn-sm btn-secondary" onclick="loadData()">Обновить</button>
             </div>
         </div>
         <div style="overflow-x: auto;">
@@ -112,11 +107,11 @@
                 <p><strong>Группа:</strong> <span id="corrGroup"></span></p>
                 <div style="margin: 1rem 0;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Плановые часы:</label>
-                    <input type="number" id="corrPlanned" disabled style="width: 120px; background: #f3f4f6;">
+                    <input type="number" id="corrPlanned" disabled style="width: 120px;">
                 </div>
                 <div style="margin: 1rem 0;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Текущие вычитанные часы:</label>
-                    <input type="number" id="corrCurrentRead" disabled style="width: 120px; background: #f3f4f6;">
+                    <input type="number" id="corrCurrentRead" disabled style="width: 120px;">
                 </div>
                 <div style="margin: 1rem 0;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Новое значение вычитанных часов:</label>
@@ -124,7 +119,7 @@
                 </div>
                 <div style="margin: 1rem 0;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Примечание:</label>
-                    <textarea id="corrNote" rows="3" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;" placeholder="Причина корректировки"></textarea>
+                    <textarea id="corrNote" rows="3" placeholder="Причина корректировки"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -199,7 +194,7 @@ function loadData() {
                     '<td class="' + diffClass(row.yearDiff) + '">' + formatDiff(row.yearDiff) + '</td>' +
                     '<td><span class="status-badge ' + st.cls + '">' + st.text + '</span></td>' +
                     '<td><div class="action-buttons">' +
-                    '<button class="btn btn-sm" onclick="openCorrection(' + row.loadId + ', \'' + escapeJsAttr(row.disciplineName) + '\', \'' + escapeJsAttr(row.groupName) + '\', ' + row.plannedHours + ', ' + row.readHours + ')">✏️ Корректировать</button>' +
+                    '<button class="btn btn-sm btn-secondary" onclick="openCorrection(' + row.loadId + ', \'' + escapeJsAttr(row.disciplineName) + '\', \'' + escapeJsAttr(row.groupName) + '\', ' + row.plannedHours + ', ' + row.readHours + ')">Корректировать</button>' +
                     '</div></td>';
                 tbody.appendChild(tr);
             });

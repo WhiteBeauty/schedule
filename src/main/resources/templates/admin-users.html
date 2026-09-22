@@ -5,19 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Пользователи - Администратор</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .role-badge {
-            display: inline-block; padding: 0.25rem 0.6rem; border-radius: 0.25rem;
-            font-size: 0.75rem; font-weight: 600;
+            display: inline-block; padding: 0.25rem 0.65rem; border-radius: var(--radius-pill);
+            font-size: 0.72rem; font-weight: 700;
         }
-        .role-admin { background: #fee2e2; color: #991b1b; }
-        .role-teacher { background: #dbeafe; color: #1e40af; }
-        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+        .role-admin { background: var(--danger-bg); color: #7d160d; }
+        .role-teacher { background: var(--info-bg); color: #0a4f61; }
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
         .tab-btn {
-            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
-            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+            padding: 0.6rem 1rem; border: none; border-bottom: 2px solid transparent;
+            background: transparent; cursor: pointer; font-size: 0.87rem; font-weight: 500; color: var(--muted);
         }
-        .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .tab-btn.active { color: var(--primary-dark); border-bottom-color: var(--primary); font-weight: 700; }
         .audit-row { font-size: 0.85rem; }
     </style>
 </head>
@@ -26,7 +27,7 @@
 
 <main class="main">
     <div class="page-header">
-        <h1 class="page-title" style="margin:0;">👥 Пользователи</h1>
+        <h1 class="page-title" style="margin:0;">Пользователи</h1>
         <p class="page-subtitle">
             Права администратора можно выдать только вручную, отсюда. Самостоятельная
             регистрация с ролью администратора невозможна.
@@ -84,9 +85,9 @@
             if (isAdminRole) {
                 actionBtn = String(u.id) === String(currentUserId)
                     ? '<span class="text-muted">Это вы</span>'
-                    : '<button class="btn btn-sm btn-outline" onclick="demote(' + u.id + ', this)">Снять права администратора</button>';
+                    : '<button class="btn btn-sm btn-secondary" onclick="demote(' + u.id + ', this)">Снять права администратора</button>';
             } else {
-                actionBtn = '<button class="btn btn-sm" onclick="promote(' + u.id + ', this)">Назначить администратором</button>';
+                actionBtn = '<button class="btn btn-sm btn-primary" onclick="promote(' + u.id + ', this)">Назначить администратором</button>';
             }
 
             const tr = document.createElement('tr');
@@ -106,9 +107,10 @@
         const res = await fetch('/api/admin/users/' + id + '/promote', { method: 'POST' });
         if (res.ok) {
             loadUsers();
+            showToast('Права администратора назначены', 'success');
         } else {
             const err = await res.json().catch(() => ({}));
-            alert(err.error || 'Не удалось выполнить действие');
+            showToast(err.error || 'Не удалось выполнить действие', 'danger');
             btn.disabled = false;
         }
     }
@@ -119,9 +121,10 @@
         const res = await fetch('/api/admin/users/' + id + '/demote', { method: 'POST' });
         if (res.ok) {
             loadUsers();
+            showToast('Права администратора сняты', 'success');
         } else {
             const err = await res.json().catch(() => ({}));
-            alert(err.error || 'Не удалось выполнить действие');
+            showToast(err.error || 'Не удалось выполнить действие', 'danger');
             btn.disabled = false;
         }
     }

@@ -5,25 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Продуктивность</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .status-dot {
+            display: inline-block;
+            width: 0.65rem;
+            height: 0.65rem;
+            border-radius: 50%;
+        }
+        .status-dot.success { background: var(--success); }
+        .status-dot.warning { background: var(--warning); }
+        .status-dot.danger { background: var(--danger); }
+    </style>
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">📈 Продуктивность</h2>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">📈 Продуктивность преподавателей</h1>
+    <h1 class="page-title">Продуктивность преподавателей</h1>
 
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Расчётный индекс продуктивности за <span id="yearLabel" th:text="${year}">2025</span></h2>
             <div class="filters">
                 <label>Год: <select id="yearSelect"><option th:each="y : ${#numbers.sequence(year - 1, year + 3)}" th:value="${y}" th:text="${y}" th:selected="${y == year}"></option></select></label>
-                <button class="btn btn-sm btn-outline" onclick="loadProductivity()">🔄 Обновить</button>
+                <button class="btn btn-sm btn-secondary" onclick="loadProductivity()">Обновить</button>
             </div>
         </div>
         <p class="text-muted">Формула по умолчанию: <code>(Вычитано/План)×0.6 + (Своевременность КР/Всего КР)×0.4 × 100</code></p>
@@ -44,15 +49,15 @@
 
     <div class="grid" style="margin-top:1rem">
         <div class="stat" style="border-left:4px solid var(--success)">
-            <div class="stat-label">🟢 Высокая (≥90%)</div>
+            <div class="stat-label">Высокая (≥90%)</div>
             <div class="stat-value" id="countHigh">0</div>
         </div>
         <div class="stat" style="border-left:4px solid var(--warning)">
-            <div class="stat-label">🟡 Средняя (70–89%)</div>
+            <div class="stat-label">Средняя (70–89%)</div>
             <div class="stat-value" id="countMid">0</div>
         </div>
         <div class="stat" style="border-left:4px solid var(--danger)">
-            <div class="stat-label">🔴 Низкая (&lt;70%)</div>
+            <div class="stat-label">Низкая (&lt;70%)</div>
             <div class="stat-value" id="countLow">0</div>
         </div>
     </div>
@@ -76,7 +81,6 @@ function loadProductivity() {
                 else if (p.color === 'warning') mid++;
                 else low++;
 
-                const indicator = p.color === 'success' ? '🟢' : (p.color === 'warning' ? '🟡' : '🔴');
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${idx + 1}</td>
@@ -84,7 +88,7 @@ function loadProductivity() {
                     <td><strong>${p.productivityIndex}%</strong></td>
                     <td>${p.planCompletionPercent}%</td>
                     <td>${p.timelinessPercent}%</td>
-                    <td style="font-size:1.25rem">${indicator}</td>
+                    <td><span class="status-dot ${p.color}"></span></td>
                 `;
                 tbody.appendChild(tr);
             });

@@ -5,34 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Импорт нагрузки - Администратор</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .dropzone {
-            border: 2px dashed var(--border);
-            border-radius: 0.75rem;
+            border: 2px dashed var(--border-strong);
+            border-radius: var(--radius-md);
             padding: 2.5rem;
             text-align: center;
-            background: #fafbfc;
-            transition: .15s;
+            background: var(--bg);
             cursor: pointer;
         }
-        .dropzone.dragover { border-color: var(--primary); background: #eff6ff; }
+        .dropzone.dragover { border-color: var(--primary); background: var(--primary-light); }
         .error-table th, .error-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
-        .error-table tr:nth-child(even) { background: #fafbfc; }
+        .error-table tr:nth-child(even) { background: var(--bg); }
         .match-table th, .match-table td { padding: 0.55rem 0.7rem; font-size: 0.85rem; text-align: left; }
-        .match-table tr.row-exact { background: #f0fdf4; }
-        .match-table tr.row-fuzzy { background: #fffbeb; }
-        .match-table tr.row-new { background: #eff6ff; }
+        .match-table tr.row-exact { background: var(--success-bg); }
+        .match-table tr.row-fuzzy { background: var(--warning-bg); }
+        .match-table tr.row-new { background: var(--info-bg); }
         .status-pill {
-            display: inline-block; padding: 0.2rem 0.55rem; border-radius: 1rem;
+            display: inline-block; padding: 0.2rem 0.6rem; border-radius: var(--radius-pill);
             font-size: 0.72rem; font-weight: 700;
         }
-        .status-exact { background: #dcfce7; color: #166534; }
-        .status-fuzzy { background: #fef9c3; color: #854d0e; }
-        .status-new { background: #dbeafe; color: #1e40af; }
-        .status-resolved { background: #e5e7eb; color: #374151; }
-        .step-bar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
-        .step { padding: 0.4rem 0.9rem; border-radius: 1rem; font-size: 0.8rem; background: #f3f4f6; color: var(--muted); }
-        .step.active { background: var(--primary); color: #fff; font-weight: 600; }
+        .status-exact { background: var(--success-bg); color: #0f5c2c; }
+        .status-fuzzy { background: var(--warning-bg); color: #7c3a08; }
+        .status-new { background: var(--info-bg); color: #0a4f61; }
+        .status-resolved { background: var(--border); color: var(--muted); }
+        .step-bar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+        .step { padding: 0.6rem 0.9rem; font-size: 0.85rem; color: var(--muted); border-bottom: 2px solid transparent; }
+        .step.active { color: var(--primary-dark); font-weight: 700; border-bottom-color: var(--primary); }
     </style>
 </head>
 <body>
@@ -40,7 +40,7 @@
 
 <main class="main">
     <div class="page-header">
-        <h1 class="page-title" style="margin:0;">📥 Импорт нагрузки преподавателей</h1>
+        <h1 class="page-title" style="margin:0;">Импорт нагрузки преподавателей</h1>
         <p class="page-subtitle">
             Загрузите файл Excel (.xlsx/.xls) или CSV. Система сама распознаёт колонки и
             сверяет ФИО преподавателей с уже существующими в базе (в т.ч. по сокращениям
@@ -63,14 +63,13 @@
         </div>
 
         <div class="dropzone" id="dropzone">
-            <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
             <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls, .csv)</div>
             <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
         </div>
 
         <div style="margin-top:1rem; display:flex; gap:0.75rem;">
-            <button class="btn" id="previewBtn" disabled>🔍 Проверить и сопоставить преподавателей</button>
-            <button class="btn btn-outline" id="clearBtn">Очистить</button>
+            <button class="btn btn-primary" id="previewBtn" disabled>Проверить и сопоставить преподавателей</button>
+            <button class="btn btn-secondary" id="clearBtn">Очистить</button>
         </div>
     </div>
 
@@ -80,9 +79,9 @@
         <div id="previewSummary" style="margin-bottom:1rem; font-weight:600;"></div>
 
         <div class="grid" style="grid-template-columns: repeat(4, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
-            <div class="stat"><div class="stat-label">🟢 Совпадение</div><div class="stat-value text-success" id="statExact">0</div></div>
-            <div class="stat"><div class="stat-label">🟡 Возможный дубль</div><div class="stat-value" id="statFuzzy" style="color:#854d0e;">0</div></div>
-            <div class="stat"><div class="stat-label">🔵 Новый</div><div class="stat-value" id="statNew" style="color:#1e40af;">0</div></div>
+            <div class="stat"><div class="stat-label">Совпадение</div><div class="stat-value text-success" id="statExact">0</div></div>
+            <div class="stat"><div class="stat-label">Возможный дубль</div><div class="stat-value" id="statFuzzy" style="color:var(--warning);">0</div></div>
+            <div class="stat"><div class="stat-label">Новый</div><div class="stat-value" id="statNew" style="color:var(--info);">0</div></div>
             <div class="stat"><div class="stat-label">Ошибок в файле</div><div class="stat-value text-danger" id="statPreviewErrors">0</div></div>
         </div>
 
@@ -94,8 +93,8 @@
         </table>
 
         <div style="margin-top:1.5rem; display:flex; gap:0.75rem; align-items:center;">
-            <button class="btn" id="confirmBtn">✅ Подтвердить импорт</button>
-            <button class="btn btn-outline" onclick="backToUpload()">← Назад к файлу</button>
+            <button class="btn btn-primary" id="confirmBtn">Подтвердить импорт</button>
+            <button class="btn btn-secondary" onclick="backToUpload()">← Назад к файлу</button>
             <span class="text-muted" id="unresolvedHint" style="font-size:0.85rem;"></span>
         </div>
     </div>
@@ -114,8 +113,8 @@
         </div>
 
         <div id="splitNoticesWrap" style="display:none; margin-bottom:1.25rem;">
-            <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600; color:var(--warning, #b45309);">
-                ⚠️ Разбитые по запятой/`;` группы или дисциплины — перепроверьте:
+            <div class="text-muted" style="font-size:0.85rem; margin-bottom:0.5rem; font-weight:600; color:var(--warning);">
+                Разбитые по запятой/`;` группы или дисциплины — перепроверьте:
             </div>
             <table class="error-table" style="width:100%; border-collapse:collapse;">
                 <thead><tr><th>Строка</th><th>Уточнение</th><th>Содержимое</th></tr></thead>
@@ -131,11 +130,11 @@
             </table>
         </div>
 
-        <button class="btn btn-outline" style="margin-top:1.5rem;" onclick="backToUpload()">📥 Импортировать ещё файл</button>
+        <button class="btn btn-secondary" style="margin-top:1.5rem;" onclick="backToUpload()">Импортировать ещё файл</button>
     </div>    <div class="card" style="margin-top:1.5rem;">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-            <span class="card-title">🏫 Аудитории</span>
-            <button class="btn btn-sm btn-outline" onclick="toggleAddClassroom()">+ Добавить</button>
+            <span class="card-title">Аудитории</span>
+            <button class="btn btn-sm btn-secondary" onclick="toggleAddClassroom()">Добавить</button>
         </div>
         <p class="text-muted" style="font-size:0.85rem; margin:0 0 1rem;">
             Фонд аудиторий для автосоставления расписания. Появляются здесь автоматически после
@@ -179,8 +178,8 @@
             <input type="text" id="enrichPhone" style="width:100%;">
         </div>
         <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeEnrichModal()">Отмена</button>
-            <button class="btn" onclick="saveEnrich()">Сохранить и создать</button>
+            <button class="btn btn-ghost" onclick="closeEnrichModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="saveEnrich()">Сохранить и создать</button>
         </div>
     </div>
 </div>
@@ -208,7 +207,7 @@
 
     function setFile(file) {
         selectedFile = file;
-        dropzoneLabel.textContent = '✅ ' + file.name + ' (' + Math.round(file.size / 1024) + ' КБ)';
+        dropzoneLabel.textContent = 'Выбран файл: ' + file.name + ' (' + Math.round(file.size / 1024) + ' КБ)';
         previewBtn.disabled = false;
     }
 
@@ -236,7 +235,7 @@
     previewBtn.addEventListener('click', async () => {
         if (!selectedFile) return;
         previewBtn.disabled = true;
-        previewBtn.textContent = '⏳ Анализируем...';
+        previewBtn.textContent = 'Анализируем...';
 
         const year = document.getElementById('academicYearInput').value;
         const formData = new FormData();
@@ -246,15 +245,15 @@
             const res = await fetch('/api/import/preview?academicYear=' + encodeURIComponent(year), {
                 method: 'POST', body: formData
             });
-            if (!res.ok) { alert('Ошибка анализа файла: сервер вернул ' + res.status); return; }
+            if (!res.ok) { showToast('Ошибка анализа файла: сервер вернул ' + res.status, 'danger'); return; }
             previewData = await res.json();
             renderPreview();
             showStep('review');
         } catch (e) {
-            alert('Ошибка: ' + e.message);
+            showToast('Ошибка: ' + e.message, 'danger');
         } finally {
             previewBtn.disabled = false;
-            previewBtn.textContent = '🔍 Проверить и сопоставить преподавателей';
+            previewBtn.textContent = 'Проверить и сопоставить преподавателей';
         }
     });
 
@@ -274,10 +273,10 @@
             tr.className = 'row-' + row.matchStatus.toLowerCase();
 
             const pills = {
-                EXACT: '<span class="status-pill status-exact">🟢 Совпадение</span>',
-                FUZZY: '<span class="status-pill status-fuzzy">🟡 Возможно, дубль</span>',
-                NEW: '<span class="status-pill status-new">🔵 Новый</span>',
-                AUTO: '<span class="status-pill status-new">⚙️ Подберётся автоматически</span>'
+                EXACT: '<span class="status-pill status-exact">Совпадение</span>',
+                FUZZY: '<span class="status-pill status-fuzzy">Возможно, дубль</span>',
+                NEW: '<span class="status-pill status-new">Новый</span>',
+                AUTO: '<span class="status-pill status-new">Подберётся автоматически</span>'
             };
             const statusPill = pills[row.matchStatus] || row.matchStatus;
 
@@ -302,7 +301,7 @@
 
             const disciplineGroupCell = escapeHtml(row.disciplineName) + ' / ' + escapeHtml(row.groupName) +
                 (row.splitAmbiguous
-                    ? ' <span title="' + escapeAttr(row.splitNote || '') + '" style="cursor:help;">⚠️</span>'
+                    ? ' <span title="' + escapeAttr(row.splitNote || '') + '" style="cursor:help; color:var(--warning); font-weight:700;">*</span>'
                     : '');
 
             tr.innerHTML =
@@ -362,7 +361,7 @@
         const confirmBtn = document.getElementById('confirmBtn');
         if (unresolved.length > 0) {
             hint.textContent = 'Осталось разрешить: ' + unresolved.length + ' - импорт подтверждается только после разрешения всех жёлтых строк.';
-            hint.style.color = '#854d0e';
+            hint.style.color = 'var(--warning)';
             confirmBtn.disabled = true;
         } else {
             hint.textContent = 'Все строки разрешены, можно подтверждать импорт.';
@@ -375,7 +374,7 @@
         if (!selectedFile) return;
         const btn = document.getElementById('confirmBtn');
         btn.disabled = true;
-        btn.textContent = '⏳ Импортируем...';
+        btn.textContent = 'Импортируем...';
 
         const year = document.getElementById('academicYearInput').value;
         const formData = new FormData();
@@ -386,15 +385,16 @@
             const res = await fetch('/api/import/confirm?academicYear=' + encodeURIComponent(year), {
                 method: 'POST', body: formData
             });
-            if (!res.ok) { alert('Ошибка импорта: сервер вернул ' + res.status); return; }
+            if (!res.ok) { showToast('Ошибка импорта: сервер вернул ' + res.status, 'danger'); return; }
             const report = await res.json();
             renderReport(report);
             showStep('done');
+            showToast('Импорт завершён', 'success');
         } catch (e) {
-            alert('Ошибка импорта: ' + e.message);
+            showToast('Ошибка импорта: ' + e.message, 'danger');
         } finally {
             btn.disabled = false;
-            btn.textContent = '✅ Подтвердить импорт';
+            btn.textContent = 'Подтвердить импорт';
         }
     });
 
@@ -467,7 +467,7 @@
                 tr.innerHTML = '<td>' + escapeHtml(r.name) + '</td>' +
                     '<td>' + (r.capacity != null ? r.capacity : '<span class="text-muted">—</span>') + '</td>' +
                     '<td>' + disciplines + '</td>' +
-                    '<td><button class="btn btn-sm btn-outline" onclick="deleteClassroom(' + r.id + ')">Удалить</button></td>';
+                    '<td><button class="btn btn-sm btn-danger" onclick="deleteClassroom(' + r.id + ')">Удалить</button></td>';
                 tbody.appendChild(tr);
             });
         } catch (e) {
@@ -482,7 +482,7 @@
 
     async function createClassroom() {
         const name = document.getElementById('newClassroomName').value.trim();
-        if (!name) { alert('Укажите название аудитории'); return; }
+        if (!name) { showToast('Укажите название аудитории', 'danger'); return; }
         const capacityRaw = document.getElementById('newClassroomCapacity').value.trim();
         const disciplinesRaw = document.getElementById('newClassroomDisciplines').value.trim();
         const payload = {
@@ -498,7 +498,7 @@
             });
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                alert(body.error || 'Не удалось добавить аудиторию');
+                showToast(body.error || 'Не удалось добавить аудиторию', 'danger');
                 return;
             }
             document.getElementById('newClassroomName').value = '';
@@ -506,8 +506,9 @@
             document.getElementById('newClassroomDisciplines').value = '';
             document.getElementById('addClassroomForm').style.display = 'none';
             loadClassrooms();
+            showToast('Аудитория добавлена', 'success');
         } catch (e) {
-            alert('Ошибка: ' + e.message);
+            showToast('Ошибка: ' + e.message, 'danger');
         }
     }
 
@@ -515,10 +516,11 @@
         if (!confirm('Удалить аудиторию?')) return;
         try {
             const res = await fetch('/api/classrooms/' + id, {method: 'DELETE'});
-            if (!res.ok) { alert('Не удалось удалить аудиторию'); return; }
+            if (!res.ok) { showToast('Не удалось удалить аудиторию', 'danger'); return; }
             loadClassrooms();
+            showToast('Аудитория удалена', 'success');
         } catch (e) {
-            alert('Ошибка: ' + e.message);
+            showToast('Ошибка: ' + e.message, 'danger');
         }
     }
 

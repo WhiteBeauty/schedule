@@ -5,32 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Помесячный учёт</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
 </head>
 <body>
-    <div style="background: #fff; border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; position: fixed; top: 0; left: 260px; right: 0; z-index: 50;">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">⬅ Назад</a>
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline">🏠 Главное меню</a>
-        <h2 style="margin: 0 0 0 1rem;">📆 Помесячный учёт</h2>
-        <a th:href="@{/monthly}" class="btn btn-sm btn-primary">📊 Таблица</a>
-        <a th:href="@{/export/csv}" class="btn btn-sm btn-outline" onclick="exportCsv(); return false;">📥 Экспорт CSV</a>
-    </div>
-
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">📊 Помесячный учёт часов</h1>
+    <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+        <h1 class="page-title" style="margin:0;">Помесячный учёт часов</h1>
+        <a th:href="@{/export/csv}" class="btn btn-sm btn-secondary" onclick="exportCsv(); return false;">Экспорт CSV</a>
+    </div>
 
     <div class="mode-tabs" style="display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
-        <button class="btn btn-primary" id="tabBtnSemester" onclick="showSverkaTab('Semester')">📐 Семестр</button>
-        <button class="btn btn-outline" id="tabBtnWeek" onclick="showSverkaTab('Week')">📅 Неделя</button>
-        <button class="btn btn-outline" id="tabBtnMonth" onclick="showSverkaTab('Month')">🗓️ Месяц</button>
-        <button class="btn btn-outline" id="tabBtnAudit" th:if="${isAdmin}" onclick="showSverkaTab('Audit')">📋 Проверка вставленных пар</button>
-        <button class="btn btn-outline" id="tabBtnTable" onclick="showSverkaTab('Table')">📋 Таблица помесячного учёта</button>
+        <button class="btn btn-primary" id="tabBtnSemester" onclick="showSverkaTab('Semester')">Семестр</button>
+        <button class="btn btn-outline" id="tabBtnWeek" onclick="showSverkaTab('Week')">Неделя</button>
+        <button class="btn btn-outline" id="tabBtnMonth" onclick="showSverkaTab('Month')">Месяц</button>
+        <button class="btn btn-outline" id="tabBtnAudit" th:if="${isAdmin}" onclick="showSverkaTab('Audit')">Проверка вставленных пар</button>
+        <button class="btn btn-outline" id="tabBtnTable" onclick="showSverkaTab('Table')">Таблица помесячного учёта</button>
     </div>
 
     <div class="card" id="tabPaneSemester">
         <div class="card-header">
-            <h2 class="card-title">📐 Сверка часов текущего семестра</h2>
+            <h2 class="card-title">Сверка часов текущего семестра</h2>
             <span class="text-muted" style="font-size:0.85rem;" id="sverkaSemesterLabel"></span>
         </div>
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
@@ -55,7 +51,7 @@
 
     <div class="card" id="tabPaneWeek" style="display:none;">
         <div class="card-header">
-            <h2 class="card-title">📅 Сверка за текущую неделю</h2>
+            <h2 class="card-title">Сверка за текущую неделю</h2>
         </div>
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
             Часы, которые стоят в расписании на ЭТУ календарную неделю (понедельник-пятница),
@@ -75,7 +71,7 @@
 
     <div class="card" id="tabPaneMonth" style="display:none;">
         <div class="card-header">
-            <h2 class="card-title">🗓️ Сверка за текущий месяц</h2>
+            <h2 class="card-title">Сверка за текущий месяц</h2>
         </div>
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
             То же самое, что по неделе, но за весь календарный месяц.
@@ -93,7 +89,7 @@
 
     <div class="card" id="tabPaneAudit" th:if="${isAdmin}" style="display:none;">
         <div class="card-header">
-            <h2 class="card-title">📋 Проверка вставленных пар за месяц</h2>
+            <h2 class="card-title">Проверка вставленных пар за месяц</h2>
             <label style="font-size:0.85rem;">
                 Месяц:
                 <select id="auditMonthSelect" onchange="loadPlacementAudit()">
@@ -131,7 +127,7 @@
 
         <div class="card-header" style="margin-top:1.5rem;">
             <h2 class="card-title">Таблица помесячного учёта</h2>
-            <button class="btn btn-outline" onclick="exportCsv()">📥 Экспорт CSV</button>
+            <button class="btn btn-outline" onclick="exportCsv()">Экспорт CSV</button>
         </div>
         <table id="monthlyTable">
             <thead>
@@ -273,16 +269,16 @@ async function loadPlacementAudit() {
         }
         let html = '';
         gaps.forEach(g => {
-            html += '<div style="border:1px solid var(--border); border-radius:0.5rem; padding:0.75rem; margin-bottom:0.75rem;">'
+            html += '<div style="border:1px solid var(--border); border-radius:var(--radius-md); padding:0.75rem; margin-bottom:0.75rem;">'
                 + '<div style="font-weight:600;">' + g.teacherName + ' — ' + g.disciplineName + ' · ' + g.groupName + '</div>'
                 + '<div class="text-muted" style="font-size:0.85rem; margin:0.25rem 0;">По плану ' + g.expectedPairsPerWeek
                 + ' пар/нед, в расписании ' + g.actualPairsPerWeek + ' — не хватает ' + g.missingPairs + '.</div>';
             if (g.suggestedSlots && g.suggestedSlots.length) {
                 html += '<div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.5rem;">';
                 g.suggestedSlots.forEach(s => {
-                    html += '<button class="btn btn-sm" onclick="insertSuggestedPair(' + g.loadId + ',\'' + s.dayOfWeek + '\',\''
+                    html += '<button class="btn btn-sm btn-primary" onclick="insertSuggestedPair(' + g.loadId + ',\'' + s.dayOfWeek + '\',\''
                         + s.startTime + '\',\'' + s.endTime + '\',\'' + s.room + '\', this)">'
-                        + '➕ ' + s.dayOfWeek + ', ' + s.startTime.substring(0, 5) + '-' + s.endTime.substring(0, 5) + ', ауд. ' + s.room + '</button>';
+                        + 'Поставить: ' + s.dayOfWeek + ', ' + s.startTime.substring(0, 5) + '-' + s.endTime.substring(0, 5) + ', ауд. ' + s.room + '</button>';
                 });
                 html += '</div>';
             } else {
@@ -318,15 +314,15 @@ async function insertSuggestedPair(loadId, dayRu, startTime, endTime, room, btn)
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-            alert('Ошибка: ' + (body.error || res.status));
+            showToast('Ошибка: ' + (body.error || res.status), 'danger');
             btn.disabled = false;
-            btn.textContent = '➕ ' + dayRu + ', ' + startTime.substring(0, 5) + '-' + endTime.substring(0, 5) + ', ауд. ' + room;
+            btn.textContent = 'Поставить: ' + dayRu + ', ' + startTime.substring(0, 5) + '-' + endTime.substring(0, 5) + ', ауд. ' + room;
             return;
         }
-        btn.textContent = '✅ Поставлено';
+        btn.textContent = 'Поставлено';
         loadPlacementAudit();
     } catch (e) {
-        alert('Ошибка сети: ' + e.message);
+        showToast('Ошибка сети: ' + e.message, 'danger');
         btn.disabled = false;
     }
 }
@@ -439,7 +435,7 @@ function applyFilters() {
         const adj = r.adjustedHours != null ? r.adjustedHours : '-';
         const adjClass = r.adjustedHours != null ? 'text-success' : '';
         const btn = hasId
-            ? '<button class="btn btn-sm" onclick="openAdjust(' + r.id + ', \'' + escapeJsAttr(r.teacherName) + '\', \'' + escapeJsAttr(r.disciplineName) + '\', ' + hours + ', \'' + escapeJsAttr(r.note) + '\')">✏️</button>'
+            ? '<button class="btn btn-sm btn-secondary" onclick="openAdjust(' + r.id + ', \'' + escapeJsAttr(r.teacherName) + '\', \'' + escapeJsAttr(r.disciplineName) + '\', ' + hours + ', \'' + escapeJsAttr(r.note) + '\')">Изменить</button>'
             : '-';
         tr.innerHTML =
             '<td>' + escapeHtml(r.teacherName || '-') + '</td>' +

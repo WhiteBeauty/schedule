@@ -5,14 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Управление кураторством</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
 </head>
 <body>
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h1 class="page-title" style="margin:0">👥 Управление кураторством</h1>
-        <button class="btn btn-primary" onclick="openAssignModal()">➕ Назначить куратора</button>
+        <h1 class="page-title" style="margin:0">Управление кураторством</h1>
+        <button class="btn btn-primary" onclick="openAssignModal()">Назначить куратора</button>
     </div>
 
     <div class="card" style="margin-bottom:1.5rem">
@@ -23,7 +24,7 @@
             <select id="filterGroup" onchange="loadCuratorships()">
                 <option value="">Все группы</option>
             </select>
-            <button class="btn btn-sm btn-outline" onclick="loadCuratorships()">🔄 Обновить</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadCuratorships()">Обновить</button>
         </div>
     </div>
 
@@ -54,22 +55,22 @@
         <div class="modal-body">
             <div style="margin-bottom:1rem">
                 <label style="display:block;margin-bottom:0.5rem;font-weight:600">Преподаватель *</label>
-                <select id="assignTeacher" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <select id="assignTeacher">
                     <option value="">Выберите преподавателя</option>
                 </select>
             </div>
             <div style="margin-bottom:1rem">
                 <label style="display:block;margin-bottom:0.5rem;font-weight:600">Группа *</label>
-                <select id="assignGroup" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <select id="assignGroup">
                     <option value="">Выберите группу</option>
                 </select>
             </div>
             <div style="margin-bottom:1rem">
                 <label style="display:block;margin-bottom:0.5rem;font-weight:600">Кураторские часы (план)</label>
-                <input type="number" id="assignHours" value="36" min="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                <input type="number" id="assignHours" value="36" min="0">
             </div>
-            <div style="margin-bottom:1rem;padding:0.75rem;background:#fff3cd;border-radius:4px;font-size:0.85rem">
-                ⚠️ Одна группа может иметь только одного преподавателя-куратора.
+            <div style="margin-bottom:1rem;padding:0.75rem;background:var(--warning-bg);border-radius:var(--radius-sm);font-size:0.85rem;color:var(--warning);">
+                Одна группа может иметь только одного преподавателя-куратора.
             </div>
         </div>
         <div class="modal-footer">
@@ -160,8 +161,8 @@ function loadCuratorships() {
                     <td>${c.events ? c.events.length : 0}</td>
                     <td>${c.logs ? c.logs.length : 0}</td>
                     <td>
-                        <button class="btn btn-sm" onclick="viewCuratorship(${c.id})">👁️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteCuratorship(${c.id})" style="background:var(--danger);color:#fff">🗑️</button>
+                        <button class="btn btn-sm btn-secondary" onclick="viewCuratorship(${c.id})">Просмотр</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCuratorship(${c.id})">Удалить</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -183,7 +184,7 @@ function assignCurator() {
     const hours = document.getElementById('assignHours').value;
 
     if (!teacherId || !groupId) {
-        alert('Выберите преподавателя и группу');
+        showToast('Выберите преподавателя и группу', 'danger');
         return;
     }
 
@@ -196,7 +197,7 @@ function assignCurator() {
             closeAssignModal();
             loadCuratorships();
         } else {
-            r.text().then(txt => alert('Ошибка: ' + txt));
+            r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
         }
     });
 }
@@ -230,20 +231,20 @@ function viewCuratorship(id) {
                     <div class="stat"><div class="stat-label">Часов на мероприятие</div><div class="stat-value" style="font-size:1rem">${hoursPerEvent}</div></div>
                 </div>
 
-                <h4 style="margin:1rem 0 0.5rem">🎯 Мероприятия</h4>
+                <h4 style="margin:1rem 0 0.5rem">Мероприятия</h4>
                 <ul style="padding-left:1.2rem;margin-bottom:1rem;list-style:none">${eventsHtml}</ul>
-                <button class="btn btn-sm btn-outline" onclick="addEvent(${c.id})">➕ Добавить мероприятие</button>
+                <button class="btn btn-sm btn-secondary" onclick="addEvent(${c.id})">Добавить мероприятие</button>
 
-                <h4 style="margin:1rem 0 0.5rem">📖 Журнал</h4>
+                <h4 style="margin:1rem 0 0.5rem">Журнал</h4>
                 <ul style="padding-left:1.2rem;margin-bottom:1rem;list-style:none">${logsHtml}</ul>
-                <button class="btn btn-sm btn-outline" onclick="addLog(${c.id})">➕ Добавить запись</button>
+                <button class="btn btn-sm btn-secondary" onclick="addLog(${c.id})">Добавить запись</button>
             `;
 
             document.getElementById('editModal').classList.add('active');
         })
         .catch(e => {
             console.error('Error:', e);
-            alert('Ошибка загрузки данных кураторства');
+            showToast('Ошибка загрузки данных кураторства', 'danger');
         });
 }
 
@@ -261,7 +262,7 @@ function addEvent(id) {
         body: JSON.stringify({event})
     }).then(r => {
         if (r.ok) viewCuratorship(id);
-        else alert('Ошибка добавления');
+        else showToast('Ошибка добавления', 'danger');
     });
 }
 
@@ -280,7 +281,7 @@ function deleteEvent(curatorshipId, eventIndex) {
         })
         .then(r => {
             if (r.ok) viewCuratorship(curatorshipId);
-            else alert('Ошибка удаления');
+            else showToast('Ошибка удаления', 'danger');
         });
 }
 
@@ -294,7 +295,7 @@ function addLog(id) {
         body: JSON.stringify({logEntry})
     }).then(r => {
         if (r.ok) viewCuratorship(id);
-        else alert('Ошибка добавления');
+        else showToast('Ошибка добавления', 'danger');
     });
 }
 
@@ -313,14 +314,14 @@ function deleteLog(curatorshipId, logIndex) {
         })
         .then(r => {
             if (r.ok) viewCuratorship(curatorshipId);
-            else alert('Ошибка удаления');
+            else showToast('Ошибка удаления', 'danger');
         });
 }
 
 function deleteCuratorship(id) {
     if (!confirm('Удалить назначение куратора?')) return;
     fetch(`/api/curatorships/${id}`, {method: 'DELETE'})
-        .then(r => { if (r.ok) loadCuratorships(); else alert('Ошибка удаления'); });
+        .then(r => { if (r.ok) loadCuratorships(); else showToast('Ошибка удаления', 'danger'); });
 }
 </script>
 </body>

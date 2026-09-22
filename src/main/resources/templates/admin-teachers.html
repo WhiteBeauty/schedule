@@ -10,22 +10,21 @@
         window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
         /*]]>*/
     </script>
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .teacher-card {
             display: flex;
             align-items: center;
             gap: 1.5rem;
             padding: 1.5rem;
-            background: #fff;
-            border-radius: 0.75rem;
+            background: var(--card);
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             cursor: pointer;
-            transition: .15s;
             margin-bottom: 1rem;
         }
         .teacher-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
+            border-color: var(--primary);
         }
         .teacher-avatar {
             width: 70px;
@@ -38,6 +37,8 @@
             justify-content: center;
             font-size: 1.75rem;
             font-weight: 700;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            flex-shrink: 0;
         }
         .teacher-info h3 {
             margin: 0 0 0.25rem;
@@ -56,7 +57,7 @@
 <main class="main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
             <h1 class="page-title" style="margin: 0;">Список всех преподавателей системы</h1>
-            <button id="addTeacherBtn" class="btn btn-primary" onclick="openCreateModal()">➕ Добавить преподавателя</button>
+            <button id="addTeacherBtn" class="btn btn-primary" onclick="openCreateModal()">Добавить преподавателя</button>
         </div>
 
         <div id="teacherList">
@@ -73,9 +74,9 @@
             <div class="modal-body" id="modalBody">
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal()">Закрыть</button>
-                <button class="btn btn-primary" id="editBtn" onclick="enableEdit()" style="display: none;">✏️ Редактировать</button>
-                <button class="btn btn-primary" id="saveBtn" onclick="saveTeacher()" style="display: none;">💾 Сохранить</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+                <button class="btn btn-primary" id="editBtn" onclick="enableEdit()" style="display: none;">Редактировать</button>
+                <button class="btn btn-primary" id="saveBtn" onclick="saveTeacher()" style="display: none;">Сохранить</button>
             </div>
         </div>
     </div>
@@ -90,35 +91,35 @@
                 <form id="createForm">
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Email *</label>
-                        <input type="email" id="createEmail" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="email" id="createEmail" required>
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">ФИО *</label>
-                        <input type="text" id="createFullName" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="text" id="createFullName" required>
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кафедра *</label>
-                        <input type="text" id="createDepartment" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="text" id="createDepartment" required>
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Должность *</label>
-                        <input type="text" id="createPosition" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="text" id="createPosition" required>
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Ставка *</label>
-                        <input type="number" step="0.1" id="createRate" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="number" step="0.1" id="createRate" required>
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Телефон</label>
-                        <input type="text" id="createPhone" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="text" id="createPhone">
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дата рождения</label>
-                        <input type="date" id="createBirthDate" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="date" id="createBirthDate">
                     </div>
                     <div style="margin-bottom: 1rem;">
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Пароль *</label>
-                        <input type="password" id="createPassword" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                        <input type="password" id="createPassword" required>
                     </div>
                 </form>
             </div>
@@ -139,19 +140,19 @@
                 <input type="hidden" id="addLoadTeacherId">
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дисциплина *</label>
-                    <select id="addLoadDiscipline" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                    <select id="addLoadDiscipline"></select>
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Группа *</label>
-                    <select id="addLoadGroup" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                    <select id="addLoadGroup"></select>
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Плановых часов *</label>
-                    <input type="number" id="addLoadPlanned" min="0" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    <input type="number" id="addLoadPlanned" min="0">
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Учебный год *</label>
-                    <input type="number" id="addLoadYear" th:value="${year}" th:min="${year}" th:max="${year + 4}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    <input type="number" id="addLoadYear" th:value="${year}" th:min="${year}" th:max="${year + 4}">
                 </div>
             </div>
             <div class="modal-footer">
@@ -171,11 +172,11 @@
                 <input type="hidden" id="assignCuratorTeacherId">
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Группа *</label>
-                    <select id="assignCuratorGroup" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;"></select>
+                    <select id="assignCuratorGroup"></select>
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кураторские часы (план)</label>
-                    <input type="number" id="assignCuratorHours" value="36" min="0" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                    <input type="number" id="assignCuratorHours" value="36" min="0">
                 </div>
             </div>
             <div class="modal-footer">
@@ -225,7 +226,8 @@
                 .then(teachers => {
                     const list = document.getElementById('teacherList');
                     if (!teachers || teachers.length === 0) {
-                        list.innerHTML = '<p class="text-muted">Преподаватели не найдены</p>';
+                        list.innerHTML = '<div class="empty-state"><p class="empty-state-title">Преподаватели не найдены</p>'
+                            + '<p class="empty-state-text">Добавьте преподавателя вручную или через импорт нагрузки.</p></div>';
                         return;
                     }
 
@@ -244,13 +246,13 @@
                                 <p class="teacher-detail">${t.department || 'Кафедра не указана'}</p>
                                 <p class="teacher-detail">${t.position || 'Должность не указана'}</p>
                                 <div style="margin:0.75rem 0; font-size:0.9rem">
-                                    <strong>👥 Кураторство:</strong> ${curatorshipDisplay}
+                                    <strong>Кураторство:</strong> ${curatorshipDisplay}
                                 </div>
                                 <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                    <button class="btn btn-sm" onclick="event.stopPropagation(); openAddLoadModal(${t.id}, '${t.fullName}')">➕ Нагрузка</button>
-                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openCuratorshipMenu(${t.id}, '${t.fullName}')">👥 Кураторство</button>
-                                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openApproveHoursModal(${t.id}, '${t.fullName}')">✅ Часы</button>
-                                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteTeacher(${t.id}, '${t.fullName.replace(/'/g, "\\'")}')">🗑️ Удалить</button>
+                                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openAddLoadModal(${t.id}, '${t.fullName}')">Нагрузка</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openCuratorshipMenu(${t.id}, '${t.fullName}')">Кураторство</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openApproveHoursModal(${t.id}, '${t.fullName}')">Часы</button>
+                                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteTeacher(${t.id}, '${t.fullName.replace(/'/g, "\\'")}')">Удалить</button>
                                 </div>
                             </div>
                         </div>
@@ -271,12 +273,13 @@
                 .then(async r => {
                     if (r.ok) {
                         loadTeachers();
+                        showToast('Преподаватель удалён', 'success');
                     } else {
                         const err = await r.json().catch(() => ({}));
-                        alert('Не удалось удалить преподавателя: ' + (err.error || 'неизвестная ошибка'));
+                        showToast('Не удалось удалить преподавателя: ' + (err.error || 'неизвестная ошибка'), 'danger');
                     }
                 })
-                .catch(e => alert('Ошибка: ' + e.message));
+                .catch(e => showToast('Ошибка: ' + e.message, 'danger'));
         }
 
         function viewTeacher(id) {
@@ -312,9 +315,9 @@
 
                 body.innerHTML = `
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                        <button class="btn btn-sm" onclick="addLoad(${teacher.id})">➕ Добавить нагрузку</button>
-                        <button class="btn btn-sm btn-outline" onclick="assignCuratorship(${teacher.id})">👥 Назначить кураторство</button>
-                        <button class="btn btn-sm btn-outline" onclick="approveHours(${teacher.id})">✅ Утвердить сверку часов</button>
+                        <button class="btn btn-sm btn-primary" onclick="addLoad(${teacher.id})">Добавить нагрузку</button>
+                        <button class="btn btn-sm btn-secondary" onclick="assignCuratorship(${teacher.id})">Назначить кураторство</button>
+                        <button class="btn btn-sm btn-secondary" onclick="approveHours(${teacher.id})">Утвердить сверку часов</button>
                     </div>
 
                     <table style="margin-bottom: 1.5rem;">
@@ -344,8 +347,8 @@
                         <tbody>${loadsHtml}</tbody>
                     </table>
 
-                    <div style="margin-top: 1.5rem; padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                        <strong>Продуктивность:</strong> ${profile.avgProductivity}% 
+                    <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg); border-radius: var(--radius-sm);">
+                        <strong>Продуктивность:</strong> ${profile.avgProductivity}%
                         <span class="badge ${profile.avgProductivity >= 90 ? 'badge-success' : (profile.avgProductivity >= 70 ? 'badge-warning' : 'badge-danger')}">
                             ${profile.avgProductivity >= 90 ? 'Высокая' : (profile.avgProductivity >= 70 ? 'Средняя' : 'Низкая')}
                         </span>
@@ -369,35 +372,35 @@
                     <form id="editForm">
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Email</label>
-                            <input type="email" id="editEmail" value="${teacher.email || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="email" id="editEmail" value="${teacher.email || ''}">
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">ФИО *</label>
-                            <input type="text" id="editFullName" value="${teacher.fullName}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="text" id="editFullName" value="${teacher.fullName}" required>
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Кафедра *</label>
-                            <input type="text" id="editDepartment" value="${teacher.department || ''}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="text" id="editDepartment" value="${teacher.department || ''}" required>
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Должность *</label>
-                            <input type="text" id="editPosition" value="${teacher.position || ''}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="text" id="editPosition" value="${teacher.position || ''}" required>
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Ставка *</label>
-                            <input type="number" step="0.1" id="editRate" value="${teacher.rate || 1.0}" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="number" step="0.1" id="editRate" value="${teacher.rate || 1.0}" required>
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Телефон</label>
-                            <input type="text" id="editPhone" value="${teacher.phone || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="text" id="editPhone" value="${teacher.phone || ''}">
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Дата рождения</label>
-                            <input type="date" id="editBirthDate" value="${teacher.birthDate || ''}" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="date" id="editBirthDate" value="${teacher.birthDate || ''}">
                         </div>
                         <div style="margin-bottom: 1rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600">Новый пароль (оставьте пустым если не менять)</label>
-                            <input type="password" id="editPassword" placeholder="Оставить без изменений" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.4rem;">
+                            <input type="password" id="editPassword" placeholder="Оставить без изменений">
                         </div>
                     </form>
                 `;
@@ -417,7 +420,7 @@
             };
 
             if (!data.fullName || !data.department || !data.position || !data.rate) {
-                alert('Заполните обязательные поля');
+                showToast('Заполните обязательные поля', 'danger');
                 return;
             }
 
@@ -427,11 +430,11 @@
                 body: JSON.stringify(data)
             }).then(r => {
                 if (r.ok) {
-                    alert('Преподаватель обновлён');
+                    showToast('Преподаватель обновлён', 'success');
                     loadTeachers();
                     closeModal();
                 } else {
-                    r.text().then(txt => alert('Ошибка: ' + txt));
+                    r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
                 }
             });
         }
@@ -460,7 +463,7 @@
             };
 
             if (!data.email || !data.fullName || !data.department || !data.position || !data.rate || !data.password) {
-                alert('Заполните все обязательные поля');
+                showToast('Заполните все обязательные поля', 'danger');
                 return;
             }
 
@@ -470,11 +473,11 @@
                 body: JSON.stringify(data)
             }).then(r => {
                 if (r.ok) {
-                    alert('Преподаватель создан');
+                    showToast('Преподаватель создан', 'success');
                     closeCreateModal();
                     loadTeachers();
                 } else {
-                    r.text().then(txt => alert('Ошибка: ' + txt));
+                    r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
                 }
             });
         }
@@ -544,7 +547,7 @@
             const year = document.getElementById('addLoadYear').value;
 
             if (!disciplineId || !groupId || !plannedHours) {
-                alert('Заполните все поля');
+                showToast('Заполните все поля', 'danger');
                 return;
             }
 
@@ -559,11 +562,11 @@
                 })
             }).then(r => {
                 if (r.ok) {
-                    alert('Нагрузка добавлена');
+                    showToast('Нагрузка добавлена', 'success');
                     closeAddLoadModal();
                     loadTeachers();
                 } else {
-                    alert('Ошибка добавления');
+                    showToast('Ошибка добавления', 'danger');
                 }
             });
         }
@@ -600,9 +603,9 @@
                                 .then(r => {
                                     if (r.ok) {
                                         loadCuratorships().then(loadTeachers);
-                                        alert('Кураторство удалено');
+                                        showToast('Кураторство удалено', 'success');
                                     } else {
-                                        alert('Ошибка удаления');
+                                        showToast('Ошибка удаления', 'danger');
                                     }
                                 });
                         }
@@ -643,7 +646,7 @@
             const hours = document.getElementById('assignCuratorHours').value;
 
             if (!groupId) {
-                alert('Выберите группу');
+                showToast('Выберите группу', 'danger');
                 return;
             }
 
@@ -657,11 +660,11 @@
                 })
             }).then(r => {
                 if (r.ok) {
-                    alert('Кураторство назначено');
+                    showToast('Кураторство назначено', 'success');
                     closeAssignCuratorModal();
                     loadTeachers();
                 } else {
-                    r.text().then(txt => alert('Ошибка: ' + txt));
+                    r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
                 }
             });
         }
@@ -700,7 +703,7 @@
                                     `).join('')}
                                 </tbody>
                             </table>
-                            <div style="margin-top:1rem;padding:1rem;background:#f0fdf4;border-radius:0.5rem">
+                            <div style="margin-top:1rem;padding:1rem;background:var(--success-bg);border-radius:var(--radius-sm)">
                                 <strong>Итого:</strong> план ${profile.totalPlanned}, вычитано ${profile.totalRead}, осталось ${profile.totalRemaining}
                             </div>
                         `;

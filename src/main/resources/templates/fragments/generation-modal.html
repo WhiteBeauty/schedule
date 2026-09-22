@@ -6,23 +6,23 @@
             .gen-metric { display:flex; flex-direction:column; }
             .gen-metric-value { font-size:1.35rem; font-weight:700; line-height:1.1; }
             .gen-metric-label { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); }
-            .gen-warnings { background:#fffbeb; border:1px solid #fde68a; border-radius:0.5rem; padding:0.75rem 0.9rem; font-size:0.85rem; color:#78350f; }
+            .gen-warnings { background:var(--warning-bg); border:1px solid var(--warning); border-radius:var(--radius-sm); padding:0.75rem 0.9rem; font-size:0.85rem; color:var(--warning); }
             .gen-warnings-title { font-weight:600; margin-bottom:0.35rem; }
             .gen-warnings ul { margin:0; padding-left:1.1rem; }
             .gen-warnings li { margin-bottom:0.2rem; }
-            .gen-issues { border:1px solid var(--border); border-radius:0.5rem; overflow:hidden; }
-            .gen-issues-title { font-weight:600; font-size:0.85rem; padding:0.55rem 0.9rem; background:#f9fafb; border-bottom:1px solid var(--border); }
+            .gen-issues { border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
+            .gen-issues-title { font-weight:600; font-size:0.85rem; padding:0.55rem 0.9rem; background:var(--bg); border-bottom:1px solid var(--border); }
             .gen-issue-row { display:flex; align-items:center; gap:0.6rem; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--border); padding:0.6rem 0.9rem; font-size:0.85rem; cursor:pointer; font-family:inherit; color:var(--text); }
             .gen-issue-row:last-child { border-bottom:none; }
-            .gen-issue-row:hover { background:#f3f4f6; }
+            .gen-issue-row:hover { background:var(--bg); }
             .gen-issue-dot { width:0.5rem; height:0.5rem; border-radius:50%; flex:none; }
             .gen-issue-dot.blocking { background:var(--danger); }
             .gen-issue-dot.warning { background:var(--warning); }
-            .gen-line { font-size:0.85rem; padding:0.35rem 0; border-bottom:1px dashed var(--border); }
+            .gen-line { font-size:0.85rem; padding:0.35rem 0; border-bottom:1px dashed var(--border); font-family:'JetBrains Mono', ui-monospace, monospace; }
             .gen-line:last-child { border-bottom:none; }
             .gen-line-danger { color:var(--danger); }
             .gen-option { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap; }
-            .gen-input { padding:0.45rem 0.6rem; border:1px solid var(--border); border-radius:0.35rem; font-size:0.9rem; min-width:170px; font-family:inherit; }
+            .gen-input { padding:0.45rem 0.6rem; border:1px solid var(--border-strong); border-radius:var(--radius-sm); font-size:0.9rem; min-width:170px; font-family:inherit; }
             .gen-input:focus-visible, .gen-issue-row:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
             .gen-stack { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.75rem; }
             .gen-stack-counter { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
@@ -52,7 +52,7 @@
         </div>
 
         <div class="card" id="genResultCard" style="display:none; margin-bottom:1.5rem;">
-            <div class="card-header"><span class="card-title">🧮 Автосоставление расписания</span></div>
+            <div class="card-header"><span class="card-title">Автосоставление расписания</span></div>
             <div id="genSummary" style="margin-bottom:0.75rem;"></div>
             <div id="genIssues" style="margin-bottom:0.75rem;"></div>
             <div id="genWarnings" style="margin-bottom:0.75rem;"></div>
@@ -68,14 +68,14 @@
                 </table>
             </div>
             <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-sm" id="genCommitBtn" type="button">Сохранить в расписание</button>
-                <button class="btn btn-sm btn-outline" type="button"
+                <button class="btn btn-sm btn-primary" id="genCommitBtn" type="button">Сохранить в расписание</button>
+                <button class="btn btn-sm btn-secondary" type="button"
                         onclick="document.getElementById('genResultCard').style.display='none'">Скрыть</button>
             </div>
         </div>
 
         <div class="card" id="sickLeaveCard" style="margin-bottom:1.5rem;">
-            <div class="card-header"><span class="card-title">🤒 Отсутствие преподавателя</span></div>
+            <div class="card-header"><span class="card-title">Отсутствие преподавателя</span></div>
             <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
                 Система сама подберёт замену на каждую пару, а если замены нет — перенесёт пару
                 в свободное окно группы. Останется только то, что требует решения администратора.
@@ -119,7 +119,7 @@
                     <div id="genIssueOptions"></div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-outline" type="button" id="genIssueSkipBtn">Пропустить</button>
+                    <button class="btn btn-ghost" type="button" id="genIssueSkipBtn">Пропустить</button>
                 </div>
             </div>
         </div>

@@ -5,22 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Импорт тарификации - Администратор</title>
     <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .dropzone {
-            border: 2px dashed var(--border);
-            border-radius: 0.75rem;
+            border: 2px dashed var(--border-strong);
+            border-radius: var(--radius-md);
             padding: 2.5rem;
             text-align: center;
-            background: #fafbfc;
-            transition: .15s;
+            background: var(--bg);
             cursor: pointer;
         }
-        .dropzone.dragover { border-color: var(--primary); background: #eff6ff; }
+        .dropzone.dragover { border-color: var(--primary); background: var(--primary-light); }
         .warn-table th, .warn-table td { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
-        .warn-table tr:nth-child(even) { background: #fafbfc; }
+        .warn-table tr:nth-child(even) { background: var(--bg); }
         .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
-        .stat-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.85rem; text-align: center; }
-        .stat-box .num { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .stat-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.85rem; text-align: center; }
+        .stat-box .num { font-size: 1.5rem; font-weight: 700; color: var(--primary-dark); font-family: 'JetBrains Mono', ui-monospace, monospace; }
         .stat-box .label { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
     </style>
 </head>
@@ -29,7 +29,7 @@
 
 <main class="main">
     <div class="page-header">
-        <h1 class="page-title" style="margin:0;">📊 Импорт тарификации</h1>
+        <h1 class="page-title" style="margin:0;">Импорт тарификации</h1>
         <p class="page-subtitle">
             Загрузите файл тарификации (Excel, лист "Часовка") — годовую сводную таблицу часов
             по преподавателям, дисциплинам и группам с разбивкой на семестры. Преподаватели и
@@ -54,14 +54,13 @@
         </div>
 
         <div class="dropzone" id="dropzone">
-            <div style="font-size:2.5rem; margin-bottom:0.5rem;">📄</div>
             <div id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать (.xlsx, .xls)</div>
             <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
         </div>
 
         <div style="margin-top:1rem; display:flex; gap:0.75rem;">
-            <button class="btn" id="importBtn" disabled>📊 Импортировать тарификацию</button>
-            <button class="btn btn-outline" id="clearBtn">Очистить</button>
+            <button class="btn btn-primary" id="importBtn" disabled>Импортировать тарификацию</button>
+            <button class="btn btn-secondary" id="clearBtn">Очистить</button>
         </div>
     </div>
 
@@ -80,13 +79,13 @@
         </div>
 
         <div style="margin-top:1.25rem;">
-            <button class="btn btn-outline" id="restartBtn">Импортировать ещё файл</button>
-            <a class="btn" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
+            <button class="btn btn-secondary" id="restartBtn">Импортировать ещё файл</button>
+            <a class="btn btn-primary" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
         </div>
     </div>
 
-    <div class="card" id="dangerZone" style="margin-top:1.5rem; border-color:#fecaca;">
-        <div class="card-header"><span class="card-title" style="color:var(--danger, #dc2626);">⚠️ Опасная зона</span></div>
+    <div class="card" id="dangerZone" style="margin-top:1.5rem; border-color:var(--danger-bg);">
+        <div class="card-header"><span class="card-title" style="color:var(--danger);">Опасная зона</span></div>
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
             Удаляет ВСЁ — преподавателей, дисциплины, группы, нагрузку, расписание, заявки на
             замену, больничные, кураторства, уведомления, аудитории, настройки и пользователей
@@ -94,8 +93,8 @@
             тестового цикла: снести всё → заново импортировать тарификацию → заново собрать
             расписание. Действие необратимо.
         </p>
-        <button class="btn btn-danger" id="wipeAllBtn" style="background:var(--danger, #dc2626); color:#fff;">
-            🧨 Удалить все данные (кроме входа админа)
+        <button class="btn btn-danger" id="wipeAllBtn">
+            Удалить все данные (кроме входа админа)
         </button>
         <div id="wipeAllResult" style="margin-top:1rem;"></div>
     </div>
@@ -119,10 +118,9 @@
                 </label>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" type="button" onclick="closeWipeAllModal()">Отмена</button>
-                <button class="btn btn-danger" type="button" id="wipeAllConfirmBtn"
-                        style="background:var(--danger, #dc2626); color:#fff;" disabled>
-                    🧨 Удалить всё
+                <button class="btn btn-ghost" type="button" onclick="closeWipeAllModal()">Отмена</button>
+                <button class="btn btn-danger" type="button" id="wipeAllConfirmBtn" disabled>
+                    Удалить всё
                 </button>
             </div>
         </div>
@@ -153,7 +151,7 @@
 
     function setFile(file) {
         selectedFile = file;
-        dropzoneLabel.textContent = '✅ ' + file.name;
+        dropzoneLabel.textContent = 'Выбран файл: ' + file.name;
         importBtn.disabled = false;
     }
 
@@ -191,17 +189,18 @@
                 body: formData
             });
             if (!res.ok) {
-                alert('Ошибка импорта (код ' + res.status + ')');
+                showToast('Ошибка импорта (код ' + res.status + ')', 'danger');
                 importBtn.disabled = false;
-                importBtn.textContent = '📊 Импортировать тарификацию';
+                importBtn.textContent = 'Импортировать тарификацию';
                 return;
             }
             const report = await res.json();
             showResult(report);
+            showToast('Импорт завершён', 'success');
         } catch (e) {
-            alert('Ошибка сети: ' + e.message);
+            showToast('Ошибка сети: ' + e.message, 'danger');
             importBtn.disabled = false;
-            importBtn.textContent = '📊 Импортировать тарификацию';
+            importBtn.textContent = 'Импортировать тарификацию';
         }
     });
 
@@ -303,7 +302,7 @@
             closeWipeAllModal();
             wipeAllResult.innerHTML = '<div class="text-danger">Ошибка сети: ' + e.message + '</div>';
         } finally {
-            wipeAllConfirmBtn.textContent = '🧨 Удалить всё';
+            wipeAllConfirmBtn.textContent = 'Удалить всё';
         }
     });
 </script>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Управление расписанием</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
     <script th:inline="javascript">
         /*<![CDATA[*/
         window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
@@ -16,16 +17,16 @@
 
 <main class="main">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h1 class="page-title" style="margin:0">📋 Управление расписанием</h1>
+        <h1 class="page-title" style="margin:0">Управление расписанием</h1>
         <div style="display:flex;gap:0.5rem">
-            <button class="btn btn-outline" onclick="openGroupsModal()">🏛️ Группы</button>
-            <button class="btn btn-outline" onclick="openDisciplinesModal()">📚 Дисциплины</button>
-            <button class="btn btn-outline" id="genRunBtn" type="button">🧮 Автосоставление</button>
-            <button class="btn btn-outline" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">🧹 Разбить слитные группы/дисциплины</button>
-            <button class="btn btn-danger" onclick="openWipeModal()">🧨 Снести расписание</button>
-            <button class="btn btn-outline" onclick="openExportMonthModal()">📥 Скачать за месяц</button>
+            <button class="btn btn-secondary" onclick="openGroupsModal()">Группы</button>
+            <button class="btn btn-secondary" onclick="openDisciplinesModal()">Дисциплины</button>
+            <button class="btn btn-secondary" id="genRunBtn" type="button">Автосоставление</button>
+            <button class="btn btn-secondary" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">Разбить слитные группы/дисциплины</button>
+            <button class="btn btn-danger" onclick="openWipeModal()">Снести расписание</button>
+            <button class="btn btn-secondary" onclick="openExportMonthModal()">Скачать за месяц</button>
             <div th:replace="~{fragments/special-event-modal :: modal}"></div>
-            <button class="btn btn-primary" onclick="openCreateModal()">➕ Добавить запись</button>
+            <button class="btn btn-primary" onclick="openCreateModal()">Добавить запись</button>
         </div>
     </div>
 
@@ -65,8 +66,8 @@
                 </label>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" type="button" onclick="closeExportMonthModal()">Отмена</button>
-                <button class="btn" type="button" id="exportMonthConfirmBtn">📥 Скачать</button>
+                <button class="btn btn-ghost" type="button" onclick="closeExportMonthModal()">Отмена</button>
+                <button class="btn btn-primary" type="button" id="exportMonthConfirmBtn">Скачать</button>
             </div>
         </div>
     </div>
@@ -74,7 +75,7 @@
     <div th:replace="~{fragments/generation-modal :: panel}"></div>
 
     <div class="card" id="generationResultCard" style="display:none; margin-bottom:1.5rem;">
-        <div class="card-header"><span class="card-title">🧮 Результат автосоставления</span></div>
+        <div class="card-header"><span class="card-title">Результат автосоставления</span></div>
         <div id="generationSummary" style="margin-bottom:0.75rem;"></div>
         <div id="generationCapacityWarnings" style="margin-bottom:0.75rem;"></div>
         <div id="generationConflicts" style="margin-bottom:0.75rem;"></div>
@@ -90,8 +91,8 @@
             </table>
         </div>
         <div style="display:flex; gap:0.5rem;">
-            <button class="btn btn-sm" id="applyGenerationBtn" onclick="generateSchedule(true)">✅ Применить и сохранить</button>
-            <button class="btn btn-sm btn-outline" onclick="document.getElementById('generationResultCard').style.display='none'">Скрыть</button>
+            <button class="btn btn-sm btn-primary" id="applyGenerationBtn" onclick="generateSchedule(true)">Применить и сохранить</button>
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('generationResultCard').style.display='none'">Скрыть</button>
         </div>
     </div>
 
@@ -105,9 +106,9 @@
                             th:selected="${y == year}"></option>
                 </select>
             </label>
-            <button class="btn btn-sm btn-outline" onclick="loadSchedule()">🔄 Обновить</button>
-            <button class="btn btn-sm btn-outline" onclick="exportCsv()">📥 Экспорт CSV</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="deleteSelectedBtn" style="display:none;background:var(--danger);color:#fff">🗑️ Удалить выбранные (<span id="selectedCount">0</span>)</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadSchedule()">Обновить</button>
+            <button class="btn btn-sm btn-secondary" onclick="exportCsv()">Экспорт CSV</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="deleteSelectedBtn" style="display:none;">Удалить выбранные (<span id="selectedCount">0</span>)</button>
         </div>
     </div>
 
@@ -132,7 +133,7 @@
 
     <div class="card" style="margin-bottom:1.5rem">
         <div class="filters">
-            <input type="text" id="searchInput" placeholder="🔍 Поиск по преподавателю, дисциплине или группе..." oninput="filterTable()">
+            <input type="text" id="searchInput" placeholder="Поиск по преподавателю, дисциплине или группе..." oninput="filterTable()">
             <select id="filterTeacher" onchange="filterTable()">
                 <option value="">Все преподаватели</option>
             </select>
@@ -174,37 +175,37 @@
                 <input type="hidden" id="editId">
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Преподаватель *</label>
-                    <select id="teacherSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <select id="teacherSelect" required>
                         <option value="">Выберите преподавателя</option>
                     </select>
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Дисциплина *</label>
-                    <select id="disciplineSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <select id="disciplineSelect" required>
                         <option value="">Выберите дисциплину</option>
                     </select>
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Группа *</label>
-                    <select id="groupSelect" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <select id="groupSelect" required>
                         <option value="">Выберите группу</option>
                     </select>
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Плановых часов *</label>
-                    <input type="number" id="plannedHours" required min="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <input type="number" id="plannedHours" required min="0">
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Учебный год *</label>
-                    <input type="number" id="academicYear" required th:min="${year}" th:max="${year + 4}" th:value="${year}" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <input type="number" id="academicYear" required th:min="${year}" th:max="${year + 4}" th:value="${year}">
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Вычитано часов</label>
-                    <input type="number" id="readHours" min="0" value="0" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <input type="number" id="readHours" min="0" value="0">
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Контрольная точка 1</label>
-                    <select id="controlPoint1" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <select id="controlPoint1">
                         <option value="">Не указана</option>
                         <option value="ДЗ">ДЗ</option>
                         <option value="Зачёт">Зачёт</option>
@@ -213,7 +214,7 @@
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Контрольная точка 2</label>
-                    <select id="controlPoint2" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:4px">
+                    <select id="controlPoint2">
                         <option value="">Не указана</option>
                         <option value="ДЗ">ДЗ</option>
                         <option value="Зачёт">Зачёт</option>
@@ -239,8 +240,8 @@
             <p>Вы уверены, что хотите удалить выбранные записи расписания?</p>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeDeleteModal()">Отмена</button>
-            <button class="btn btn-danger" id="confirmDeleteBtn" style="background:var(--danger)">Удалить</button>
+            <button class="btn btn-ghost" onclick="closeDeleteModal()">Отмена</button>
+            <button class="btn btn-danger" id="confirmDeleteBtn">Удалить</button>
         </div>
     </div>
 </div>
@@ -248,7 +249,7 @@
 <div class="modal-overlay" id="wipeModal">
     <div class="modal">
         <div class="modal-header">
-            <h3 style="margin:0">🧨 Снести расписание</h3>
+            <h3 style="margin:0">Снести расписание</h3>
             <button class="close-btn" onclick="closeWipeModal()">×</button>
         </div>
         <div class="modal-body">
@@ -275,8 +276,8 @@
             <p id="wipeScopeHint" class="text-danger" style="font-weight:600;"></p>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeWipeModal()">Отмена</button>
-            <button class="btn btn-danger" onclick="executeWipe()">🧨 Удалить</button>
+            <button class="btn btn-ghost" onclick="closeWipeModal()">Отмена</button>
+            <button class="btn btn-danger" onclick="executeWipe()">Удалить</button>
         </div>
     </div>
 </div>
@@ -284,24 +285,24 @@
 <div class="modal-overlay" id="groupsModal">
     <div class="modal" style="max-width:700px">
         <div class="modal-header">
-            <h3 style="margin:0">🏛️ Управление группами</h3>
+            <h3 style="margin:0">Управление группами</h3>
             <button class="close-btn" onclick="closeGroupsModal()">×</button>
         </div>
         <div class="modal-body">
-            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;padding:0.75rem;background:var(--bg-soft,#f5f5f5);border-radius:8px">
-                <span style="font-weight:600;white-space:nowrap">🍽️ Обед для всего потока:</span>
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;padding:0.75rem;background:var(--bg);border-radius:var(--radius-sm)">
+                <span style="font-weight:600;white-space:nowrap">Обед для всего потока:</span>
                 <input type="time" id="globalLunchStart" style="width:110px">
                 <span>–</span>
                 <input type="time" id="globalLunchEnd" style="width:110px">
                 <button class="btn btn-sm btn-primary" onclick="saveGlobalLunch()">Сохранить</button>
-                <button class="btn btn-sm btn-outline" onclick="clearGlobalLunch()">Убрать</button>
+                <button class="btn btn-sm btn-secondary" onclick="clearGlobalLunch()">Убрать</button>
                 <span class="text-muted" style="font-size:0.8rem">действует для групп без своего обеда (колонка "Обед" ниже)</span>
             </div>
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
                 <input type="text" id="newGroupName" placeholder="Название группы" style="flex:1">
                 <input type="number" id="newGroupCourse" placeholder="Курс" style="width:80px" min="1" max="6">
                 <input type="text" id="newGroupSpecialty" placeholder="Специальность" style="flex:1">
-                <button class="btn btn-primary" onclick="addGroup()">➕</button>
+                <button class="btn btn-primary" onclick="addGroup()">Добавить</button>
             </div>
             <table id="groupsTable">
                 <thead><tr><th>Название</th><th>Курс</th><th>Специальность</th><th>Обед группы</th><th>Лимит пар/нед</th><th>Действия</th></tr></thead>
@@ -314,14 +315,14 @@
 <div class="modal-overlay" id="disciplinesModal">
     <div class="modal" style="max-width:700px">
         <div class="modal-header">
-            <h3 style="margin:0">📚 Управление дисциплинами</h3>
+            <h3 style="margin:0">Управление дисциплинами</h3>
             <button class="close-btn" onclick="closeDisciplinesModal()">×</button>
         </div>
         <div class="modal-body">
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
                 <input type="text" id="newDisciplineCode" placeholder="Код" style="width:100px">
                 <input type="text" id="newDisciplineName" placeholder="Название дисциплины" style="flex:1">
-                <button class="btn btn-primary" onclick="addDiscipline()">➕</button>
+                <button class="btn btn-primary" onclick="addDiscipline()">Добавить</button>
             </div>
             <table id="disciplinesTable">
                 <thead><tr><th>Код</th><th>Название</th><th>Действия</th></tr></thead>
@@ -418,13 +419,13 @@ function updateWipeHint() {
     const week = document.getElementById('wipeWeek').value;
     const hint = document.getElementById('wipeScopeHint');
     if (!day && !week) {
-        hint.textContent = '⚠️ Будет удалено ВСЁ расписание за этот учебный год.';
+        hint.textContent = 'Будет удалено ВСЁ расписание за этот учебный год.';
     } else if (day && week) {
-        hint.textContent = '⚠️ Будут удалены пары: ' + day + ', неделя ' + week + '.';
+        hint.textContent = 'Будут удалены пары: ' + day + ', неделя ' + week + '.';
     } else if (day) {
-        hint.textContent = '⚠️ Будут удалены все пары этого дня недели (все недели).';
+        hint.textContent = 'Будут удалены все пары этого дня недели (все недели).';
     } else {
-        hint.textContent = '⚠️ Будут удалены все пары этой учебной недели (все дни).';
+        hint.textContent = 'Будут удалены все пары этой учебной недели (все дни).';
     }
 }
 
@@ -454,15 +455,15 @@ async function executeWipe() {
         const res = await fetch('/api/schedule/wipe?' + params, { method: 'POST' });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (err.error || 'не удалось выполнить снос расписания'));
+            showToast('Ошибка: ' + (err.error || 'не удалось выполнить снос расписания'), 'danger');
             return;
         }
         const result = await res.json();
-        alert('Удалено пар: ' + result.deletedPairs + ' (' + result.scope + ')');
+        showToast('Удалено пар: ' + result.deletedPairs + ' (' + result.scope + ')', 'success');
         closeWipeModal();
         loadSchedule();
     } catch (e) {
-        alert('Ошибка: ' + e.message);
+        showToast('Ошибка: ' + e.message, 'danger');
     }
 }
 
@@ -498,7 +499,7 @@ document.getElementById('exportMonthConfirmBtn').addEventListener('click', () =>
     const orgName = document.getElementById('exportOrgName').value.trim();
     const directorName = document.getElementById('exportDirectorName').value.trim();
     if (!year || !month) {
-        alert('Укажите год и месяц');
+        showToast('Укажите год и месяц', 'danger');
         return;
     }
     const params = new URLSearchParams({ year, month });
@@ -521,14 +522,14 @@ async function generateSchedule(persist) {
             method: 'POST'
         });
         if (!res.ok) {
-            alert('Не удалось выполнить автосоставление расписания');
+            showToast('Не удалось выполнить автосоставление расписания', 'danger');
             return;
         }
         const result = await res.json();
         renderGenerationResult(result, persist);
-        if (persist) loadSchedule();
+        if (persist) { loadSchedule(); showToast('Расписание применено и сохранено', 'success'); }
     } catch (e) {
-        alert('Ошибка автосоставления: ' + e.message);
+        showToast('Ошибка автосоставления: ' + e.message, 'danger');
     } finally {
         if (applyBtn) applyBtn.disabled = false;
     }
@@ -538,8 +539,8 @@ function renderGenerationResult(result, wasApplied) {
     document.getElementById('generationResultCard').style.display = 'block';
     const summary = document.getElementById('generationSummary');
     summary.innerHTML = (wasApplied
-        ? '✅ Применено и сохранено: '
-        : '📝 Черновик (не сохранён): ') +
+        ? 'Применено и сохранено: '
+        : 'Черновик (не сохранён): ') +
         `рассмотрено нагрузок — <b>${result.totalLoadsConsidered}</b>, ` +
         `расставлено пар — <b>${result.placedLessons}</b>, ` +
         `нагрузок с нерешёнными конфликтами — <b>${result.unresolvedLoads}</b>`;
@@ -548,14 +549,14 @@ function renderGenerationResult(result, wasApplied) {
     capacityWrap.innerHTML = '';
     if (result.capacityWarnings && result.capacityWarnings.length) {
         const box = document.createElement('div');
-        box.style.cssText = 'background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;padding:0.75rem;';
+        box.style.cssText = 'background:var(--warning-bg);border:1px solid var(--warning);border-radius:var(--radius-sm);padding:0.75rem;';
         const title = document.createElement('div');
-        title.style.cssText = 'font-weight:600;margin-bottom:0.35rem;color:#8a6300';
-        title.textContent = '⚠️ Предварительная проверка перед составлением — есть проблемы с данными (' +
+        title.style.cssText = 'font-weight:600;margin-bottom:0.35rem;color:var(--warning)';
+        title.textContent = 'Предварительная проверка перед составлением — есть проблемы с данными (' +
             result.capacityWarnings.length + '):';
         box.appendChild(title);
         const ul = document.createElement('ul');
-        ul.style.cssText = 'margin:0;padding-left:1.25rem;font-size:0.85rem;color:#5c4600';
+        ul.style.cssText = 'margin:0;padding-left:1.25rem;font-size:0.85rem;color:var(--warning)';
         result.capacityWarnings.forEach(c => {
             const li = document.createElement('li');
             li.textContent = c;
@@ -674,8 +675,8 @@ function renderTable(data) {
             </div></td>
             <td><span class="badge ${statusClass}">${status}</span></td>
             <td>
-                <button class="btn btn-sm" onclick="openEditModal(${load.id})">✏️</button>
-                <button class="btn btn-sm btn-outline" onclick="openDeleteModal(${load.id})">🗑️</button>
+                <button class="btn btn-sm btn-secondary" onclick="openEditModal(${load.id})">Изменить</button>
+                <button class="btn btn-sm btn-danger" onclick="openDeleteModal(${load.id})">Удалить</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -722,8 +723,9 @@ function deleteSelected() {
             if (r.ok) {
                 closeDeleteModal();
                 loadSchedule();
+                showToast('Записи удалены', 'success');
             } else {
-                alert('Ошибка удаления');
+                showToast('Ошибка удаления', 'danger');
             }
         });
     };
@@ -798,7 +800,7 @@ function saveSchedule() {
     const controlPoint2 = document.getElementById('controlPoint2').value;
 
     if (!teacherId || !disciplineId || !groupId || !plannedHours || !academicYear) {
-        alert('Заполните обязательные поля');
+        showToast('Заполните обязательные поля', 'danger');
         return;
     }
 
@@ -825,11 +827,12 @@ function saveSchedule() {
         if (r.ok) {
             closeModal();
             loadSchedule();
+            showToast('Запись сохранена', 'success');
         } else {
-            alert('Ошибка сохранения');
+            showToast('Ошибка сохранения', 'danger');
         }
     })
-    .catch(e => alert('Ошибка: ' + e.message));
+    .catch(e => showToast('Ошибка: ' + e.message, 'danger'));
 }
 
 function openDeleteModal(id) {
@@ -852,8 +855,9 @@ function deleteSchedule() {
             if (r.ok) {
                 closeDeleteModal();
                 loadSchedule();
+                showToast('Запись удалена', 'success');
             } else {
-                alert('Ошибка удаления');
+                showToast('Ошибка удаления', 'danger');
             }
         });
 }
@@ -883,15 +887,15 @@ function loadGlobalLunch() {
 function saveGlobalLunch() {
     const start = document.getElementById('globalLunchStart').value;
     const end = document.getElementById('globalLunchEnd').value;
-    if (!start || !end) { alert('Укажите начало и конец обеда'); return; }
+    if (!start || !end) { showToast('Укажите начало и конец обеда', 'danger'); return; }
     fetch('/api/admin/settings/lunch', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({start, end})
     }).then(async r => {
-        if (r.ok) { alert('Обед для потока сохранён'); return; }
+        if (r.ok) { showToast('Обед для потока сохранён', 'success'); return; }
         const err = await r.json().catch(() => ({}));
-        alert('Ошибка: ' + (err.error || 'не удалось сохранить'));
+        showToast('Ошибка: ' + (err.error || 'не удалось сохранить'), 'danger');
     });
 }
 
@@ -922,11 +926,11 @@ function loadGroups() {
                     <td>${g.name}</td>
                     <td>${g.course}</td>
                     <td>${g.specialty || '-'}</td>
-                    <td>${lunch} <button class="btn btn-sm btn-outline" onclick="editGroupLunch(${g.id}, '${g.lunchStart || ''}', '${g.lunchEnd || ''}')" title="Изменить обед этой группы">✏️</button></td>
-                    <td>${weeklyLimit} <button class="btn btn-sm btn-outline" onclick="editGroupWeeklyLimit(${g.id}, ${g.maxWeeklyPairs || 18})" title="Изменить недельный лимит пар этой группы">✏️</button></td>
+                    <td>${lunch} <button class="btn btn-sm btn-secondary" onclick="editGroupLunch(${g.id}, '${g.lunchStart || ''}', '${g.lunchEnd || ''}')" title="Изменить обед этой группы">Изменить</button></td>
+                    <td>${weeklyLimit} <button class="btn btn-sm btn-secondary" onclick="editGroupWeeklyLimit(${g.id}, ${g.maxWeeklyPairs || 18})" title="Изменить недельный лимит пар этой группы">Изменить</button></td>
                     <td>
-                        <button class="btn btn-sm btn-outline" onclick="editGroup(${g.id}, '${g.name}', ${g.course}, '${g.specialty || ''}')">✏️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})" style="background:var(--danger);color:#fff">🗑️</button>
+                        <button class="btn btn-sm btn-secondary" onclick="editGroup(${g.id}, '${g.name}', ${g.course}, '${g.specialty || ''}')">Изменить</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})">Удалить</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -947,8 +951,8 @@ function editGroupLunch(id, currentStart, currentEnd) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({lunchStart: start.trim() || null, lunchEnd: end.trim() || null})
     }).then(r => {
-        if (r.ok) loadGroups();
-        else alert('Ошибка обновления обеда');
+        if (r.ok) { loadGroups(); showToast('Обед группы обновлён', 'success'); }
+        else showToast('Ошибка обновления обеда', 'danger');
     });
 }
 
@@ -957,7 +961,7 @@ function editGroupWeeklyLimit(id, current) {
     if (value === null) return;
     const trimmed = value.trim();
     if (trimmed !== '' && (isNaN(trimmed) || Number(trimmed) < 1)) {
-        alert('Введите число больше нуля или оставьте пусто, чтобы вернуть значение по умолчанию (18)');
+        showToast('Введите число больше нуля или оставьте пусто, чтобы вернуть значение по умолчанию (18)', 'danger');
         return;
     }
     fetch(`/api/admin/groups/${id}`, {
@@ -965,8 +969,8 @@ function editGroupWeeklyLimit(id, current) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({maxWeeklyPairs: trimmed === '' || Number(trimmed) === 18 ? null : Number(trimmed)})
     }).then(r => {
-        if (r.ok) loadGroups();
-        else alert('Ошибка обновления лимита');
+        if (r.ok) { loadGroups(); showToast('Лимит обновлён', 'success'); }
+        else showToast('Ошибка обновления лимита', 'danger');
     });
 }
 
@@ -976,7 +980,7 @@ function addGroup() {
     const specialty = document.getElementById('newGroupSpecialty').value;
 
     if (!name || !course) {
-        alert('Введите название и курс');
+        showToast('Введите название и курс', 'danger');
         return;
     }
 
@@ -990,8 +994,9 @@ function addGroup() {
             document.getElementById('newGroupCourse').value = '';
             document.getElementById('newGroupSpecialty').value = '';
             loadGroups();
+            showToast('Группа добавлена', 'success');
         } else {
-            alert('Ошибка добавления');
+            showToast('Ошибка добавления', 'danger');
         }
     });
 }
@@ -1007,8 +1012,8 @@ function editGroup(id, name, course, specialty) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: newName, course: parseInt(newCourse), specialty: newSpecialty})
     }).then(r => {
-        if (r.ok) loadGroups();
-        else alert('Ошибка обновления');
+        if (r.ok) { loadGroups(); showToast('Группа обновлена', 'success'); }
+        else showToast('Ошибка обновления', 'danger');
     });
 }
 
@@ -1016,9 +1021,9 @@ function deleteGroup(id) {
     if (!confirm('Удалить группу полностью? Будут удалены вся связанная нагрузка, пары в расписании и кураторство. Отменить нельзя.')) return;
     fetch(`/api/admin/groups/${id}`, {method: 'DELETE'})
         .then(async r => {
-            if (r.ok) { loadGroups(); return; }
+            if (r.ok) { loadGroups(); showToast('Группа удалена', 'success'); return; }
             const err = await r.json().catch(() => ({}));
-            alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
+            showToast('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'), 'danger');
         });
 }
 
@@ -1044,8 +1049,8 @@ function loadDisciplines() {
                     <td>${d.code || '-'}</td>
                     <td>${d.name}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline" onclick="editDiscipline(${d.id}, '${d.code || ''}', '${d.name}')">✏️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteDiscipline(${d.id})" style="background:var(--danger);color:#fff">🗑️</button>
+                        <button class="btn btn-sm btn-secondary" onclick="editDiscipline(${d.id}, '${d.code || ''}', '${d.name}')">Изменить</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteDiscipline(${d.id})">Удалить</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1058,7 +1063,7 @@ function addDiscipline() {
     const name = document.getElementById('newDisciplineName').value;
 
     if (!name) {
-        alert('Введите название дисциплины');
+        showToast('Введите название дисциплины', 'danger');
         return;
     }
 
@@ -1071,8 +1076,9 @@ function addDiscipline() {
             document.getElementById('newDisciplineCode').value = '';
             document.getElementById('newDisciplineName').value = '';
             loadDisciplines();
+            showToast('Дисциплина добавлена', 'success');
         } else {
-            alert('Ошибка добавления');
+            showToast('Ошибка добавления', 'danger');
         }
     });
 }
@@ -1087,8 +1093,8 @@ function editDiscipline(id, code, name) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({code: newCode, name: newName})
     }).then(r => {
-        if (r.ok) loadDisciplines();
-        else alert('Ошибка обновления');
+        if (r.ok) { loadDisciplines(); showToast('Дисциплина обновлена', 'success'); }
+        else showToast('Ошибка обновления', 'danger');
     });
 }
 
@@ -1096,9 +1102,9 @@ function deleteDiscipline(id) {
     if (!confirm('Удалить дисциплину полностью? Будут удалены вся связанная нагрузка и пары в расписании. Отменить нельзя.')) return;
     fetch(`/api/admin/disciplines/${id}`, {method: 'DELETE'})
         .then(async r => {
-            if (r.ok) { loadDisciplines(); return; }
+            if (r.ok) { loadDisciplines(); showToast('Дисциплина удалена', 'success'); return; }
             const err = await r.json().catch(() => ({}));
-            alert('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'));
+            showToast('Ошибка удаления: ' + (err.error || 'неизвестная ошибка'), 'danger');
         });
 }
 
@@ -1112,20 +1118,20 @@ async function runSplitMergedNamesCleanup(btn) {
         const res = await fetch('/api/admin/cleanup/split-merged-names', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-            alert('Ошибка: ' + (data.error || res.status));
+            showToast('Ошибка: ' + (data.error || res.status), 'danger');
             return;
         }
         if (data.loadsSplit === 0) {
-            alert('Слитных названий групп/дисциплин не найдено — очистка не потребовалась.');
+            showToast('Слитных названий групп/дисциплин не найдено — очистка не потребовалась.', 'success');
         } else {
-            alert('Готово: разобрано нагрузок — ' + data.loadsSplit + ', создано новых записей — ' + data.loadsCreated +
+            showToast('Разобрано нагрузок — ' + data.loadsSplit + ', создано новых записей — ' + data.loadsCreated +
                 ', удалено старых пар расписания — ' + data.schedulesRemoved +
                 ', удалено пустых групп — ' + data.groupsDeleted + ', удалено пустых дисциплин — ' + data.disciplinesDeleted +
-                '.\n\nТеперь нужно заново запустить автосоставление расписания для новых записей.');
+                '. Запустите автосоставление заново для новых записей.', 'success', 'Готово');
         }
         loadGenerationYearIfNeeded();
     } catch (e) {
-        alert('Ошибка запроса: ' + e.message);
+        showToast('Ошибка запроса: ' + e.message, 'danger');
     } finally {
         if (btn) btn.disabled = false;
     }

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Кураторство</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .curatorship-layout {
             display: flex;
@@ -30,12 +31,12 @@
             transition: .15s;
         }
         .group-list li:hover {
-            background: #f3f4f6;
+            background: var(--bg);
         }
         .group-list li.active {
-            background: #f5e6ff;
-            border-left: 4px solid #9333ea;
-            color: #7e22ce;
+            background: var(--substitute-bg);
+            border-left: 4px solid var(--substitute);
+            color: var(--substitute);
             font-weight: 600;
         }
         .group-name {
@@ -57,8 +58,8 @@
         }
         .status-card {
             padding: 1rem;
-            background: #f9fafb;
-            border-radius: 0.5rem;
+            background: var(--bg);
+            border-radius: var(--radius-sm);
             margin-bottom: 1rem;
         }
         .status-high { color: var(--success); }
@@ -70,7 +71,7 @@
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">👥 Кураторство</h1>
+    <h1 class="page-title">Кураторство</h1>
 
     <div class="curatorship-layout">
         <div class="curatorship-sidebar">
@@ -86,11 +87,11 @@
             <div class="card" id="groupCard" style="display:none">
                 <div class="card-header">
                     <h2 class="card-title" id="groupTitle">Группа</h2>
-                    <button class="btn btn-sm btn-outline" onclick="addEvent()">➕ Мероприятие</button>
+                    <button class="btn btn-sm btn-secondary" onclick="addEvent()">Мероприятие</button>
                 </div>
 
                 <div class="status-card">
-                    <strong>📊 Статус выполнения:</strong>
+                    <strong>Статус выполнения:</strong>
                     <span id="completionStatus" class="status-medium">Загрузка...</span>
                     <div style="margin-top:0.5rem">
                         <div class="progress" style="width:100%">
@@ -101,7 +102,7 @@
                 </div>
 
                 <div class="curatorship-detail">
-                    <h4>📊 Кураторские часы</h4>
+                    <h4>Кураторские часы</h4>
                     <table id="hoursTable">
                         <thead>
                         <tr>
@@ -117,22 +118,22 @@
                 </div>
 
                 <div class="curatorship-detail">
-                    <h4>🎯 Мероприятия</h4>
+                    <h4>Мероприятия</h4>
                     <ul id="eventsList" style="margin: 0; padding-left: 1.2rem;"></ul>
                 </div>
 
                 <div class="curatorship-detail">
-                    <h4>📖 Журнал куратора</h4>
-                    <div style="margin-bottom:0.5rem">
-                        <input type="text" id="newLogEntry" placeholder="Введите запись..." style="width:70%;padding:0.5rem;border:1px solid var(--border);border-radius:4px">
-                        <button class="btn btn-sm" onclick="addLog()">Добавить</button>
+                    <h4>Журнал куратора</h4>
+                    <div style="margin-bottom:0.5rem; display:flex; gap:0.5rem;">
+                        <input type="text" id="newLogEntry" placeholder="Введите запись..." style="flex:1;">
+                        <button class="btn btn-sm btn-primary" onclick="addLog()">Добавить</button>
                     </div>
                     <ul id="logsList" style="margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted);"></ul>
                 </div>
             </div>
 
             <div class="card" id="noGroupsCard">
-                <p class="text-muted" style="text-align:center;padding:2rem">У вас нет закреплённых групп</p>
+                <div class="empty-state"><p class="empty-state-title">У вас нет закреплённых групп</p></div>
             </div>
         </div>
     </div>
@@ -282,8 +283,8 @@ function renderEvents(curatorship) {
             li.innerHTML = `
                 <span>${e}</span>
                 <div style="display:flex;gap:0.25rem">
-                    <button class="btn btn-sm" onclick="editEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">✏️</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">🗑️</button>
+                    <button class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Изменить</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Удалить</button>
                 </div>
             `;
             eventsList.appendChild(li);
@@ -303,8 +304,8 @@ function renderLogs(curatorship) {
             li.innerHTML = `
                 <span>${l}</span>
                 <div style="display:flex;gap:0.25rem">
-                    <button class="btn btn-sm" onclick="editLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">✏️</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">🗑️</button>
+                    <button class="btn btn-sm btn-secondary" onclick="editLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Изменить</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Удалить</button>
                 </div>
             `;
             logsList.appendChild(li);
@@ -329,7 +330,7 @@ function deleteEvent(eventIdx) {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка удаления');
+            showToast('Ошибка удаления', 'danger');
         }
     });
 }
@@ -357,7 +358,7 @@ function editEvent(eventIdx) {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка редактирования');
+            showToast('Ошибка редактирования', 'danger');
         }
     });
 }
@@ -377,7 +378,7 @@ function deleteLog(logIdx) {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка удаления');
+            showToast('Ошибка удаления', 'danger');
         }
     });
 }
@@ -405,7 +406,7 @@ function editLog(logIdx) {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка редактирования');
+            showToast('Ошибка редактирования', 'danger');
         }
     });
 }
@@ -428,7 +429,7 @@ function addEvent() {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка добавления мероприятия');
+            showToast('Ошибка добавления мероприятия', 'danger');
         }
     });
 }
@@ -452,7 +453,7 @@ function addLog() {
                     if (c) loadGroupDetails(c);
                 });
         } else {
-            alert('Ошибка добавления записи');
+            showToast('Ошибка добавления записи', 'danger');
         }
     });
 }

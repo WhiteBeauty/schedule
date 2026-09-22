@@ -3,149 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <title>Вход в систему</title>
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f7fa;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+        body { display: block; background: var(--bg); }
+        .auth-shell {
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1.5rem;
         }
-        .login-card {
-            background: white;
+        .auth-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
             padding: 2.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             width: 380px;
         }
-        h1 {
-            text-align: center;
-            color: #2c3e50;
-            margin-bottom: 0.5rem;
+        .auth-title {
             font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 0 0 0.35rem;
         }
-        .subtitle {
-            text-align: center;
-            color: #7f8c8d;
-            margin-bottom: 1.5rem;
+        .auth-subtitle {
+            color: var(--muted);
             font-size: 0.9rem;
+            margin: 0 0 1.5rem;
         }
-        .form-group {
-            margin-bottom: 1rem;
-        }
-        label {
-            display: block;
-            margin-bottom: 0.4rem;
-            color: #34495e;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-        input[type="text"], input[type="email"], input[type="password"] {
-            width: 100%;
-            padding: 0.7rem;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.95rem;
-            transition: border-color 0.2s;
-        }
-        input:focus {
-            outline: none;
-            border-color: #3498db;
-        }
-        .error {
-            color: #e74c3c;
+        .auth-notice {
             font-size: 0.85rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1.25rem;
+            padding: 0.6rem 0.85rem;
+            border-radius: var(--radius-sm);
+        }
+        .auth-notice.error { background: var(--danger-bg); color: var(--danger); }
+        .auth-notice.success { background: var(--success-bg); color: var(--success); }
+        .auth-divider {
             text-align: center;
-        }
-        .success {
-            color: #27ae60;
-            font-size: 0.85rem;
-            margin-bottom: 1rem;
-            text-align: center;
-        }
-        .btn {
-            width: 100%;
-            padding: 0.8rem;
-            background: #3498db;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .btn:hover {
-            background: #2980b9;
-        }
-        .links {
-            margin-top: 1.25rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem;
-        }
-        .links a {
-            color: #3498db;
-            text-decoration: none;
-        }
-        .links a:hover {
-            text-decoration: underline;
-        }
-        .divider {
-            text-align: center;
-            margin: 1rem 0;
-            color: #95a5a6;
+            margin: 1.25rem 0;
+            color: var(--muted);
             font-size: 0.8rem;
             position: relative;
         }
-        .divider::before, .divider::after {
+        .auth-divider::before, .auth-divider::after {
             content: '';
             position: absolute;
             top: 50%;
             width: 35%;
             height: 1px;
-            background: #ddd;
+            background: var(--border);
         }
-        .divider::before { left: 0; }
-        .divider::after { right: 0; }
+        .auth-divider::before { left: 0; }
+        .auth-divider::after { right: 0; }
+        .auth-links {
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .auth-links a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .auth-links a:hover { text-decoration: underline; }
+        .btn-block { width: 100%; }
     </style>
 </head>
 <body>
-<div class="login-card">
-    <h1>📚 Учёт нагрузки</h1>
-    <p class="subtitle">Вход в личный кабинет</p>
+<div class="auth-shell">
+    <div class="auth-card">
+        <h1 class="auth-title">Учёт нагрузки</h1>
+        <p class="auth-subtitle">Вход в личный кабинет</p>
 
-    <div th:if="${param.error}" class="error">
-        Неверный email или пароль
-    </div>
-    <div th:if="${param.logout}" class="success">
-        Вы успешно вышли из системы
-    </div>
-    <div th:if="${param.registered}" class="success">
-        Регистрация успешна! Войдите с помощью email и пароля
-    </div>
-
-    <form th:action="@{/login}" method="post">
-        <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required placeholder="Введите email">
+        <div th:if="${param.error}" class="auth-notice error">
+            Неверный email или пароль
         </div>
-        <div class="form-group">
-            <label for="password">Пароль</label>
-            <input type="password" id="password" name="password" required placeholder="Введите пароль">
+        <div th:if="${param.logout}" class="auth-notice success">
+            Вы успешно вышли из системы
         </div>
-        <button type="submit" class="btn">Войти</button>
-    </form>
+        <div th:if="${param.registered}" class="auth-notice success">
+            Регистрация успешна. Войдите с помощью email и пароля
+        </div>
 
-    <div class="divider">или</div>
+        <form th:action="@{/login}" method="post" id="login-form" novalidate>
+            <div class="field" id="field-email">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required placeholder="you@example.com" autocomplete="username">
+                <div class="field-error" id="error-email" style="display:none;"></div>
+            </div>
+            <div class="field" id="field-password">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" name="password" required placeholder="Введите пароль" autocomplete="current-password">
+                <div class="field-error" id="error-password" style="display:none;"></div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Войти</button>
+        </form>
 
-    <div class="links">
-        <a th:href="@{/register}">➕ Создать учётную запись</a>
+        <div class="auth-divider">или</div>
+
+        <div class="auth-links">
+            <a th:href="@{/register}">Создать учётную запись</a>
+        </div>
     </div>
 </div>
+<script>
+    (function () {
+        var form = document.getElementById('login-form');
+        var email = document.getElementById('email');
+        var password = document.getElementById('password');
+
+        function setError(input, fieldId, errorId, message) {
+            var field = document.getElementById(fieldId);
+            var error = document.getElementById(errorId);
+            if (message) {
+                field.classList.add('has-error');
+                error.textContent = message;
+                error.style.display = 'block';
+            } else {
+                field.classList.remove('has-error');
+                error.style.display = 'none';
+            }
+        }
+
+        function validateEmail() {
+            if (!email.value) {
+                setError(email, 'field-email', 'error-email', 'Укажите email');
+                return false;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
+                setError(email, 'field-email', 'error-email', 'Проверьте формат email');
+                return false;
+            }
+            setError(email, 'field-email', 'error-email', null);
+            return true;
+        }
+
+        function validatePassword() {
+            if (!password.value) {
+                setError(password, 'field-password', 'error-password', 'Введите пароль');
+                return false;
+            }
+            setError(password, 'field-password', 'error-password', null);
+            return true;
+        }
+
+        email.addEventListener('blur', validateEmail);
+        password.addEventListener('blur', validatePassword);
+
+        form.addEventListener('submit', function (e) {
+            var emailOk = validateEmail();
+            var passwordOk = validatePassword();
+            if (!emailOk || !passwordOk) e.preventDefault();
+        });
+    })();
+</script>
 </body>
 </html>

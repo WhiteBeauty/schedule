@@ -1,13 +1,13 @@
 <div xmlns:th="http://www.thymeleaf.org">
 
     <div th:fragment="modal">
-        <button class="btn btn-outline" onclick="openSpecialEventModal()">🎓 Экзамен/практика/вождение</button>
-        <button class="btn btn-outline" onclick="openUnresolvedCloudModal()">☁️ Не вставшие пары</button>
+        <button class="btn btn-secondary" onclick="openSpecialEventModal()">Экзамен / практика / вождение</button>
+        <button class="btn btn-secondary" onclick="openUnresolvedCloudModal()">Не вставшие пары</button>
 
         <div class="modal-overlay" id="specialEventModal">
             <div class="modal" style="max-width:640px;">
                 <div class="modal-header">
-                    <h3 style="margin:0;">🎓 Назначить экзамен / практику / вождение</h3>
+                    <h3>Назначить экзамен / практику / вождение</h3>
                     <button class="close-btn" type="button" onclick="closeSpecialEventModal()" aria-label="Закрыть">×</button>
                 </div>
                 <div class="modal-body">
@@ -52,7 +52,7 @@
                     <div id="seResult" style="margin-top:1rem;"></div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-outline" type="button" onclick="closeSpecialEventModal()">Закрыть</button>
+                    <button class="btn btn-ghost" type="button" onclick="closeSpecialEventModal()">Закрыть</button>
                     <button class="btn btn-primary" type="button" id="seSubmitBtn" onclick="submitSpecialEvent()">Назначить и перенести</button>
                 </div>
             </div>
@@ -61,7 +61,7 @@
         <div class="modal-overlay" id="unresolvedCloudModal">
             <div class="modal" style="max-width:720px;">
                 <div class="modal-header">
-                    <h3 style="margin:0;">☁️ Не вставшие пары</h3>
+                    <h3>Не вставшие пары</h3>
                     <button class="close-btn" type="button" onclick="closeUnresolvedCloudModal()" aria-label="Закрыть">×</button>
                 </div>
                 <div class="modal-body">
@@ -77,7 +77,7 @@
                     </table>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-outline" type="button" onclick="closeUnresolvedCloudModal()">Закрыть</button>
+                    <button class="btn btn-ghost" type="button" onclick="closeUnresolvedCloudModal()">Закрыть</button>
                 </div>
             </div>
         </div>
@@ -175,11 +175,11 @@
                 const resultEl = document.getElementById('seResult');
 
                 if (!groupId || !startDate) {
-                    alert('Укажите группу и дату');
+                    showToast('Укажите группу и дату', 'danger');
                     return;
                 }
                 if (type === 'EXAM' && !disciplineId) {
-                    alert('Для экзамена укажите предмет');
+                    showToast('Для экзамена укажите предмет', 'danger');
                     return;
                 }
 
@@ -216,12 +216,12 @@
 
             function renderSeResult(result) {
                 const el = document.getElementById('seResult');
-                let html = '<p style="font-weight:600;">Готово: <span style="color:#2563eb;">' + result.typeLabel + '</span>'
+                let html = '<p style="font-weight:600;">Готово: <span style="color:var(--primary-dark);">' + result.typeLabel + '</span>'
                     + (result.disciplineName ? ' — ' + result.disciplineName : '') + ', группа ' + result.groupName + ', '
                     + result.startDate + (result.endDate !== result.startDate ? ' — ' + result.endDate : '') + '</p>';
 
                 if (result.moved && result.moved.length) {
-                    html += '<p style="font-weight:600; color:#16a34a;">Перенесено автоматически (' + result.moved.length + '):</p>';
+                    html += '<p style="font-weight:600; color:var(--success);">Перенесено автоматически (' + result.moved.length + '):</p>';
                     html += '<table style="width:100%; font-size:0.85rem;"><tbody>';
                     result.moved.forEach(m => {
                         html += '<tr><td>' + m.disciplineName + ' (' + m.teacherName + ')</td>' +
@@ -233,7 +233,7 @@
                 }
 
                 if (result.unresolved && result.unresolved.length) {
-                    html += '<p style="font-weight:600; color:#dc2626; margin-top:0.75rem;">Не удалось перенести автоматически (' + result.unresolved.length + ') — они добавлены в «облако не вставших пар».</p>';
+                    html += '<p style="font-weight:600; color:var(--danger); margin-top:0.75rem;">Не удалось перенести автоматически (' + result.unresolved.length + ') — они добавлены в «облако не вставших пар».</p>';
                     html += '<ul style="font-size:0.85rem;">';
                     result.unresolved.forEach(u => {
                         html += '<li>' + u.disciplineName + ' (' + u.teacherName + '), было ' + u.originalDayOfWeek + ' ' + u.originalDate
@@ -256,12 +256,13 @@
                 try {
                     const res = await fetch('/api/special-events/' + id, {method: 'DELETE'});
                     if (!res.ok) {
-                        alert('Не удалось отменить (код ' + res.status + ')');
+                        showToast('Не удалось отменить (код ' + res.status + ')', 'danger');
                         return;
                     }
                     refreshAfterSpecialEvent();
+                    showToast('Событие отменено, пары возвращены', 'success');
                 } catch (e) {
-                    alert('Ошибка сети: ' + e.message);
+                    showToast('Ошибка сети: ' + e.message, 'danger');
                 }
             }
 
@@ -292,7 +293,7 @@
                             '<td>' + escapeHtmlSafe(u.groupName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.teacherName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.reason) + '</td>' +
-                            '<td><button class="btn btn-sm btn-outline" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
+                            '<td><button class="btn btn-sm btn-secondary" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
                         tbody.appendChild(tr);
                     });
                 } catch (e) {

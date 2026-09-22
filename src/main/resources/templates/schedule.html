@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Моё расписание</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .schedule-layout { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; }
         .schedule-sidebar { width: 220px; flex-shrink: 0; }
@@ -14,36 +15,35 @@
             padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
             cursor: pointer; transition: .15s;
         }
-        .day-list li:hover { background: #f3f4f6; }
+        .day-list li:hover { background: var(--bg); }
         .day-list li.active {
-            background: #e0e7ff; border-left: 4px solid var(--primary);
+            background: var(--primary-light); border-left: 4px solid var(--primary);
             color: var(--primary-dark); font-weight: 600;
         }
         .pair-card {
-            padding: 1rem; background: #f9fafb; border-radius: 0.5rem;
+            padding: 1rem; background: var(--bg); border-radius: var(--radius-sm);
             margin-bottom: 0.75rem; border: 1px solid var(--border);
-            transition: box-shadow .3s, border-color .3s;
         }
-        .pair-card.highlighted { border-color: var(--primary); box-shadow: 0 0 0 3px #e0e7ff; }
+        .pair-card.highlighted { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
         .pair-time { font-weight: 700; color: var(--primary); }
         .pair-details { margin-top: 0.5rem; font-size: 0.9rem; }
 
-        .mode-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+        .mode-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
         .mode-tab {
-            padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border);
-            background: #fff; cursor: pointer; font-size: 0.85rem; color: var(--muted);
+            padding: 0.6rem 1rem; border: none; border-bottom: 2px solid transparent;
+            background: transparent; cursor: pointer; font-size: 0.87rem; font-weight: 500; color: var(--muted);
         }
-        .mode-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .mode-tab.active { color: var(--primary-dark); border-bottom-color: var(--primary); font-weight: 700; }
 
         .week-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .week-grid th, .week-grid td {
             border: 1px solid var(--border); padding: 0.4rem; vertical-align: top; font-size: 0.8rem;
         }
-        .week-grid th { background: #f9fafb; text-align: center; }
-        .week-grid .time-col { width: 90px; background: #f9fafb; font-weight: 600; text-align: center; }
+        .week-grid th { background: var(--card); text-align: center; }
+        .week-grid .time-col { width: 90px; background: var(--card); font-weight: 600; text-align: center; font-family: 'JetBrains Mono', ui-monospace, monospace; }
         .grid-cell { min-height: 60px; }
         .grid-pair {
-            background: #eff6ff; border-left: 3px solid var(--primary); border-radius: 0.25rem;
+            background: var(--primary-light); border-left: 3px solid var(--primary); border-radius: var(--radius-sm);
             padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; font-size: 0.75rem;
         }
         .grid-pair.empty-room { background: transparent; border: none; color: var(--muted); font-style: italic; }
@@ -54,13 +54,13 @@
 <div th:replace="~{fragments/nav :: sidebar}"></div>
 
 <main class="main">
-    <h1 class="page-title">📅 Моё расписание</h1>
+    <h1 class="page-title">Моё расписание</h1>
 
     <div class="mode-tabs" th:if="${isAdmin}">
-        <button class="mode-tab active" id="tabList" onclick="switchMode('list')">📋 Список по дням</button>
-        <button class="mode-tab" id="tabTeacher" onclick="switchMode('teacher')">👤 По преподавателю</button>
-        <button class="mode-tab" id="tabGroup" onclick="switchMode('group')">🏛 По группе</button>
-        <button class="mode-tab" id="tabRoom" onclick="switchMode('room')">🗂 Сводный: аудитория × время</button>
+        <button class="mode-tab active" id="tabList" onclick="switchMode('list')">Список по дням</button>
+        <button class="mode-tab" id="tabTeacher" onclick="switchMode('teacher')">По преподавателю</button>
+        <button class="mode-tab" id="tabGroup" onclick="switchMode('group')">По группе</button>
+        <button class="mode-tab" id="tabRoom" onclick="switchMode('room')">Сводный: аудитория × время</button>
     </div>
 
     <div id="modeList" class="schedule-layout">
@@ -88,11 +88,13 @@
                                         th:selected="${y == year}"></option>
                             </select>
                         </label>
-                        <button class="btn btn-sm btn-outline" onclick="loadPairs()">🔄 Обновить</button>
+                        <button class="btn btn-sm btn-secondary" onclick="loadPairs()">Обновить</button>
                     </div>
                 </div>
                 <div id="pairsContainer">
-                    <p class="text-muted" style="text-align:center;padding:2rem">Загрузка...</p>
+                    <span class="skeleton skeleton-row"></span>
+                    <span class="skeleton skeleton-row"></span>
+                    <span class="skeleton skeleton-row"></span>
                 </div>
             </div>
         </div>
@@ -118,8 +120,8 @@
                 <label>Группа:
                     <select id="groupSelect" onchange="renderGroupGrid()"></select>
                 </label>
-                <button th:if="${isAdmin}" class="btn btn-outline btn-sm" onclick="openSeModalForCurrentGroup()">
-                    🎓 Экзамен/практика/вождение
+                <button th:if="${isAdmin}" class="btn btn-secondary btn-sm" onclick="openSeModalForCurrentGroup()">
+                    Экзамен / практика / вождение
                 </button>
             </div>
         </div>
@@ -152,7 +154,7 @@
 <div class="modal-overlay" id="seModal" th:if="${isAdmin}">
     <div class="modal" style="max-width:640px;">
         <div class="modal-header">
-            <h3 style="margin:0;">🎓 Назначить экзамен / практику / вождение</h3>
+            <h3>Назначить экзамен / практику / вождение</h3>
             <button class="close-btn" type="button" onclick="closeSeModal()" aria-label="Закрыть">×</button>
         </div>
         <div class="modal-body">
@@ -373,7 +375,8 @@ function renderPairs() {
 
     const filtered = pairsData.filter(p => p.dayOfWeek === currentDay);
     if (filtered.length === 0) {
-        container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Нет пар в этот день</p>';
+        container.innerHTML = '<div class="empty-state"><p class="empty-state-title">Нет пар в этот день</p>'
+            + '<p class="empty-state-text">Выберите другой день недели слева или проверьте фильтр по году.</p></div>';
         return;
     }
     filtered.sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -393,21 +396,21 @@ function renderPairs() {
             div.classList.add('substituted-pair');
             substituteBadge = '<span class="substitute-badge" title="' +
                 (sub.originalTeacherName ? 'Обычно: ' + sub.originalTeacherName : '') +
-                '">🔁 Замена' + (sub.actualTeacherName ? ': ' + sub.actualTeacherName : '') + '</span>';
+                '">Замена' + (sub.actualTeacherName ? ': ' + sub.actualTeacherName : '') + '</span>';
         }
 
         let actionsHtml = '';
         if (isAdmin) {
             actionsHtml = '<div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">' +
-                '<button class="btn btn-sm" onclick="openEditPairModal(' + p.id + ', \'' + p.dayOfWeek + '\', \'' + p.startTime + '\', \'' + p.endTime + '\', \'' + p.classroom + '\', ' + (p.academicWeek || 'null') + ')">✏️ Изменить</button>' +
-                '<button class="btn btn-sm btn-danger" onclick="deletePair(' + p.id + ')">🗑️ Удалить</button>' +
+                '<button class="btn btn-sm btn-secondary" onclick="openEditPairModal(' + p.id + ', \'' + p.dayOfWeek + '\', \'' + p.startTime + '\', \'' + p.endTime + '\', \'' + p.classroom + '\', ' + (p.academicWeek || 'null') + ')">Изменить</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deletePair(' + p.id + ')">Удалить</button>' +
                 '</div>';
         }
 
         const teacherLine = isAdmin ? ('<span class="text-muted">Преподаватель: ' + p.teacherLoad.teacher.fullName + '</span><br>') : '';
 
         div.innerHTML =
-            '<div class="pair-time">🕐 ' + startTime + ' - ' + endTime + substituteBadge + '</div>' +
+            '<div class="pair-time mono-num">' + startTime + ' - ' + endTime + '</div>' + substituteBadge +
             '<div class="pair-details">' +
                 '<strong>' + p.teacherLoad.discipline.name + '</strong><br>' +
                 teacherLine +
@@ -478,7 +481,7 @@ function renderTeacherGrid() {
     buildWeekGrid('teacherGridTable', pairs, p => {
         const sub = currentWeekSubstitution(p);
         return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
+            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">замена</span>' : '') + '</div>' +
             '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
         '</div>';
     }, isAdmin ? onDayHeaderClick : null);
@@ -505,8 +508,8 @@ function renderGroupGrid() {
         const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
         const rescheduled = !!p.rescheduledFromDate;
         const cls = (sub ? ' substituted-pair' : '') + (rescheduled ? ' rescheduled-pair' : '');
-        const badge = sub ? ' <span class="substitute-badge">🔁 замена</span>'
-            : (rescheduled ? ' <span class="rescheduled-badge" title="Перенесено с ' + p.rescheduledFromDate + '">↪ перенесено</span>' : '');
+        const badge = sub ? ' <span class="substitute-badge">замена</span>'
+            : (rescheduled ? ' <span class="rescheduled-badge" title="Перенесено с ' + p.rescheduledFromDate + '">перенесено</span>' : '');
         return '<div class="grid-pair' + cls + '">' +
             '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + badge + '</div>' +
             '<div>' + teacherLabel + ' · ауд. ' + p.classroom + '</div>' +
@@ -544,7 +547,7 @@ function renderRoomGrid() {
                     const sub = currentWeekSubstitution(p);
                     const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
                     html += '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
-                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">🔁</span>' : '') + '</div>' +
+                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">замена</span>' : '') + '</div>' +
                         '<div>' + p.teacherLoad.group.name + ' · ' + teacherLabel + '</div>' +
                         '</div>';
                 });
@@ -560,8 +563,8 @@ function renderRoomGrid() {
 function deletePair(id) {
     if (!confirm('Вы уверены, что хотите удалить эту пару?')) return;
     fetch('/api/pairs/' + id, { method: 'DELETE' }).then(r => {
-        if (r.ok) loadPairs();
-        else alert('Ошибка при удалении пары');
+        if (r.ok) { loadPairs(); showToast('Пара удалена', 'success'); }
+        else showToast('Ошибка при удалении пары', 'danger');
     });
 }
 
@@ -598,8 +601,9 @@ function saveEditPair() {
         if (r.ok) {
             closeEditPairModal();
             loadPairs();
+            showToast('Изменения сохранены', 'success');
         } else {
-            alert('Ошибка при сохранении изменений');
+            showToast('Ошибка при сохранении изменений', 'danger');
         }
     });
 }
@@ -612,15 +616,14 @@ function loadGroupEventsBanner(groupId) {
         .then(r => r.json())
         .then(events => {
             if (!events || !events.length) { el.innerHTML = ''; return; }
-            const labels = {EXAM: '📕 Экзамен', STUDY_PRACTICE: '🎓 Учебная практика',
-                PRODUCTION_PRACTICE: '🏭 Производственная практика', DRIVING: '🚗 Вождение'};
+            const labels = {EXAM: 'Экзамен', STUDY_PRACTICE: 'Учебная практика',
+                PRODUCTION_PRACTICE: 'Производственная практика', DRIVING: 'Вождение'};
             el.innerHTML = events.map(e => {
                 const range = e.startDate === e.endDate ? e.startDate : (e.startDate + ' — ' + e.endDate);
                 const disc = e.discipline ? ': ' + e.discipline.name : '';
                 const delBtn = isAdmin ? ' <span onclick="deleteSpecialEvent(' + e.id + ',\'' + groupId + '\')" ' +
-                    'title="Удалить и вернуть перенесённые пары обратно" style="cursor:pointer; margin-left:0.3rem;">🗑</span>' : '';
-                return '<span style="display:inline-block; background:#fef9c3; border:1px solid #ca8a04; ' +
-                    'border-radius:0.4rem; padding:0.2rem 0.6rem; margin:0 0.4rem 0.4rem 0; font-size:0.8rem;">' +
+                    'title="Удалить и вернуть перенесённые пары обратно" style="cursor:pointer; margin-left:0.3rem; font-weight:700;">×</span>' : '';
+                return '<span class="badge badge-warning" style="font-size:0.8rem; padding:0.3rem 0.7rem; margin:0 0.4rem 0.4rem 0;">' +
                     (labels[e.type] || e.type) + disc + ' · ' + range + delBtn + '</span>';
             }).join('');
         })
@@ -633,13 +636,14 @@ async function deleteSpecialEvent(eventId, groupId) {
         const res = await fetch('/api/special-events/' + eventId, {method: 'DELETE'});
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (body.error || res.status));
+            showToast('Ошибка: ' + (body.error || res.status), 'danger');
             return;
         }
         loadGroupEventsBanner(groupId);
         loadPairs();
+        showToast('Событие удалено, пары возвращены', 'success');
     } catch (e) {
-        alert('Ошибка сети: ' + e.message);
+        showToast('Ошибка сети: ' + e.message, 'danger');
     }
 }
 
@@ -717,9 +721,9 @@ async function submitSeModal() {
     const endDate = document.getElementById('seModalEndDate').value || startDate;
     const resultEl = document.getElementById('seModalResult');
 
-    if (!groupId) { alert('Выберите группу'); return; }
-    if (!startDate) { alert('Укажите дату'); return; }
-    if (type === 'EXAM' && !disciplineId) { alert('Для экзамена укажите предмет'); return; }
+    if (!groupId) { showToast('Выберите группу', 'danger'); return; }
+    if (!startDate) { showToast('Укажите дату', 'danger'); return; }
+    if (type === 'EXAM' && !disciplineId) { showToast('Для экзамена укажите предмет', 'danger'); return; }
 
     const btn = document.getElementById('seModalSubmitBtn');
     btn.disabled = true;
@@ -741,11 +745,11 @@ async function submitSeModal() {
             resultEl.innerHTML = '<div class="text-danger">Ошибка: ' + (body.error || res.status) + '</div>';
             return;
         }
-        let html = '<p style="font-weight:600;">Готово: <span style="color:#2563eb;">' + body.typeLabel + '</span>'
+        let html = '<p style="font-weight:600;">Готово: <span style="color:var(--primary-dark);">' + body.typeLabel + '</span>'
             + (body.disciplineName ? ' — ' + body.disciplineName : '') + ', '
             + body.startDate + (body.endDate !== body.startDate ? ' — ' + body.endDate : '') + '</p>';
         if (body.moved && body.moved.length) {
-            html += '<p style="color:#16a34a;">Перенесено автоматически: ' + body.moved.length + '</p><ul style="font-size:0.85rem;">';
+            html += '<p style="color:var(--success);">Перенесено автоматически: ' + body.moved.length + '</p><ul style="font-size:0.85rem;">';
             body.moved.forEach(m => {
                 html += '<li>' + m.disciplineName + ': ' + m.fromDayOfWeek + ' ' + m.fromDate + ' → '
                     + m.toDayOfWeek + ' ' + m.toDate + ' ' + m.toStartTime + '-' + m.toEndTime + ', ауд. ' + m.classroom + '</li>';
@@ -753,7 +757,7 @@ async function submitSeModal() {
             html += '</ul>';
         }
         if (body.unresolved && body.unresolved.length) {
-            html += '<p style="color:#dc2626;">Не удалось перенести автоматически: ' + body.unresolved.length
+            html += '<p style="color:var(--danger);">Не удалось перенести автоматически: ' + body.unresolved.length
                 + ' — перенесите вручную через "Изменить" на вкладке администратора.</p><ul style="font-size:0.85rem;">';
             body.unresolved.forEach(u => {
                 html += '<li>' + u.disciplineName + ' (' + u.teacherName + '), было ' + u.originalDayOfWeek + ' ' + u.originalDate + '</li>';
@@ -778,7 +782,7 @@ async function submitSeModal() {
 <div class="modal-overlay" id="editPairModal">
     <div class="modal">
         <div class="modal-header">
-            <h3 style="margin:0">✏️ Редактировать пару</h3>
+            <h3>Редактировать пару</h3>
             <button class="close-btn" onclick="closeEditPairModal()">×</button>
         </div>
         <div class="modal-body">

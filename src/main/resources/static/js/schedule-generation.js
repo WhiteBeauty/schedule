@@ -177,7 +177,7 @@
 
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'btn ' + (idx === 0 ? '' : 'btn-outline');
+        button.className = 'btn ' + (idx === 0 ? 'btn-primary' : 'btn-secondary');
         button.textContent = option.label;
         button.style.minWidth = '220px';
 
@@ -267,10 +267,10 @@
         card.style.display = 'block';
 
         const statusText = {
-            OK: '✅ Расписание собрано полностью',
-            NEEDS_INPUT: '❓ Нужны решения администратора',
-            PARTIAL: '⚠️ Собрано частично',
-            FAILED: '⛔ Не выполнено'
+            OK: 'Расписание собрано полностью',
+            NEEDS_INPUT: 'Нужны решения администратора',
+            PARTIAL: 'Собрано частично',
+            FAILED: 'Не выполнено'
         }[result.status] || result.status;
 
         const metrics = result.metrics || {};
@@ -382,7 +382,7 @@
         const button = document.getElementById('genRunBtn');
         if (button) {
             button.disabled = busy;
-            button.textContent = busy ? (label || 'Считаем...') : '🧮 Автосоставление';
+            button.textContent = busy ? (label || 'Считаем...') : 'Автосоставление';
         }
     }
 

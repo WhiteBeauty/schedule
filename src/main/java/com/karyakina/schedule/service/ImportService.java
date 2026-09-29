@@ -191,6 +191,7 @@ public class ImportService {
                     .disciplineName(row.disciplineName)
                     .groupName(row.groupName)
                     .totalHours(row.totalHours)
+                    .preferredDays(row.preferredDaysTime)
                     .matchStatus(status)
                     .candidateTeacherId(candidate != null ? candidate.teacher.getId() : null)
                     .candidateTeacherName(candidate != null ? candidate.teacher.getFullName() : null)

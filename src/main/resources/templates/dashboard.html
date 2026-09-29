@@ -1,608 +1,134 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Личный кабинет - Расписание</title>
-    <link rel="stylesheet" th:href="@{/css/styles.css}">
-    <script th:src="@{/js/toast.js}" defer></script>
-    <style>
-        .productivity-bar {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 1rem;
-            background: #fff;
-            border-radius: 0.75rem;
-            border: 1px solid var(--border);
-        }
-        .productivity-indicator {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-        .productivity-high { color: var(--success); }
-        .productivity-medium { color: var(--warning); }
-        .productivity-low { color: var(--danger); }
-        .productivity-info { flex: 1; }
-        .productivity-label { font-size: 0.8rem; color: var(--muted); }
-        .productivity-values { font-weight: 600; }
-        .teacher-card {
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-            padding: 1.5rem;
-            background: var(--card);
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border);
-            cursor: pointer;
-        }
-        .teacher-card:hover {
-            border-color: var(--primary);
-        }
-        .teacher-avatar {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: var(--primary);
-            color: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', ui-monospace, monospace;
-            flex-shrink: 0;
-        }
-        .teacher-info h3 {
-            margin: 0 0 0.25rem;
-            font-size: 1.25rem;
-        }
-        .teacher-detail {
-            font-size: 0.9rem;
-            color: var(--muted);
-            margin: 0.1rem 0;
-        }
-        .load-table-container {
-            overflow-x: auto;
-        }
-        .load-table th {
-            white-space: nowrap;
-        }
-        .remaining-warning {
-            background: var(--danger-bg);
-            color: var(--danger);
-            font-weight: 600;
-        }
-        .filter-bar {
-            display: flex;
-            gap: 0.75rem;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-        .tabs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 0.5rem;
-        }
-        .tab {
-            padding: 0.5rem 1rem;
-            border-radius: 0.4rem;
-            text-decoration: none;
-            color: var(--text);
-            font-weight: 500;
-            transition: .15s;
-        }
-        .tab:hover { background: var(--bg); }
-        .tab.active {
-            background: var(--primary);
-            color: #fff;
-        }
-        .dashboard-toolbar {
-            background: var(--card);
-            border-bottom: 1px solid var(--border);
-            padding: 0.75rem 2rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-    </style>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('dashboard', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <div th:if="${teacher != null}" class="dashboard-toolbar">
-        <a th:href="@{/dashboard}" class="btn btn-sm btn-secondary">Главное меню</a>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <div class="topbar-search">
+        <span th:replace="~{fragments/icons :: search}"></span>
+        <input type="search" id="globalSearch" placeholder="Поиск группы, преподавателя…">
+    </div>
+</div>
 
-        <div class="productivity-bar" style="flex: 1; margin: 0; padding: 0.5rem 1rem;">
-            <div class="productivity-indicator" th:classappend="${productivity != null && productivity.level == 'HIGH' ? 'productivity-high' : (productivity != null && productivity.level == 'MEDIUM' ? 'productivity-medium' : 'productivity-low')}">
-                <span th:text="${productivity != null ? (productivity.level == 'HIGH' ? '▲▲▲' : (productivity.level == 'MEDIUM' ? '▲' : '▼▼▼')) : '—'}"></span>
-            </div>
-            <div class="productivity-info">
-                <div class="productivity-label">Продуктивность</div>
-                <div class="productivity-values" th:if="${productivity != null}">
-                    <span th:text="${#numbers.formatDecimal(productivity.index, 1, 1)}">0</span>% (сейчас: <span th:text="${#numbers.formatDecimal(productivity.index, 1, 1)}">0</span>%, норма: <span th:text="${#numbers.formatDecimal(productivity.target, 1, 1)}">0</span>%)
-                </div>
-                <div class="productivity-values" th:unless="${productivity != null}">Нет данных</div>
-                <div style="font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem;" th:if="${productivity != null}">
-                    План: <span th:text="${#numbers.formatDecimal(productivity.planCompletionPercent, 1, 1)}">0</span>% |
-                    Своевременность: <span th:text="${#numbers.formatDecimal(productivity.timelinessPercent, 1, 1)}">0</span>% |
-                    Точность: <span th:text="${#numbers.formatDecimal(productivity.accuracyPercent, 1, 1)}">0</span>%
-                </div>
-            </div>
+<div th:fragment="topbarRight" class="topbar-right">
+    <span class="topbar-date" th:text="${todayLabel}">29 сентября, вторник</span>
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+        <span class="topbar-bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
+    <div class="page-heading">
+        <div>
+            <h1>Дашборд</h1>
+            <p class="page-heading-sub">
+                <span th:text="${currentSemester == 1 ? 'Осенний' : 'Весенний'}">Осенний</span> семестр
+                <span th:text="${currentAcademicYear}">2026-2027</span> ·
+                <span th:text="${metrics.currentWeek}">1</span>-я учебная неделя
+            </p>
         </div>
-
-        <a th:href="@{/schedule}" class="btn btn-sm">Моё расписание</a>
-        <button th:if="${teacher != null}" onclick="openSickLeaveModal('sick')" class="btn btn-sm btn-secondary">Заболел</button>
-        <button th:if="${teacher != null}" onclick="openSickLeaveModal('force')" class="btn btn-sm btn-secondary" style="border-color:var(--warning);color:var(--warning);">Форс-мажор</button>
+        <div class="page-heading-actions" th:if="${isAdmin}">
+            <a class="btn btn-secondary" th:href="@{/reports}">
+                <span th:replace="~{fragments/icons :: download}"></span>Экспорт в Excel
+            </a>
+            <a class="btn" th:href="@{/schedule}">
+                <span th:replace="~{fragments/icons :: plus}"></span>Сгенерировать расписание
+            </a>
+        </div>
     </div>
 
-    <div th:if="${teacher == null && isAdmin}" class="dashboard-toolbar">
-        <a th:href="@{/admin/teachers}" class="btn btn-sm btn-primary">Просмотр всех преподавателей</a>
-        <a th:href="@{/logout}" class="btn btn-sm btn-ghost" style="margin-left:auto;color:var(--danger);">Выйти</a>
-    </div>
-
-    <h1 class="page-title" th:if="${teacher != null}">Личный кабинет преподавателя</h1>
-    <h1 class="page-title" th:if="${teacher == null && isAdmin}">Панель администратора</h1>
-
-        <div class="teacher-card" id="teacherCard" th:data-teacher-id="${teacher != null ? teacher.id : null}" th:if="${teacher != null}">
-            <div class="teacher-avatar" th:text="${teacher.fullName != null ? teacher.fullName.substring(0, 1).toUpperCase() : '?'}">?</div>
-            <div class="teacher-info">
-                <h3 th:text="${teacher.fullName}">ФИО преподавателя</h3>
-                <p class="teacher-detail">
-                    <span th:text="${teacher.phone ?: 'Нет'}">+7xxx</span>
-                    &nbsp;|&nbsp;
-                    <span th:text="${teacher.email ?: 'Нет'}">email</span>
-                </p>
-                <p class="teacher-detail">
-                    Дата рождения: <span th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">dd.mm.yyyy</span>
-                </p>
-                <p class="text-muted" style="font-size: 0.8rem; margin-top: 0.5rem;">
-                    Нажмите на карточку для просмотра полной информации
-                </p>
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="metric-label">Пар на этой неделе</div>
+            <div class="metric-value" th:text="${metrics.pairsThisWeek}">0</div>
+            <div class="metric-delta" th:if="${metrics.pairsDelta != 0}">
+                <span th:replace="~{fragments/icons :: trending-up}"></span>
+                <span th:text="${(metrics.pairsDelta > 0 ? '+' : '') + metrics.pairsDelta}">+0</span> к прошлой неделе
             </div>
         </div>
-
-        <div class="tabs">
-            <a href="#load" class="tab active">Нагрузка на <span th:text="${year}"></span></a>
-            <a th:href="@{/monthly(year=${year})}" class="tab">Помесячный учёт</a>
-            <a th:href="@{/curatorship}" class="tab">Кураторство</a>
+        <div class="metric-card">
+            <div class="metric-label">Свободные окна</div>
+            <div class="metric-value" th:text="${metrics.freeGapsCount}">0</div>
         </div>
+        <div class="metric-card" th:classappend="${metrics.conflictsCount > 0} ? 'is-danger' : ''">
+            <div class="metric-label">
+                <span th:if="${metrics.conflictsCount > 0}" th:replace="~{fragments/icons :: alert-triangle}"></span>
+                Конфликты
+            </div>
+            <div class="metric-value" th:text="${metrics.conflictsCount}">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Средняя загрузка ставки</div>
+            <div class="metric-value" th:text="${#numbers.formatDecimal(metrics.avgLoadPercent, 1, 1)} + '%'">0%</div>
+            <div class="progress-track" style="width:100%; margin-top:8px;">
+                <div class="progress-fill" th:style="'width:' + ${metrics.avgLoadPercent} + '%'"></div>
+            </div>
+        </div>
+    </div>
 
-        <div class="card">
+    <div class="two-col">
+        <div class="card" style="flex:1.4;">
             <div class="card-header">
-                <h2 class="card-title">Нагрузка на <span th:text="${year}"></span> учебный год</h2>
+                <span class="card-title">Статус расписания</span>
+                <span th:if="${metrics.conflictsCount > 0 or metrics.unresolvedCount > 0}" class="chip chip-warning">Требует внимания</span>
+                <span th:unless="${metrics.conflictsCount > 0 or metrics.unresolvedCount > 0}" class="chip chip-success">Актуально</span>
             </div>
-            
-            <div class="filter-bar">
-                <input type="text" id="filterDiscipline" placeholder="Фильтр по дисциплине...">
-                <input type="text" id="filterGroup" placeholder="Фильтр по группе...">
-                <select id="filterStatus">
-                    <option value="">Все статусы</option>
-                    <option value="warning">С переработкой</option>
-                </select>
-            </div>
-
-            <div class="load-table-container">
-                <table class="load-table">
-                    <thead>
-                        <tr>
-                            <th class="sortable" data-sort="discipline">Дисциплина</th>
-                            <th>КОНТ. 1-пл</th>
-                            <th>КОНТ. 2-пл</th>
-                            <th class="sortable" data-sort="hours1">часов 1-пл</th>
-                            <th class="sortable" data-sort="hours2">часов 2-пл</th>
-                            <th class="sortable" data-sort="yearTotal">За год</th>
-                            <th class="sortable" data-sort="remaining">Осталось</th>
-                            <th class="sortable" data-sort="read">Вычитано</th>
-                            <th>Группа</th>
-                        </tr>
-                    </thead>
-                    <tbody id="loadTableBody">
-                        <tr th:each="load : ${loads}">
-                            <td th:text="${load.discipline}">Дисциплина</td>
-                            <td th:text="${load.controlPoint1}">-</td>
-                            <td th:text="${load.controlPoint2}">-</td>
-                            <td th:text="${load.plannedHoursFirst}">0</td>
-                            <td th:text="${load.plannedHoursSecond}">0</td>
-                            <td th:text="${load.totalPlannedHours}">0</td>
-                            <td th:classappend="${load.remainingHours > load.plannedHoursSecond ? 'remaining-warning' : ''}" 
-                                th:text="${load.remainingHours}">0</td>
-                            <td th:text="${load.readHours}">0</td>
-                            <td th:text="${load.groupName}">Группа</td>
-                        </tr>
-                    </tbody>
-                    <tfoot>
-                        <tr style="font-weight: 600; background: var(--bg);">
-                            <td colspan="3" th:text="'Всего дисциплин: ' + ${totalDisciplines}">Всего: 0</td>
-                            <td th:text="${totalHours1}">0</td>
-                            <td th:text="${totalHours2}">0</td>
-                            <td th:text="${totalYearHours}">0</td>
-                            <td th:text="${totalRemaining}">0</td>
-                            <td th:text="${totalRead}">0</td>
-                            <td th:text="'Кол-во групп: ' + ${totalGroups}">0</td>
-                        </tr>
-                    </tfoot>
-                </table>
+            <p class="page-heading-sub" style="margin:0 0 16px;" th:if="${metrics.conflictsCount > 0 or metrics.unresolvedCount > 0}">
+                Найдено конфликтов: <strong th:text="${metrics.conflictsCount}">0</strong>,
+                не расставлено после переносов: <strong th:text="${metrics.unresolvedCount}">0</strong>.
+                Откройте расписание, чтобы просмотреть и устранить их.
+            </p>
+            <p class="page-heading-sub" style="margin:0 0 16px;" th:unless="${metrics.conflictsCount > 0 or metrics.unresolvedCount > 0}">
+                Двойных занятий по аудиториям и преподавателям на этой неделе не найдено,
+                все перенесённые пары успешно расставлены.
+            </p>
+            <div style="margin-top:auto; display:flex; gap:10px;">
+                <a class="btn" th:href="@{/schedule}">Просмотреть расписание</a>
+                <a class="btn btn-secondary" th:if="${isAdmin}" th:href="@{/import}">Импорт данных</a>
             </div>
         </div>
 
-        <div th:if="${teacher == null && isAdmin}">
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">Преподаватели системы</h2>
-                    <a th:href="@{/admin/teachers}" class="btn btn-primary">Посмотреть всех</a>
+        <div class="card" style="flex:1;">
+            <div class="card-header">
+                <span class="card-title">Уведомления</span>
+                <a class="auth-link" style="font-size:12.5px;" th:href="@{/notifications}">Прочитать все</a>
+            </div>
+            <div th:if="${#lists.isEmpty(notifications)}" class="empty-state" style="padding:24px 10px;">
+                <p class="empty-state-title" style="font-size:14px;">Уведомлений нет</p>
+            </div>
+            <div th:each="n : ${notifications}" class="notif-item">
+                <div class="notif-dot"
+                     th:classappend="${(n.type.name() == 'SUBSTITUTION_ACCEPTED' or n.type.name() == 'IMPORT_REPORT') ? 'success' : ((n.type.name() == 'SCHEDULE_CONFLICT' or n.type.name() == 'SUBSTITUTION_UNRESOLVED' or n.type.name() == 'SICK_LEAVE') ? 'warning' : ((n.type.name() == 'SUBSTITUTION_REQUEST' or n.type.name() == 'SCHEDULE_CHANGED' or n.type.name() == 'LOAD_CHANGED') ? 'info' : 'neutral'))}">
+                    <span th:replace="~{fragments/icons :: info}"></span>
                 </div>
-                <div id="adminTeacherList">
-                    <span class="skeleton skeleton-row"></span>
-                    <span class="skeleton skeleton-row"></span>
-                    <span class="skeleton skeleton-row"></span>
+                <div>
+                    <div class="notif-text" th:text="${n.title}">Заголовок</div>
+                    <div class="notif-time" th:text="${#temporals.format(n.createdAt, 'dd.MM, HH:mm')}">10 мин назад</div>
                 </div>
-            </div>
-        </div>
-    </main>
-
-    <div class="modal-overlay" id="teacherModal" th:if="${teacher != null}">
-        <div class="modal">
-            <div class="modal-header">
-                <h3 style="margin: 0;">Полная информация</h3>
-                <button class="close-btn" id="closeModal">&times;</button>
-            </div>
-            <div class="modal-body">
-                <h4 style="margin: 0 0 1rem;" th:text="${teacher.fullName}">ФИО</h4>
-                
-                <table style="margin-bottom: 1.5rem;">
-                    <tr>
-                        <td style="width: 150px;"><strong>Должность:</strong></td>
-                        <td th:text="${teacher.position ?: 'Не указана'}">-</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Кафедра:</strong></td>
-                        <td th:text="${teacher.department ?: 'Не указана'}">-</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Телефон:</strong></td>
-                        <td th:text="${teacher.phone ?: 'Нет'}">-</td>
-                    </tr>
-                    <tr>
-                        <td><strong>E-mail:</strong></td>
-                        <td th:text="${teacher.email ?: 'Нет'}">-</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Дата рождения:</strong></td>
-                        <td th:text="${teacher.birthDate != null ? #temporals.format(teacher.birthDate, 'dd.MM.yyyy') : 'Не указана'}">-</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Ставка:</strong></td>
-                        <td th:text="${teacher.rate != null ? teacher.rate + ' ставки' : 'Не указана'}">-</td>
-                    </tr>
-                </table>
-
-                <h4 style="margin: 0 0 0.75rem;">Сводная статистика за <span th:text="${year}"></span> год</h4>
-                <table th:if="${profile != null}">
-                    <tr>
-                        <td style="width: 200px;"><strong>Всего дисциплин:</strong></td>
-                        <td th:text="${profile.totalDisciplines}">0</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Плановых часов:</strong></td>
-                        <td th:text="${profile.totalPlannedHours}">0</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Проведено часов:</strong></td>
-                        <td th:text="${profile.totalReadHours}">0</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Осталось часов:</strong></td>
-                        <td th:text="${profile.totalRemainingHours}">0</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Индекс продуктивности:</strong></td>
-                        <td>
-                            <span th:text="${profile.productivityIndex + '%'}">0%</span>
-                            <span class="badge" th:classappend="${profile.productivityLevel == 'HIGH' ? 'badge-success' : (profile.productivityLevel == 'MEDIUM' ? 'badge-warning' : 'badge-danger')}">
-                                <span th:text="${profile.productivityLevel == 'HIGH' ? 'Высокая' : (profile.productivityLevel == 'MEDIUM' ? 'Средняя' : 'Низкая')}"></span>
-                            </span>
-                        </td>
-                    </tr>
-                </table>
-                <p class="text-muted" th:if="${profile == null}">Нет данных о нагрузке</p>
-
-                <h4 style="margin: 1.5rem 0 0.75rem;" th:if="${profile != null}">Нагрузка по дисциплинам</h4>
-                <table style="font-size: 0.85rem;" th:if="${profile != null}">
-                    <thead>
-                        <tr>
-                            <th>Дисциплина</th>
-                            <th>Группа</th>
-                            <th>План</th>
-                            <th>Факт</th>
-                            <th>Осталось</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr th:each="load : ${profile.loads}">
-                            <td th:text="${load.discipline}">-</td>
-                            <td th:text="${load.groupName}">-</td>
-                            <td th:text="${load.planned}">0</td>
-                            <td th:text="${load.read}">0</td>
-                            <td th:text="${load.remaining}">0</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline" id="closeModalFooter">Закрыть</button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="sickLeaveModal" th:if="${teacher != null}">
-        <div class="modal">
-            <div class="modal-header">
-                <h3 id="sickModalTitle">Больничный лист</h3>
-                <button class="close-btn" onclick="closeSickLeaveModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="field">
-                    <label>Дата начала *</label>
-                    <input type="date" id="sickStart" required>
-                </div>
-                <div class="field">
-                    <label>Дата конца *</label>
-                    <input type="date" id="sickEnd" required>
-                </div>
-                <div class="field">
-                    <label>Причина (необязательно)</label>
-                    <input type="text" id="sickReason" placeholder="Например: ОРВИ">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-ghost" onclick="closeSickLeaveModal()">Отмена</button>
-                <button class="btn btn-primary" onclick="submitSickLeave()">Отправить</button>
-            </div>
-        </div>
-    </div>
-
-    <script th:inline="javascript">
-        /*<![CDATA[*/
-        window.defaultAcademicYear = /*[[${defaultYear}]]*/ 2026;
-        /*]]>*/
-    </script>
     <script>
-        // Modal handling
-        const teacherCard = document.getElementById('teacherCard');
-        const teacherModal = document.getElementById('teacherModal');
-        const closeModal = document.getElementById('closeModal');
-        const closeModalFooter = document.getElementById('closeModalFooter');
-        const defaultAcademicYear = window.defaultAcademicYear || new Date().getFullYear();
-
-        teacherCard?.addEventListener('click', () => {
-            teacherModal.classList.add('active');
-        });
-
-        const closeAllModals = () => {
-            teacherModal.classList.remove('active');
-        };
-
-        closeModal?.addEventListener('click', closeAllModals);
-        closeModalFooter?.addEventListener('click', closeAllModals);
-        teacherModal?.addEventListener('click', (e) => {
-            if (e.target === teacherModal) closeAllModals();
-        });
-
-        // Sorting
-        let sortDir = {};
-        document.querySelectorAll('th.sortable').forEach(th => {
-            th.addEventListener('click', () => {
-                const column = th.dataset.sort;
-                sortDir[column] = sortDir[column] === 'desc' ? 'asc' : 'desc';
-                document.querySelectorAll('th.sortable').forEach(c => {
-                    c.classList.remove('sort-asc', 'sort-desc');
-                });
-                th.classList.add(sortDir[column] === 'asc' ? 'sort-asc' : 'sort-desc');
-                sortTable(column, sortDir[column]);
-            });
-        });
-
-        function sortTable(column, direction) {
-            const tbody = document.getElementById('loadTableBody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            rows.sort((a, b) => {
-                const aVal = a.cells[getColumnIndex(column)].textContent.trim();
-                const bVal = b.cells[getColumnIndex(column)].textContent.trim();
-                const aNum = parseFloat(aVal) || 0;
-                const bNum = parseFloat(bVal) || 0;
-                const cmp = column === 'discipline' || column === 'group' 
-                    ? aVal.localeCompare(bVal) 
-                    : aNum - bNum;
-                return direction === 'asc' ? cmp : -cmp;
-            });
-            tbody.innerHTML = '';
-            rows.forEach(r => tbody.appendChild(r));
-        }
-
-        function getColumnIndex(column) {
-            const map = { discipline: 0, hours1: 3, hours2: 4, yearTotal: 5, remaining: 6, read: 7, group: 8 };
-            return map[column] || 0;
-        }
-
-        // Sick Leave / Force majeure
-        let sickLeaveMode = 'sick';
-
-        function openSickLeaveModal(mode) {
-            sickLeaveMode = mode || 'sick';
-            const title = document.getElementById('sickModalTitle');
-            const reason = document.getElementById('sickReason');
-            const today = new Date().toISOString().slice(0, 10);
-            document.getElementById('sickStart').value = today;
-            document.getElementById('sickEnd').value = today;
-
-            if (sickLeaveMode === 'force') {
-                title.textContent = 'Форс-мажор';
-                reason.placeholder = 'Например: авария, срочный вызов';
-                if (!reason.value) reason.value = 'Форс-мажор';
-            } else {
-                title.textContent = 'Больничный лист';
-                reason.placeholder = 'Например: ОРВИ';
-                if (reason.value === 'Форс-мажор') reason.value = '';
-            }
-            document.getElementById('sickLeaveModal').classList.add('active');
-        }
-
-        function closeSickLeaveModal() {
-            document.getElementById('sickLeaveModal').classList.remove('active');
-        }
-
-        function submitSickLeave() {
-            const startDate = document.getElementById('sickStart').value;
-            const endDate = document.getElementById('sickEnd').value;
-            let reason = document.getElementById('sickReason').value || '';
-            if (sickLeaveMode === 'force' && !reason) {
-                reason = 'Форс-мажор';
-            }
-
-            if (!startDate || !endDate) {
-                showToast('Выберите даты начала и конца', 'danger');
-                return;
-            }
-
-            fetch('/api/sick-leaves', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    startDate,
-                    endDate,
-                    reason,
-                    academicYear: defaultAcademicYear
+        (function () {
+            fetch('/api/notifications/unread-count')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    var badge = document.getElementById('bellBadge');
+                    if (data.unread > 0) { badge.style.display = 'flex'; badge.textContent = data.unread; }
                 })
-            }).then(r => {
-                if (r.ok) {
-                    showToast(sickLeaveMode === 'force'
-                        ? 'Форс-мажор зарегистрирован. Идёт поиск замены.'
-                        : 'Больничный лист зарегистрирован. Идёт поиск замены.', 'success', 'Сохранено');
-                    closeSickLeaveModal();
-                } else {
-                    showToast('Ошибка регистрации', 'danger');
-                }
+                .catch(function () {});
+
+            document.getElementById('globalSearch').addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter') return;
+                var q = e.target.value.trim();
+                if (q) window.location.href = '/schedule?q=' + encodeURIComponent(q);
             });
-        }
-
-        // Filtering
-        document.getElementById('filterDiscipline')?.addEventListener('input', filterTable);
-        document.getElementById('filterGroup')?.addEventListener('input', filterTable);
-        document.getElementById('filterStatus')?.addEventListener('change', filterTable);
-
-        function filterTable() {
-            const discipline = document.getElementById('filterDiscipline').value.toLowerCase();
-            const group = document.getElementById('filterGroup').value.toLowerCase();
-            const status = document.getElementById('filterStatus').value;
-            
-            document.querySelectorAll('#loadTableBody tr').forEach(row => {
-                const discText = row.cells[0]?.textContent.toLowerCase() || '';
-                const groupText = row.cells[8]?.textContent.toLowerCase() || '';
-                const remaining = parseFloat(row.cells[6]?.textContent) || 0;
-                const planned = parseFloat(row.cells[5]?.textContent) || 0;
-                
-                const matchDisc = !discipline || discText.includes(discipline);
-                const matchGroup = !group || groupText.includes(group);
-                const matchStatus = !status || (status === 'warning' ? remaining > planned : true);
-                
-                row.style.display = (matchDisc && matchGroup && matchStatus) ? '' : 'none';
-            });
-        }
+        })();
     </script>
-
-    <script th:if="${isAdmin and teacher == null}">
-        // Admin: Load teacher list
-        document.addEventListener('DOMContentLoaded', () => {
-            const listContainer = document.getElementById('adminTeacherList');
-            if (!listContainer) return;
-
-            fetch('/api/teachers')
-                .then(r => r.json())
-                .then(teachers => {
-                    if (teachers.length === 0) {
-                        listContainer.innerHTML = '<div class="empty-state"><p class="empty-state-title">Преподаватели не найдены</p><p class="empty-state-text">Добавьте преподавателей через раздел импорта нагрузки.</p></div>';
-                        return;
-                    }
-
-                    listContainer.innerHTML = teachers.map(t => `
-                        <div class="teacher-card" onclick="viewAdminTeacher(${t.id})" style="cursor: pointer; margin-bottom: 0.75rem;">
-                            <div class="teacher-avatar" style="width: 50px; height: 50px; font-size: 1.25rem;">${getInitials(t.fullName)}</div>
-                            <div class="teacher-info">
-                                <h3 style="font-size: 1rem; margin: 0 0 0.25rem;">${t.fullName}</h3>
-                                <p class="teacher-detail" style="font-size: 0.8rem;">${t.email || '-'}</p>
-                                <p class="teacher-detail" style="font-size: 0.8rem;">${t.department || '-'} | ${t.position || '-'}</p>
-                            </div>
-                        </div>
-                    `).join('');
-                })
-                .catch(e => {
-                    listContainer.innerHTML = '<p class="text-danger">Ошибка загрузки</p>';
-                });
-        });
-
-        function viewAdminTeacher(id) {
-            const year = defaultAcademicYear;
-            fetch(`/api/teachers/${id}/profile?year=${year}`)
-                .then(r => r.json())
-                .then(p => {
-                    const loadsHtml = p.loads.map(l => `
-                        <tr>
-                            <td>${l.discipline}</td>
-                            <td>${l.groupName}</td>
-                            <td>${l.planned}</td>
-                            <td>${l.read}</td>
-                            <td>${l.remaining}</td>
-                        </tr>
-                    `).join('');
-
-                    const modalHtml = `
-                        <div class="modal-overlay active" id="adminTeacherModal">
-                            <div class="modal">
-                                <div class="modal-header">
-                                    <h3>${p.fullName}</h3>
-                                    <button class="close-btn" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">×</button>
-                                </div>
-                                <div class="modal-body">
-                                    <table style="margin-bottom: 1.5rem;">
-                                        <tr><td style="width: 150px;"><strong>Email:</strong></td><td>${p.email || '-'}</td></tr>
-                                        <tr><td><strong>Кафедра:</strong></td><td>${p.department || '-'}</td></tr>
-                                        <tr><td><strong>Должность:</strong></td><td>${p.position || '-'}</td></tr>
-                                        <tr><td><strong>Телефон:</strong></td><td>${p.phone || '-'}</td></tr>
-                                        <tr><td><strong>Ставка:</strong></td><td>${p.rate || '-'} ставки</td></tr>
-                                    </table>
-                    <h4>Нагрузка на ${year} год</h4>
-                                    <table style="font-size: 0.85rem;">
-                                        <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th></tr></thead>
-                                        <tbody>${loadsHtml}</tbody>
-                                    </table>
-                                    <div style="margin-top: 1rem; padding: 1rem; background: var(--bg); border-radius: var(--radius-sm);">
-                                        <strong>Продуктивность:</strong> ${p.avgProductivity}%
-                                        <span class="badge ${p.avgProductivity >= 90 ? 'badge-success' : (p.avgProductivity >= 70 ? 'badge-warning' : 'badge-danger')}">
-                                            ${p.avgProductivity >= 90 ? 'Высокая' : (p.avgProductivity >= 70 ? 'Средняя' : 'Низкая')}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button class="btn btn-secondary" onclick="document.getElementById('adminTeacherModal').classList.remove('active')">Закрыть</button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    document.body.insertAdjacentHTML('beforeend', modalHtml);
-                });
-        }
-
-        function getInitials(name) {
-            if (!name) return '?';
-            const parts = name.trim().split(' ');
-            if (parts.length === 1) return parts[0][0].toUpperCase();
-            return (parts[0][0] + parts[1][0]).toUpperCase();
-        }
-    </script>
+</div>
 </body>
 </html>

@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('import', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
+<body>
+
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Импорт</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
+    <style>
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 14px; }
+        .stat-box { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 14px; text-align: center; }
+        .stat-box .num { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--color-primary); }
+        .stat-box .label { font-size: 12px; color: var(--color-text-muted); margin-top: 3px; }
+    </style>
+
+    <div class="segmented" id="importTypeSegmented" style="width:fit-content;">
+        <button type="button" data-type="load" th:classappend="${importType == 'load'} ? 'active' : ''">Нагрузка</button>
+        <button type="button" data-type="tarification" th:classappend="${importType == 'tarification'} ? 'active' : ''">Тарификация</button>
+    </div>
+
+    <div id="panelLoad" th:style="${importType == 'load'} ? '' : 'display:none;'">
+        <p class="page-heading-sub" style="margin:0 0 14px;">
+            Excel (.xlsx/.xls) или CSV с нагрузкой преподавателей. Система сама сопоставляет ФИО
+            с уже существующими преподавателями и распознаёт группы/дисциплины, записанные слитно.
+        </p>
+
+        <div class="stepper" id="stepper" style="margin-bottom:18px;">
+            <div class="stepper-item is-active" id="stepUpload">
+                <div class="stepper-circle">1</div>
+                <div class="stepper-label">Загрузка файла</div>
+            </div>
+            <div class="stepper-line"></div>
+            <div class="stepper-item" id="stepReview">
+                <div class="stepper-circle">2</div>
+                <div class="stepper-label">Проверка данных</div>
+            </div>
+            <div class="stepper-line"></div>
+            <div class="stepper-item" id="stepDone">
+                <div class="stepper-circle">3</div>
+                <div class="stepper-label">Подтверждение</div>
+            </div>
+        </div>
+
+        <div class="field" style="max-width:220px; margin-bottom:16px;">
+            <label for="academicYearInput">Учебный год (начало)</label>
+            <input type="number" id="academicYearInput" th:value="${year}">
+        </div>
+
+        <div class="card" id="paneUpload">
+            <div id="dropzoneWrap">
+                <div class="file-card" id="dropzone" style="border-style:dashed; cursor:pointer; justify-content:center;">
+                    <div class="file-card-icon"><span th:replace="~{fragments/icons :: upload}"></span></div>
+                    <div>
+                        <div class="file-card-name" id="dropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать</div>
+                        <div class="file-card-meta">.xlsx, .xls, .csv</div>
+                    </div>
+                </div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+            </div>
+            <div id="fileChosenWrap" style="display:none; margin-top:14px;">
+                <div class="file-card">
+                    <div class="file-card-icon"><span th:replace="~{fragments/icons :: file-text}"></span></div>
+                    <div style="flex:1;">
+                        <div class="file-card-name" id="chosenFileName">—</div>
+                        <div class="file-card-meta" id="chosenFileMeta">—</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="clearBtn">Загрузить другой файл</button>
+                </div>
+            </div>
+            <div style="margin-top:16px;">
+                <button type="button" class="btn" id="previewBtn" disabled>Проверить и сопоставить данные</button>
+            </div>
+        </div>
+
+        <div class="card" id="paneReview" style="display:none; flex-direction:column; min-height:0;">
+            <p class="page-heading-sub" id="previewSummary" style="margin:0 0 14px;"></p>
+            <div class="chip chip-warning" id="splitHint" style="display:none; width:fit-content; margin-bottom:14px;">
+                Строки, где группы или дисциплины были записаны слитно через запятую/«;», разобраны автоматически —
+                перепроверьте отмеченные звёздочкой
+            </div>
+            <div style="overflow:auto; flex:1;">
+                <table class="data-table" id="previewTable">
+                    <thead>
+                    <tr>
+                        <th>№</th>
+                        <th>Группа(ы)</th>
+                        <th>Дисциплина</th>
+                        <th>Преподаватель</th>
+                        <th>Предпочтительные дни</th>
+                        <th>Статус</th>
+                        <th>Действие</th>
+                    </tr>
+                    </thead>
+                    <tbody id="previewBody"></tbody>
+                </table>
+            </div>
+            <div class="bottom-bar">
+                <span class="page-heading-sub" id="unresolvedHint" style="margin-right:auto; align-self:center;"></span>
+                <button type="button" class="btn btn-secondary" id="backToUploadBtn">Отмена</button>
+                <button type="button" class="btn" id="confirmBtn" disabled>Импортировать</button>
+            </div>
+        </div>
+
+        <div class="card" id="paneDone" style="display:none;">
+            <p class="page-heading-sub" id="reportSummary" style="margin:0 0 16px; font-weight:600; color:var(--color-text);"></p>
+            <div class="metric-grid" id="reportStats"></div>
+            <div id="errorsWrap" style="display:none; margin-top:18px;">
+                <div class="card-title" style="margin-bottom:10px;">Строки с ошибками</div>
+                <table class="data-table">
+                    <thead><tr><th>Строка</th><th>Ошибка</th><th>Содержимое</th></tr></thead>
+                    <tbody id="errorsBody"></tbody>
+                </table>
+            </div>
+            <div style="margin-top:18px;">
+                <button type="button" class="btn btn-secondary" id="restartBtn">Импортировать ещё файл</button>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:18px;">
+            <div class="card-header" style="align-items:center;">
+                <span class="card-title">Аудитории</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="toggleAddClassroomBtn">Добавить</button>
+            </div>
+            <p class="page-heading-sub" style="margin:0 0 14px;">
+                Фонд аудиторий для автосоставления расписания. Аудитория без указанных дисциплин
+                открыта для любых пар.
+            </p>
+            <div id="addClassroomForm" style="display:none; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end;">
+                <div class="field" style="width:160px;"><label>Название</label><input type="text" id="newClassroomName" placeholder="например 305"></div>
+                <div class="field" style="width:130px;"><label>Вместимость</label><input type="number" id="newClassroomCapacity" placeholder="не задано"></div>
+                <div class="field" style="flex:1; min-width:220px;"><label>Закреплённые дисциплины (через запятую)</label><input type="text" id="newClassroomDisciplines" placeholder="открыта для любых пар"></div>
+                <button type="button" class="btn btn-sm" id="createClassroomBtn">Сохранить</button>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>Название</th><th>Вместимость</th><th>Закреплённые дисциплины</th><th></th></tr></thead>
+                <tbody id="classroomsBody"><tr><td colspan="4"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="panelTarification" th:style="${importType == 'tarification'} ? '' : 'display:none;'">
+        <p class="page-heading-sub" style="margin:0 0 14px;">
+            Excel-файл тарификации (лист «Часовка») — годовая сводная таблица часов по преподавателям,
+            дисциплинам и группам с разбивкой на семестры. Группы создаются заново из файла, каждая
+            загрузка сохраняется отдельной записью и не смешивается с предыдущими.
+        </p>
+
+        <div class="card" id="tarifStepUpload">
+            <div class="card-header"><span class="card-title">Файл тарификации</span></div>
+
+            <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;">
+                <div class="field" style="width:200px;">
+                    <label for="tarifYearInput">Учебный год (начало)</label>
+                    <input type="number" id="tarifYearInput" th:value="${year}">
+                </div>
+                <div class="field" style="flex:1; min-width:280px;">
+                    <label for="tarificationNameInput">Название тарификации (необязательно)</label>
+                    <input type="text" id="tarificationNameInput" placeholder="например, Тарификация ЕТ 2026-2027 (черновик 2)">
+                </div>
+            </div>
+
+            <div class="file-card" id="tarifDropzone" style="border-style:dashed; cursor:pointer; justify-content:center;">
+                <div class="file-card-icon"><span th:replace="~{fragments/icons :: upload}"></span></div>
+                <div>
+                    <div class="file-card-name" id="tarifDropzoneLabel">Перетащите файл сюда или нажмите, чтобы выбрать</div>
+                    <div class="file-card-meta">.xlsx, .xls</div>
+                </div>
+            </div>
+            <input type="file" id="tarifFileInput" accept=".xlsx,.xls" style="display:none;">
+
+            <div style="margin-top:16px; display:flex; gap:10px;">
+                <button type="button" class="btn" id="tarifImportBtn" disabled>Импортировать тарификацию</button>
+                <button type="button" class="btn btn-secondary" id="tarifClearBtn">Очистить</button>
+            </div>
+        </div>
+
+        <div class="card" id="tarifStepResult" style="display:none;">
+            <div class="card-header"><span class="card-title">Результат импорта</span></div>
+            <div id="tarifResultSummary" style="font-weight:600;"></div>
+            <div class="stat-grid" id="tarifStatGrid"></div>
+
+            <div id="tarifWarningsBlock" style="display:none; margin-top:18px;">
+                <div class="card-title" style="margin-bottom:10px;">Предупреждения</div>
+                <table class="data-table">
+                    <thead><tr><th>Строка</th><th>Сообщение</th><th>Контекст</th></tr></thead>
+                    <tbody id="tarifWarningsBody"></tbody>
+                </table>
+            </div>
+
+            <div style="margin-top:18px; display:flex; gap:10px;">
+                <button type="button" class="btn btn-secondary" id="tarifRestartBtn">Импортировать ещё файл</button>
+                <a class="btn" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:18px; border-color:var(--color-danger-bg-strong);">
+            <div class="card-header"><span class="card-title" style="color:var(--color-danger-text);">Опасная зона</span></div>
+            <p class="page-heading-sub" style="margin:0 0 14px;">
+                Удаляет ВСЁ — преподавателей, дисциплины, группы, нагрузку, расписание, заявки на
+                замену, больничные, кураторства, уведомления, аудитории, настройки и пользователей
+                с ролью «Преподаватель» — но <strong>не трогает вход администраторов</strong>.
+                Действие необратимо.
+            </p>
+            <button type="button" class="btn btn-danger" id="wipeAllBtn">Удалить все данные (кроме входа админа)</button>
+            <div id="wipeAllResult" style="margin-top:14px;"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="enrichModal">
+        <div class="modal" style="max-width:380px;">
+            <div class="modal-header"><h3>Новый преподаватель</h3><button type="button" class="close-btn" id="enrichCloseBtn">×</button></div>
+            <div class="modal-body">
+                <p style="font-weight:600; margin-top:0;" id="enrichName"></p>
+                <div class="field" style="margin-bottom:12px;"><label>Кафедра</label><input type="text" id="enrichDepartment"></div>
+                <div class="field" style="margin-bottom:12px;"><label>Должность</label><input type="text" id="enrichPosition"></div>
+                <div class="field"><label>Телефон</label><input type="text" id="enrichPhone"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="enrichCancelBtn">Отмена</button>
+                <button type="button" class="btn" id="enrichSaveBtn">Сохранить и создать</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="wipeAllModal">
+        <div class="modal" style="max-width:460px;">
+            <div class="modal-header"><h3>Точно удалить все данные?</h3><button type="button" class="close-btn" id="wipeAllCloseBtn">×</button></div>
+            <div class="modal-body">
+                <p style="line-height:1.5;">
+                    Это необратимо удалит преподавателей, дисциплины, группы, всю нагрузку и
+                    расписание, заявки на замену, больничные, кураторства, уведомления, аудитории
+                    и настройки, а также учётки с ролью «Преподаватель». <strong>Останется только
+                    вход администраторов.</strong>
+                </p>
+                <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-weight:400;">
+                    <input type="checkbox" id="wipeAllConfirmCheckbox" style="width:auto;">
+                    Я понимаю, что это необратимо, и хочу удалить всё
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="wipeAllCancelBtn">Отмена</button>
+                <button type="button" class="btn btn-danger" id="wipeAllConfirmBtn" disabled>Удалить всё</button>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+(function () {
+    document.getElementById('importTypeSegmented').addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-type]');
+        if (!btn) return;
+        const type = btn.dataset.type;
+        Array.from(this.querySelectorAll('button')).forEach(b => b.classList.toggle('active', b === btn));
+        document.getElementById('panelLoad').style.display = type === 'load' ? '' : 'none';
+        document.getElementById('panelTarification').style.display = type === 'tarification' ? '' : 'none';
+        const url = new URL(window.location.href);
+        url.searchParams.set('type', type);
+        window.history.replaceState({}, '', url);
+    });
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const previewBtn = document.getElementById('previewBtn');
+    let selectedFile = null;
+    let previewData = null;
+    const decisions = {};
+    let enrichRowIndex = null;
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor = 'var(--color-primary)'; });
+    dropzone.addEventListener('dragleave', () => dropzone.style.borderColor = '');
+    dropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropzone.style.borderColor = '';
+        if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+
+    function setFile(file) {
+        selectedFile = file;
+        document.getElementById('dropzoneWrap').style.display = 'none';
+        document.getElementById('fileChosenWrap').style.display = 'block';
+        document.getElementById('chosenFileName').textContent = file.name;
+        document.getElementById('chosenFileMeta').textContent = Math.round(file.size / 1024) + ' КБ · выбран';
+        previewBtn.disabled = false;
+    }
+
+    document.getElementById('clearBtn').addEventListener('click', backToUpload);
+    document.getElementById('backToUploadBtn').addEventListener('click', backToUpload);
+    document.getElementById('restartBtn').addEventListener('click', backToUpload);
+
+    function backToUpload() {
+        selectedFile = null;
+        previewData = null;
+        Object.keys(decisions).forEach(k => delete decisions[k]);
+        fileInput.value = '';
+        document.getElementById('dropzoneWrap').style.display = 'block';
+        document.getElementById('fileChosenWrap').style.display = 'none';
+        previewBtn.disabled = true;
+        showStep('upload');
+    }
+
+    function showStep(step) {
+        document.getElementById('paneUpload').style.display = step === 'upload' ? '' : 'none';
+        document.getElementById('paneReview').style.display = step === 'review' ? 'flex' : 'none';
+        document.getElementById('paneDone').style.display = step === 'done' ? '' : 'none';
+        ['Upload', 'Review', 'Done'].forEach((name, idx) => {
+            const el = document.getElementById('step' + name);
+            const order = ['upload', 'review', 'done'];
+            const currentIdx = order.indexOf(step);
+            el.classList.toggle('is-active', idx === currentIdx);
+            el.classList.toggle('is-done', idx < currentIdx);
+            el.querySelector('.stepper-circle').textContent = idx < currentIdx ? '' : String(idx + 1);
+            if (idx < currentIdx) {
+                el.querySelector('.stepper-circle').innerHTML =
+                    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+            }
+        });
+    }
+
+    previewBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+        previewBtn.disabled = true;
+        previewBtn.textContent = 'Анализируем...';
+
+        const year = document.getElementById('academicYearInput').value;
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const res = await fetch('/api/import/preview?academicYear=' + encodeURIComponent(year), {
+                method: 'POST', body: formData
+            });
+            if (!res.ok) { showToast('Ошибка анализа файла: сервер вернул ' + res.status, 'danger'); return; }
+            previewData = await res.json();
+            renderPreview();
+            showStep('review');
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'danger');
+        } finally {
+            previewBtn.disabled = false;
+            previewBtn.textContent = 'Проверить и сопоставить данные';
+        }
+    });
+
+    function renderPreview() {
+        const rows = previewData.rows || [];
+        const ambiguous = rows.filter(r => r.splitAmbiguous).length;
+        const ready = rows.filter(r => r.matchStatus === 'EXACT' || r.matchStatus === 'AUTO').length;
+        document.getElementById('previewSummary').textContent =
+            'Найдено ' + rows.length + ' строк · ' + (rows.length - ready) + ' требуют уточнения · ' + ready + ' готовы к импорту';
+        document.getElementById('splitHint').style.display = ambiguous ? 'inline-flex' : 'none';
+
+        const body = document.getElementById('previewBody');
+        body.innerHTML = '';
+
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.id = 'row-' + row.rowIndex;
+
+            let statusChip, actionsHtml;
+            if (row.matchStatus === 'EXACT') {
+                statusChip = '<span class="chip chip-success">Готово</span>';
+                actionsHtml = '<span class="page-heading-sub">Привязано автоматически</span>';
+                decisions[row.rowIndex] = { rowIndex: row.rowIndex, action: 'LINK', teacherId: row.candidateTeacherId };
+            } else if (row.matchStatus === 'FUZZY') {
+                statusChip = '<span class="chip chip-warning">Уточнить совпадение</span>';
+                actionsHtml =
+                    '<button type="button" class="btn btn-sm" onclick="window.__resolveLink(' + row.rowIndex + ', ' + row.candidateTeacherId + ')">Это он</button> ' +
+                    '<button type="button" class="btn btn-sm btn-secondary" onclick="window.__openEnrich(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Новый</button>';
+            } else if (row.matchStatus === 'AUTO') {
+                statusChip = '<span class="chip chip-neutral">Подберётся сама</span>';
+                actionsHtml = '<span class="page-heading-sub">Преподаватель не указан</span>';
+            } else {
+                statusChip = '<span class="chip chip-warning">Новый преподаватель</span>';
+                actionsHtml = '<button type="button" class="btn btn-sm btn-secondary" onclick="window.__openEnrich(' + row.rowIndex + ', \'' + escapeAttr(row.teacherNameFromFile) + '\')">Создать</button>';
+            }
+
+            const groupCell = escapeHtml(row.groupName) +
+                (row.splitAmbiguous ? ' <span title="' + escapeAttr(row.splitNote || '') + '" style="color:var(--color-warning-text); font-weight:700; cursor:help;">*</span>' : '');
+
+            tr.innerHTML =
+                '<td>' + row.rowIndex + '</td>' +
+                '<td>' + groupCell + '</td>' +
+                '<td>' + escapeHtml(row.disciplineName) + '</td>' +
+                '<td>' + (row.teacherNameFromFile ? escapeHtml(row.teacherNameFromFile) : '<span class="page-heading-sub">—</span>') + '</td>' +
+                '<td>' + escapeHtml(row.preferredDays || '—') + '</td>' +
+                '<td>' + statusChip + '</td>' +
+                '<td id="action-' + row.rowIndex + '">' + actionsHtml + '</td>';
+            body.appendChild(tr);
+        });
+
+        updateUnresolvedHint();
+    }
+
+    window.__resolveLink = function (rowIndex, teacherId) {
+        decisions[rowIndex] = { rowIndex, action: 'LINK', teacherId };
+        document.getElementById('action-' + rowIndex).innerHTML = '<span class="chip chip-success">Привязано</span>';
+        updateUnresolvedHint();
+    };
+
+    window.__openEnrich = function (rowIndex, name) {
+        enrichRowIndex = rowIndex;
+        document.getElementById('enrichName').textContent = name;
+        document.getElementById('enrichDepartment').value = '';
+        document.getElementById('enrichPosition').value = '';
+        document.getElementById('enrichPhone').value = '';
+        document.getElementById('enrichModal').classList.add('active');
+    };
+
+    document.getElementById('enrichCancelBtn').addEventListener('click', closeEnrichModal);
+    document.getElementById('enrichCloseBtn').addEventListener('click', closeEnrichModal);
+    function closeEnrichModal() {
+        document.getElementById('enrichModal').classList.remove('active');
+        enrichRowIndex = null;
+    }
+
+    document.getElementById('enrichSaveBtn').addEventListener('click', () => {
+        if (enrichRowIndex === null) return;
+        decisions[enrichRowIndex] = {
+            rowIndex: enrichRowIndex,
+            action: 'CREATE',
+            department: document.getElementById('enrichDepartment').value || null,
+            position: document.getElementById('enrichPosition').value || null,
+            phone: document.getElementById('enrichPhone').value || null
+        };
+        document.getElementById('action-' + enrichRowIndex).innerHTML = '<span class="chip chip-success">Будет создан</span>';
+        closeEnrichModal();
+        updateUnresolvedHint();
+    });
+
+    function updateUnresolvedHint() {
+        const rows = (previewData && previewData.rows) || [];
+        const fuzzyOrNew = rows.filter(r => r.matchStatus === 'FUZZY' || r.matchStatus === 'NEW');
+        const unresolved = fuzzyOrNew.filter(r => !decisions[r.rowIndex]);
+        const hint = document.getElementById('unresolvedHint');
+        const confirmBtn = document.getElementById('confirmBtn');
+        if (unresolved.length > 0) {
+            hint.textContent = 'Осталось уточнить: ' + unresolved.length;
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Импортировать';
+        } else {
+            hint.textContent = '';
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Импортировать ' + rows.length + ' из ' + rows.length;
+        }
+    }
+
+    document.getElementById('confirmBtn').addEventListener('click', async () => {
+        if (!selectedFile) return;
+        const btn = document.getElementById('confirmBtn');
+        btn.disabled = true;
+        btn.textContent = 'Импортируем...';
+
+        const year = document.getElementById('academicYearInput').value;
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('decisions', JSON.stringify(Object.values(decisions)));
+
+        try {
+            const res = await fetch('/api/import/confirm?academicYear=' + encodeURIComponent(year), {
+                method: 'POST', body: formData
+            });
+            if (!res.ok) { showToast('Ошибка импорта: сервер вернул ' + res.status, 'danger'); return; }
+            const report = await res.json();
+            renderReport(report);
+            showStep('done');
+            showToast('Импорт завершён', 'success');
+        } catch (e) {
+            showToast('Ошибка импорта: ' + e.message, 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    function renderReport(report) {
+        document.getElementById('reportSummary').textContent = report.summary
+            || (report.success ? 'Импорт выполнен успешно.' : 'Импорт завершился с ошибкой.');
+
+        const stats = [
+            ['Строк в файле', report.totalRows],
+            ['Импортировано', report.processedRows],
+            ['Ошибок', report.errorRows],
+            ['Новых преподавателей', report.createdTeachers]
+        ];
+        document.getElementById('reportStats').innerHTML = stats.map(([label, num]) =>
+            '<div class="metric-card"><div class="metric-label">' + label + '</div><div class="metric-value">' + (num ?? 0) + '</div></div>'
+        ).join('');
+
+        const errorsWrap = document.getElementById('errorsWrap');
+        const errorsBody = document.getElementById('errorsBody');
+        errorsBody.innerHTML = '';
+        if (report.errors && report.errors.length) {
+            errorsWrap.style.display = 'block';
+            report.errors.forEach(err => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + err.rowNumber + '</td><td>' + escapeHtml(err.message) + '</td><td class="page-heading-sub">' + escapeHtml(err.rawData || '') + '</td>';
+                errorsBody.appendChild(tr);
+            });
+        } else {
+            errorsWrap.style.display = 'none';
+        }
+    }
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+    }
+
+    function escapeAttr(s) {
+        return (s || '').replace(/'/g, "\\'");
+    }
+
+    async function loadClassrooms() {
+        const tbody = document.getElementById('classroomsBody');
+        try {
+            const res = await fetch('/api/classrooms');
+            if (!res.ok) throw new Error('status ' + res.status);
+            const rooms = await res.json();
+            if (!rooms.length) {
+                tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" style="padding:20px;"><p class="empty-state-title" style="font-size:14px;">Пока пусто</p><p>Импортируйте файл с листом «Аудитории» или добавьте вручную.</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = '';
+            rooms.forEach(r => {
+                const disciplines = (r.allowedDisciplines && r.allowedDisciplines.length)
+                    ? escapeHtml(r.allowedDisciplines.join(', '))
+                    : '<span class="page-heading-sub">любые пары</span>';
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + escapeHtml(r.name) + '</td>' +
+                    '<td>' + (r.capacity != null ? r.capacity : '<span class="page-heading-sub">—</span>') + '</td>' +
+                    '<td>' + disciplines + '</td>' +
+                    '<td><button type="button" class="btn btn-sm btn-danger" onclick="window.__deleteClassroom(' + r.id + ')">Удалить</button></td>';
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-danger">Не удалось загрузить список аудиторий</td></tr>';
+        }
+    }
+
+    document.getElementById('toggleAddClassroomBtn').addEventListener('click', () => {
+        const form = document.getElementById('addClassroomForm');
+        form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+    });
+
+    document.getElementById('createClassroomBtn').addEventListener('click', async () => {
+        const name = document.getElementById('newClassroomName').value.trim();
+        if (!name) { showToast('Укажите название аудитории', 'danger'); return; }
+        const capacityRaw = document.getElementById('newClassroomCapacity').value.trim();
+        const disciplinesRaw = document.getElementById('newClassroomDisciplines').value.trim();
+        const payload = {
+            name,
+            capacity: capacityRaw ? parseInt(capacityRaw, 10) : null,
+            allowedDisciplines: disciplinesRaw ? disciplinesRaw.split(',').map(s => s.trim()).filter(Boolean) : []
+        };
+        try {
+            const res = await fetch('/api/classrooms', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                showToast(body.error || 'Не удалось добавить аудиторию', 'danger');
+                return;
+            }
+            document.getElementById('newClassroomName').value = '';
+            document.getElementById('newClassroomCapacity').value = '';
+            document.getElementById('newClassroomDisciplines').value = '';
+            document.getElementById('addClassroomForm').style.display = 'none';
+            loadClassrooms();
+            showToast('Аудитория добавлена', 'success');
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'danger');
+        }
+    });
+
+    window.__deleteClassroom = async function (id) {
+        if (!confirm('Удалить аудиторию?')) return;
+        try {
+            const res = await fetch('/api/classrooms/' + id, {method: 'DELETE'});
+            if (!res.ok) { showToast('Не удалось удалить аудиторию', 'danger'); return; }
+            loadClassrooms();
+            showToast('Аудитория удалена', 'success');
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'danger');
+        }
+    };
+
+    loadClassrooms();
+
+    let tarifSelectedFile = null;
+    const tarifDropzone = document.getElementById('tarifDropzone');
+    const tarifFileInput = document.getElementById('tarifFileInput');
+    const tarifImportBtn = document.getElementById('tarifImportBtn');
+
+    tarifDropzone.addEventListener('click', () => tarifFileInput.click());
+    tarifDropzone.addEventListener('dragover', e => { e.preventDefault(); tarifDropzone.style.borderColor = 'var(--color-primary)'; });
+    tarifDropzone.addEventListener('dragleave', () => tarifDropzone.style.borderColor = '');
+    tarifDropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        tarifDropzone.style.borderColor = '';
+        if (e.dataTransfer.files.length) setTarifFile(e.dataTransfer.files[0]);
+    });
+    tarifFileInput.addEventListener('change', () => { if (tarifFileInput.files.length) setTarifFile(tarifFileInput.files[0]); });
+
+    function setTarifFile(file) {
+        tarifSelectedFile = file;
+        document.getElementById('tarifDropzoneLabel').textContent = 'Выбран файл: ' + file.name;
+        tarifImportBtn.disabled = false;
+    }
+
+    document.getElementById('tarifClearBtn').addEventListener('click', tarifResetForm);
+    document.getElementById('tarifRestartBtn').addEventListener('click', () => {
+        document.getElementById('tarifStepResult').style.display = 'none';
+        document.getElementById('tarifStepUpload').style.display = '';
+        tarifResetForm();
+    });
+
+    function tarifResetForm() {
+        tarifSelectedFile = null;
+        tarifFileInput.value = '';
+        document.getElementById('tarifDropzoneLabel').textContent = 'Перетащите файл сюда или нажмите, чтобы выбрать';
+        tarifImportBtn.disabled = true;
+    }
+
+    tarifImportBtn.addEventListener('click', async () => {
+        if (!tarifSelectedFile) return;
+        tarifImportBtn.disabled = true;
+        tarifImportBtn.textContent = 'Импортируем...';
+
+        const year = document.getElementById('tarifYearInput').value;
+        const name = document.getElementById('tarificationNameInput').value;
+        const formData = new FormData();
+        formData.append('file', tarifSelectedFile);
+
+        try {
+            let url = '/api/import/tarification?academicYear=' + encodeURIComponent(year);
+            if (name && name.trim()) url += '&name=' + encodeURIComponent(name.trim());
+            const res = await fetch(url, { method: 'POST', body: formData });
+            if (!res.ok) {
+                showToast('Ошибка импорта (код ' + res.status + ')', 'danger');
+                return;
+            }
+            const report = await res.json();
+            showTarifResult(report);
+            showToast('Импорт завершён', 'success');
+        } catch (e) {
+            showToast('Ошибка сети: ' + e.message, 'danger');
+        } finally {
+            tarifImportBtn.disabled = false;
+            tarifImportBtn.textContent = 'Импортировать тарификацию';
+        }
+    });
+
+    function showTarifResult(report) {
+        document.getElementById('tarifStepUpload').style.display = 'none';
+        document.getElementById('tarifStepResult').style.display = '';
+
+        document.getElementById('tarifResultSummary').textContent = report.summary
+            || (report.success ? 'Импорт выполнен успешно.' : 'Импорт завершился с ошибкой.');
+
+        const stats = [
+            ['Всего записей', report.totalRows],
+            ['Обработано', report.processedRows],
+            ['Преподавателей создано', report.createdTeachers],
+            ['Дисциплин создано', report.createdDisciplines],
+            ['Групп создано', report.createdGroups],
+            ['Нагрузок создано', report.createdLoads],
+            ['Нагрузок обновлено', report.updatedLoads]
+        ];
+        const grid = document.getElementById('tarifStatGrid');
+        grid.innerHTML = '';
+        stats.forEach(([label, num]) => {
+            const box = document.createElement('div');
+            box.className = 'stat-box';
+            box.innerHTML = '<div class="num">' + (num ?? 0) + '</div><div class="label">' + label + '</div>';
+            grid.appendChild(box);
+        });
+
+        const warnings = report.splitNotices || [];
+        const warnBlock = document.getElementById('tarifWarningsBlock');
+        const warnBody = document.getElementById('tarifWarningsBody');
+        warnBody.innerHTML = '';
+        if (warnings.length) {
+            warnBlock.style.display = '';
+            warnings.forEach(w => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + w.rowNumber + '</td><td>' + (w.message || '') + '</td><td>' + (w.rawData || '') + '</td>';
+                warnBody.appendChild(tr);
+            });
+        } else {
+            warnBlock.style.display = 'none';
+        }
+    }
+
+    const wipeAllBtn = document.getElementById('wipeAllBtn');
+    const wipeAllModal = document.getElementById('wipeAllModal');
+    const wipeAllConfirmCheckbox = document.getElementById('wipeAllConfirmCheckbox');
+    const wipeAllConfirmBtn = document.getElementById('wipeAllConfirmBtn');
+    const wipeAllResult = document.getElementById('wipeAllResult');
+
+    wipeAllBtn.addEventListener('click', () => {
+        wipeAllConfirmCheckbox.checked = false;
+        wipeAllConfirmBtn.disabled = true;
+        wipeAllResult.innerHTML = '';
+        wipeAllModal.classList.add('active');
+    });
+
+    document.getElementById('wipeAllCancelBtn').addEventListener('click', closeWipeAllModal);
+    document.getElementById('wipeAllCloseBtn').addEventListener('click', closeWipeAllModal);
+    function closeWipeAllModal() {
+        wipeAllModal.classList.remove('active');
+    }
+
+    wipeAllConfirmCheckbox.addEventListener('change', () => {
+        wipeAllConfirmBtn.disabled = !wipeAllConfirmCheckbox.checked;
+    });
+
+    wipeAllConfirmBtn.addEventListener('click', async () => {
+        wipeAllConfirmBtn.disabled = true;
+        wipeAllConfirmBtn.textContent = 'Удаляем...';
+        try {
+            const res = await fetch('/api/admin/wipe-all-except-admins?confirm=WIPE', {method: 'POST'});
+            const body = await res.json().catch(() => ({}));
+            closeWipeAllModal();
+            if (!res.ok) {
+                wipeAllResult.innerHTML = '<p class="text-danger">Ошибка: ' + (body.error || ('код ' + res.status)) + '</p>';
+                return;
+            }
+            const rows = [
+                ['Преподавателей', body.deletedTeachers],
+                ['Дисциплин', body.deletedDisciplines],
+                ['Групп', body.deletedGroups],
+                ['Нагрузок', body.deletedTeacherLoads],
+                ['Пар в расписании', body.deletedSchedules],
+                ['Фактических занятий', body.deletedLessonInstances],
+                ['Заявок на замену', body.deletedSubstitutionRequests],
+                ['Больничных', body.deletedSickLeaves],
+                ['Кураторств', body.deletedCuratorships],
+                ['Уведомлений', body.deletedNotifications],
+                ['Аудиторий', body.deletedClassrooms],
+                ['Пользователей-преподавателей', body.deletedNonAdminUsers],
+                ['Осталось админов', body.remainingAdmins]
+            ];
+            wipeAllResult.innerHTML = '<div class="stat-grid">' + rows.map(([label, num]) =>
+                '<div class="stat-box"><div class="num">' + (num ?? 0) + '</div><div class="label">' + label + '</div></div>'
+            ).join('') + '</div><p style="margin-top:12px; font-weight:600;">Готово — база чистая, можно импортировать тарификацию заново.</p>';
+        } catch (e) {
+            closeWipeAllModal();
+            wipeAllResult.innerHTML = '<p class="text-danger">Ошибка сети: ' + e.message + '</p>';
+        } finally {
+            wipeAllConfirmBtn.textContent = 'Удалить всё';
+        }
+    });
+})();
+</script>
+</div>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('teacher-load', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
+<body>
+
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Нагрузка преподавателей</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content"
+     th:with="totalTeachers=${#lists.size(summary)},
+               avgRate=${totalTeachers > 0 ? #aggregates.avg(summary.![ratePercent]) : 0},
+               overloadCount=${summary.?[status == 'overload'].size()},
+               underloadCount=${summary.?[status == 'underload'].size()}">
+    <div class="control-bar">
+        <p class="page-heading-sub" style="margin:0;">
+            Плановые и фактические часы по преподавателям за <span th:text="${currentAcademicYear}">2026-2027</span> учебный год.
+            «Загрузка» — плановые часы с учётом ставки относительно средней по всем преподавателям (100% = средняя).
+        </p>
+        <div class="control-bar-group">
+            <label class="select-control">
+                Кафедра
+                <select id="filterDepartment"><option value="">Все кафедры</option></select>
+            </label>
+            <a class="btn btn-secondary" th:href="@{/api/monthly/export/csv(year=${year})}">
+                <span th:replace="~{fragments/icons :: download}"></span>Экспорт
+            </a>
+        </div>
+    </div>
+
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="metric-label">Преподавателей</div>
+            <div class="metric-value" th:text="${totalTeachers}">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Средняя загрузка</div>
+            <div class="metric-value" th:text="${#numbers.formatDecimal(avgRate, 1, 1)} + '%'">0%</div>
+        </div>
+        <div class="metric-card is-danger">
+            <div class="metric-label">Перегружено</div>
+            <div class="metric-value" th:text="${overloadCount}">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Недогружено</div>
+            <div class="metric-value" th:text="${underloadCount}">0</div>
+        </div>
+    </div>
+
+    <div class="card" style="flex:1;">
+        <div th:if="${#lists.isEmpty(summary)}" class="empty-state">
+            <p class="empty-state-title">Нагрузка не найдена</p>
+            <p>Импортируйте тарификацию или нагрузку, чтобы увидеть данные.</p>
+        </div>
+        <table class="data-table" id="loadTable" th:unless="${#lists.isEmpty(summary)}">
+            <thead>
+            <tr>
+                <th>Преподаватель</th>
+                <th>Кафедра</th>
+                <th>План, ч</th>
+                <th>Проведено, ч</th>
+                <th>Осталось, ч</th>
+                <th>Кураторство, ч</th>
+                <th>Загрузка</th>
+                <th>Статус</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${summary}" th:attr="data-department=${row.department}">
+                <td th:text="${row.teacherName}">ФИО</td>
+                <td th:text="${row.department ?: '—'}">Кафедра</td>
+                <td th:text="${row.plannedHours}">0</td>
+                <td th:text="${row.conductedHours}">0</td>
+                <td th:text="${row.remainingHours}">0</td>
+                <td th:text="${#numbers.formatDecimal(row.curatorshipHours, 1, 0)}">0</td>
+                <td>
+                    <span class="progress-track">
+                        <span class="progress-fill"
+                              th:classappend="${(row.status == 'overload') ? 'is-over' : ((row.status == 'underload') ? 'is-low' : '')}"
+                              th:style="'width:' + ${#numbers.formatDecimal(row.ratePercent > 100 ? 100 : row.ratePercent, 1, 0)} + '%'"></span>
+                    </span>
+                    <span th:text="${#numbers.formatDecimal(row.ratePercent, 1, 0)} + '%'" style="margin-left:8px; font-size:12.5px; color:var(--color-text-muted);">0%</span>
+                </td>
+                <td>
+                    <span th:if="${row.status == 'normal'}" class="chip chip-success">Норма</span>
+                    <span th:if="${row.status == 'underload'}" class="chip chip-neutral">Недогруз</span>
+                    <span th:if="${row.status == 'overload'}" class="chip chip-danger">Перегрузка</span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script th:inline="javascript">
+(function () {
+    const table = document.getElementById('loadTable');
+    const filter = document.getElementById('filterDepartment');
+    if (!table || !filter) return;
+
+    const departments = Array.from(new Set(
+        Array.from(table.querySelectorAll('tbody tr')).map(tr => tr.dataset.department).filter(Boolean)
+    )).sort();
+    departments.forEach(d => filter.add(new Option(d, d)));
+
+    filter.addEventListener('change', function () {
+        const value = filter.value;
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.style.display = (!value || tr.dataset.department === value) ? '' : 'none';
+        });
+    });
+})();
+</script>
+</div>
+</body>
+</html>

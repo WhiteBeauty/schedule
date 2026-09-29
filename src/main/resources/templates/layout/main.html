@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:fragment="page(activeNav, topbarLeft, topbarRight, content)" lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Учёт нагрузки</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script th:src="@{/js/toast.js}" defer></script>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-mark">Р</div>
+            <div>
+                <div class="sidebar-brand-name">Учёт нагрузки</div>
+                <div class="sidebar-brand-sub">ИАТЭ НИЯУ МИФИ</div>
+            </div>
+        </div>
+
+        <ul class="sidebar-nav">
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'dashboard'} ? ' active' : ''" th:href="@{/dashboard}">
+                <span th:replace="~{fragments/icons :: grid}"></span>Дашборд</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'schedule'} ? ' active' : ''" th:href="@{/schedule}">
+                <span th:replace="~{fragments/icons :: calendar}"></span>Расписание</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'teacher-load'} ? ' active' : ''" th:href="@{/teacher-load}">
+                <span th:replace="~{fragments/icons :: users}"></span>Нагрузка</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'import'} ? ' active' : ''" th:href="@{/import}">
+                <span th:replace="~{fragments/icons :: upload}"></span>Импорт</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'reports'} ? ' active' : ''" th:href="@{/reports}">
+                <span th:replace="~{fragments/icons :: bar-chart}"></span>Отчёты</a></li>
+
+            <li class="sidebar-divider"></li>
+
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'notifications'} ? ' active' : ''" th:href="@{/notifications}">
+                <span th:replace="~{fragments/icons :: bell}"></span>Уведомления</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'settings'} ? ' active' : ''" th:href="@{/settings}">
+                <span th:replace="~{fragments/icons :: settings}"></span>Настройки</a></li>
+        </ul>
+
+        <div class="sidebar-user">
+            <div class="sidebar-user-avatar" th:text="${currentUserInitials}">РК</div>
+            <div>
+                <div class="sidebar-user-name" th:text="${currentUserName}">Имя Фамилия</div>
+                <div class="sidebar-user-role" th:text="${currentUserRoleLabel}">Роль</div>
+            </div>
+            <a class="sidebar-logout" th:href="@{/logout}" title="Выйти" aria-label="Выйти">
+                <span th:replace="~{fragments/icons :: log-out}"></span>
+            </a>
+        </div>
+    </aside>
+
+    <div class="app-main">
+        <header class="topbar">
+            <div th:replace="${topbarLeft}"></div>
+            <div th:replace="${topbarRight}"></div>
+        </header>
+        <main th:replace="${content}"></main>
+    </div>
+</div>
+</body>
+</html>

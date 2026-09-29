@@ -2,120 +2,100 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Регистрация</title>
-    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация — Учёт нагрузки</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
     <style>
-        body { display: block; background: var(--bg); }
-        .auth-shell {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem 1.5rem;
-        }
-        .auth-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 2.5rem;
-            width: 440px;
-            max-height: 95vh;
-            overflow-y: auto;
-        }
-        .auth-title {
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            margin: 0 0 0.35rem;
-        }
-        .auth-subtitle {
-            color: var(--muted);
-            font-size: 0.9rem;
-            margin: 0 0 1.5rem;
-        }
-        .auth-notice.error {
-            background: var(--danger-bg);
-            color: var(--danger);
-            font-size: 0.85rem;
-            padding: 0.6rem 0.85rem;
-            border-radius: var(--radius-sm);
-            margin-bottom: 1.25rem;
-        }
-        .row { display: flex; gap: 0.75rem; }
+        .auth-form.is-wide { width: 440px; }
+        .row { display: flex; gap: 14px; }
         .row .field { flex: 1; }
-        .auth-links { margin-top: 1.25rem; text-align: center; font-size: 0.85rem; }
-        .auth-links a { color: var(--primary); text-decoration: none; font-weight: 600; }
-        .auth-links a:hover { text-decoration: underline; }
-        .btn-block { width: 100%; margin-top: 0.5rem; }
     </style>
 </head>
 <body>
 <div class="auth-shell">
-    <div class="auth-card">
-        <h1 class="auth-title">Учёт нагрузки</h1>
-        <p class="auth-subtitle">Создание учётной записи</p>
-
-        <div th:if="${error}" class="auth-notice error" th:text="${error}"></div>
-
-        <form th:action="@{/register}" th:object="${request}" method="post" id="register-form" novalidate>
-            <div class="row">
-                <div class="field" id="field-lastName">
-                    <label for="lastName">Фамилия *</label>
-                    <input type="text" id="lastName" th:field="*{lastName}" required placeholder="Иванов">
-                    <div class="field-error" id="error-lastName" style="display:none;"></div>
-                </div>
-                <div class="field" id="field-firstName">
-                    <label for="firstName">Имя *</label>
-                    <input type="text" id="firstName" th:field="*{firstName}" required placeholder="Иван">
-                    <div class="field-error" id="error-firstName" style="display:none;"></div>
+    <div class="auth-hero">
+        <div class="auth-hero-grid">
+            <span th:each="i : ${#numbers.sequence(1, 48)}"></span>
+        </div>
+        <div class="auth-hero-content">
+            <div class="sidebar-brand">
+                <div class="sidebar-brand-mark">Р</div>
+                <div>
+                    <div class="sidebar-brand-name">Учёт нагрузки</div>
+                    <div class="sidebar-brand-sub">ИАТЭ НИЯУ МИФИ</div>
                 </div>
             </div>
-
-            <div class="field" id="field-username">
-                <label for="username">Логин *</label>
-                <input type="text" id="username" th:field="*{username}" required placeholder="ivanov_sp">
-                <div class="field-error" id="error-username" style="display:none;"></div>
-            </div>
-
-            <div class="field" id="field-email">
-                <label for="email">Email *</label>
-                <input type="email" id="email" th:field="*{email}" required placeholder="ivanov@university.ru">
-                <div class="field-error" id="error-email" style="display:none;"></div>
-            </div>
-
-            <div class="field">
-                <label for="phone">Телефон</label>
-                <input type="text" id="phone" th:field="*{phone}" placeholder="+79991234567">
-            </div>
-
-            <div class="field">
-                <label for="birthDate">Дата рождения</label>
-                <input type="date" id="birthDate" th:field="*{birthDate}">
-            </div>
-
-            <div class="row">
-                <div class="field" id="field-password">
-                    <label for="password">Пароль *</label>
-                    <input type="password" id="password" th:field="*{password}" required placeholder="Минимум 6 символов">
-                    <div class="field-error" id="error-password" style="display:none;"></div>
-                </div>
-                <div class="field" id="field-confirmPassword">
-                    <label for="confirmPassword">Подтвердите пароль *</label>
-                    <input type="password" id="confirmPassword" th:field="*{confirmPassword}" required placeholder="Повторите пароль">
-                    <div class="field-error" id="error-confirmPassword" style="display:none;"></div>
-                </div>
-            </div>
-
-            <p class="field-hint">
+            <h1 class="auth-hero-title">Расписание и учёт нагрузки без ручной сверки</h1>
+            <p class="auth-hero-text">
                 Регистрация создаёт аккаунт преподавателя. Права администратора выдаются
-                только действующим администратором из раздела «Пользователи».
+                отдельно, действующим администратором из раздела «Пользователи».
             </p>
+        </div>
+        <div class="auth-hero-footer">© ИАТЭ НИЯУ МИФИ, <span th:text="${#dates.format(#dates.createNow(), 'yyyy')}">2026</span></div>
+    </div>
 
-            <button type="submit" class="btn btn-primary btn-block">Зарегистрироваться</button>
-        </form>
+    <div class="auth-form-side">
+        <div class="auth-form is-wide">
+            <h1>Создание учётной записи</h1>
+            <p class="auth-form-sub">Заполните данные, чтобы получить доступ к личному кабинету.</p>
 
-        <div class="auth-links">
-            Уже есть аккаунт? <a th:href="@{/login}">Войти</a>
+            <div th:if="${error}" class="auth-notice error" th:text="${error}"></div>
+
+            <form th:action="@{/register}" th:object="${request}" method="post" id="register-form" novalidate>
+                <div class="row">
+                    <div class="field" id="field-lastName">
+                        <label for="lastName">Фамилия *</label>
+                        <input type="text" id="lastName" th:field="*{lastName}" required placeholder="Иванов">
+                        <div class="field-error" id="error-lastName" style="display:none;"></div>
+                    </div>
+                    <div class="field" id="field-firstName">
+                        <label for="firstName">Имя *</label>
+                        <input type="text" id="firstName" th:field="*{firstName}" required placeholder="Иван">
+                        <div class="field-error" id="error-firstName" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="field" id="field-username">
+                    <label for="username">Логин *</label>
+                    <input type="text" id="username" th:field="*{username}" required placeholder="ivanov_sp">
+                    <div class="field-error" id="error-username" style="display:none;"></div>
+                </div>
+
+                <div class="field" id="field-email">
+                    <label for="email">Email *</label>
+                    <input type="email" id="email" th:field="*{email}" required placeholder="ivanov@iate.ru">
+                    <div class="field-error" id="error-email" style="display:none;"></div>
+                </div>
+
+                <div class="field">
+                    <label for="phone">Телефон</label>
+                    <input type="text" id="phone" th:field="*{phone}" placeholder="+79991234567">
+                </div>
+
+                <div class="field">
+                    <label for="birthDate">Дата рождения</label>
+                    <input type="date" id="birthDate" th:field="*{birthDate}">
+                </div>
+
+                <div class="row">
+                    <div class="field" id="field-password">
+                        <label for="password">Пароль *</label>
+                        <input type="password" id="password" th:field="*{password}" required placeholder="Минимум 6 символов">
+                        <div class="field-error" id="error-password" style="display:none;"></div>
+                    </div>
+                    <div class="field" id="field-confirmPassword">
+                        <label for="confirmPassword">Подтвердите пароль *</label>
+                        <input type="password" id="confirmPassword" th:field="*{confirmPassword}" required placeholder="Повторите пароль">
+                        <div class="field-error" id="error-confirmPassword" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn" style="width:100%; margin-top:6px;">Зарегистрироваться</button>
+            </form>
+
+            <p class="auth-footnote" style="text-align:center;">
+                Уже есть аккаунт? <a class="auth-link" th:href="@{/login}">Войти</a>
+            </p>
         </div>
     </div>
 </div>

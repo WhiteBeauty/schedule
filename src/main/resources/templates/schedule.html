@@ -1,818 +1,271 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Моё расписание</title>
-    <link rel="stylesheet" href="/css/styles.css">
-    <script th:src="@{/js/toast.js}" defer></script>
-    <style>
-        .schedule-layout { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; }
-        .schedule-sidebar { width: 220px; flex-shrink: 0; }
-        .schedule-content { flex: 1; min-width: 0; }
-        .day-list { list-style: none; padding: 0; margin: 0; }
-        .day-list li {
-            padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
-            cursor: pointer; transition: .15s;
-        }
-        .day-list li:hover { background: var(--bg); }
-        .day-list li.active {
-            background: var(--primary-light); border-left: 4px solid var(--primary);
-            color: var(--primary-dark); font-weight: 600;
-        }
-        .pair-card {
-            padding: 1rem; background: var(--bg); border-radius: var(--radius-sm);
-            margin-bottom: 0.75rem; border: 1px solid var(--border);
-        }
-        .pair-card.highlighted { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
-        .pair-time { font-weight: 700; color: var(--primary); }
-        .pair-details { margin-top: 0.5rem; font-size: 0.9rem; }
-
-        .mode-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
-        .mode-tab {
-            padding: 0.6rem 1rem; border: none; border-bottom: 2px solid transparent;
-            background: transparent; cursor: pointer; font-size: 0.87rem; font-weight: 500; color: var(--muted);
-        }
-        .mode-tab.active { color: var(--primary-dark); border-bottom-color: var(--primary); font-weight: 700; }
-
-        .week-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .week-grid th, .week-grid td {
-            border: 1px solid var(--border); padding: 0.4rem; vertical-align: top; font-size: 0.8rem;
-        }
-        .week-grid th { background: var(--card); text-align: center; }
-        .week-grid .time-col { width: 90px; background: var(--card); font-weight: 600; text-align: center; font-family: 'JetBrains Mono', ui-monospace, monospace; }
-        .grid-cell { min-height: 60px; }
-        .grid-pair {
-            background: var(--primary-light); border-left: 3px solid var(--primary); border-radius: var(--radius-sm);
-            padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; font-size: 0.75rem;
-        }
-        .grid-pair.empty-room { background: transparent; border: none; color: var(--muted); font-style: italic; }
-        .grid-pair-title { font-weight: 600; }
-    </style>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('schedule', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <h1 class="page-title">Моё расписание</h1>
-
-    <div class="mode-tabs" th:if="${isAdmin}">
-        <button class="mode-tab active" id="tabList" onclick="switchMode('list')">Список по дням</button>
-        <button class="mode-tab" id="tabTeacher" onclick="switchMode('teacher')">По преподавателю</button>
-        <button class="mode-tab" id="tabGroup" onclick="switchMode('group')">По группе</button>
-        <button class="mode-tab" id="tabRoom" onclick="switchMode('room')">Сводный: аудитория × время</button>
-    </div>
-
-    <div id="modeList" class="schedule-layout">
-        <div class="card schedule-sidebar" style="padding: 1rem; margin: 0;">
-            <h4 style="margin: 0 0 1rem;">Дни недели</h4>
-            <ul class="day-list" id="dayList">
-                <li class="active" data-day="MONDAY">Понедельник</li>
-                <li data-day="TUESDAY">Вторник</li>
-                <li data-day="WEDNESDAY">Среда</li>
-                <li data-day="THURSDAY">Четверг</li>
-                <li data-day="FRIDAY">Пятница</li>
-            </ul>
-        </div>
-
-        <div class="schedule-content">
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title" id="dayTitle">Понедельник</h2>
-                    <div class="filters">
-                        <label>Год:
-                            <select id="yearSelect">
-                                <option th:each="y : ${#numbers.sequence(year - 1, year + 3)}"
-                                        th:value="${y}"
-                                        th:text="${y}"
-                                        th:selected="${y == year}"></option>
-                            </select>
-                        </label>
-                        <button class="btn btn-sm btn-secondary" onclick="loadPairs()">Обновить</button>
-                    </div>
-                </div>
-                <div id="pairsContainer">
-                    <span class="skeleton skeleton-row"></span>
-                    <span class="skeleton skeleton-row"></span>
-                    <span class="skeleton skeleton-row"></span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="modeTeacher" class="card" style="display:none;">
-        <div class="card-header">
-            <h2 class="card-title">Занятость преподавателя за неделю</h2>
-            <div class="filters">
-                <label>Преподаватель:
-                    <select id="teacherSelect" onchange="renderTeacherGrid()"></select>
-                </label>
-            </div>
-        </div>
-        <div id="teacherGridMonthLabel" class="text-muted" style="margin-bottom:0.5rem; font-weight:600;"></div>
-        <div style="overflow-x:auto;"><table class="week-grid" id="teacherGridTable"></table></div>
-    </div>
-
-    <div id="modeGroup" class="card" style="display:none;">
-        <div class="card-header">
-            <h2 class="card-title">Расписание звонков группы</h2>
-            <div class="filters">
-                <label>Группа:
-                    <select id="groupSelect" onchange="renderGroupGrid()"></select>
-                </label>
-                <button th:if="${isAdmin}" class="btn btn-secondary btn-sm" onclick="openSeModalForCurrentGroup()">
-                    Экзамен / практика / вождение
-                </button>
-            </div>
-        </div>
-        <div id="groupGridMonthLabel" class="text-muted" style="margin-bottom:0.25rem; font-weight:600;"></div>
-        <div id="groupGridTitle" class="text-muted" style="margin-bottom:0.5rem; font-weight:600;"></div>
-        <div id="groupEventsBanner" style="margin-bottom:0.75rem;"></div>
-        <div style="overflow-x:auto;"><table class="week-grid" id="groupGridTable"></table></div>
-    </div>
-
-    <div id="modeRoom" class="card" style="display:none;">
-        <div class="card-header">
-            <h2 class="card-title">Занятость аудиторий</h2>
-            <div class="filters">
-                <label>День:
-                    <select id="roomDaySelect" onchange="renderRoomGrid()">
-                        <option value="MONDAY">Понедельник</option>
-                        <option value="TUESDAY">Вторник</option>
-                        <option value="WEDNESDAY">Среда</option>
-                        <option value="THURSDAY">Четверг</option>
-                        <option value="FRIDAY">Пятница</option>
-                    </select>
-                </label>
-            </div>
-        </div>
-        <p class="text-muted" style="padding: 0 1.25rem;">Пустые ячейки — свободное время в этой аудитории.</p>
-        <div style="overflow-x:auto;"><table class="week-grid" id="roomGridTable"></table></div>
-    </div>
-</main>
-
-<div class="modal-overlay" id="seModal" th:if="${isAdmin}">
-    <div class="modal" style="max-width:640px;">
-        <div class="modal-header">
-            <h3>Назначить экзамен / практику / вождение</h3>
-            <button class="close-btn" type="button" onclick="closeSeModal()" aria-label="Закрыть">×</button>
-        </div>
-        <div class="modal-body">
-            <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
-                Обычные пары выбранной группы на указанный период (или день — для экзамена)
-                автоматически переносятся на ближайшие свободные слоты в будущем.
-            </p>
-            <label style="display:block; margin-bottom:0.75rem;">
-                Тип
-                <select id="seModalType" style="width:100%; margin-top:0.25rem;" onchange="onSeModalTypeChange()">
-                    <option value="EXAM">Экзамен (один день)</option>
-                    <option value="STUDY_PRACTICE">Учебная практика</option>
-                    <option value="PRODUCTION_PRACTICE">Производственная практика</option>
-                    <option value="DRIVING">Вождение</option>
-                </select>
-            </label>
-            <label style="display:block; margin-bottom:0.75rem;">
-                Группа
-                <select id="seModalGroup" style="width:100%; margin-top:0.25rem;"></select>
-            </label>
-            <label id="seModalDisciplineWrap" style="display:block; margin-bottom:0.75rem;">
-                Предмет (для экзамена)
-                <select id="seModalDiscipline" style="width:100%; margin-top:0.25rem;"><option value="">—</option></select>
-            </label>
-            <div style="display:flex; gap:0.75rem;">
-                <label style="flex:1;">
-                    <span id="seModalStartLabel">Дата</span>
-                    <input type="date" id="seModalStartDate" style="width:100%; margin-top:0.25rem;">
-                </label>
-                <label id="seModalEndWrap" style="flex:1; display:none;">
-                    Дата окончания
-                    <input type="date" id="seModalEndDate" style="width:100%; margin-top:0.25rem;">
-                </label>
-            </div>
-            <div id="seModalResult" style="margin-top:1rem;"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" type="button" onclick="closeSeModal()">Закрыть</button>
-            <button class="btn btn-primary" type="button" id="seModalSubmitBtn" onclick="submitSeModal()">Назначить и перенести</button>
-        </div>
-    </div>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Расписание</h1>
+    <span class="chip chip-warning" id="draftChip" style="display:none;">Просмотр черновика</span>
 </div>
 
-<script th:inline="javascript">
-const teacherId = /*[[${teacherId}]]*/ null;
-const defaultYear = /*[[${year}]]*/ 2025;
-let currentDay = 'MONDAY';
-let pairsData = [];
-let substitutionsMap = {}; // scheduleId -> [{originalTeacherName, actualTeacherName, lessonDate}, ...]
-let isAdmin = /*[[${isAdmin}]]*/ false;
-let currentMode = 'list';
-const highlightPairId = new URLSearchParams(window.location.search).get('pairId');
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+        <span class="topbar-bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+</div>
 
-const dayNames = {
-    MONDAY: 'Понедельник', TUESDAY: 'Вторник', WEDNESDAY: 'Среда',
-    THURSDAY: 'Четверг', FRIDAY: 'Пятница'
-};
-const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
-
-/**
- * Недельная сетка (по преподавателю/группе/аудиториям) — это шаблон БЕЗ конкретной
- * даты: одна и та же ячейка "среда, 08:30" повторяется каждую неделю. Поэтому
- * подсвечивать замену нужно только если она произошла ИМЕННО в текущую календарную
- * неделю — иначе разовая замена (например, только в одну субботу) подсвечивала бы
- * пару фиолетовым на всех неделях подряд, что и создавало расхождение с месячным
- * календарём (там даты точные).
- */
-function dateForDayInCurrentWeek(dayOfWeek) {
-    const today = new Date();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-    const offset = dayOrder.indexOf(dayOfWeek);
-    if (offset < 0) return null;
-    const target = new Date(monday);
-    target.setDate(monday.getDate() + offset);
-    return target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
-}
-
-/** "Среда 9 сентября 2026" — для заголовка вкладки "Список по дням" (задача 3, распространено и сюда). */
-const monthNamesRu = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-
-function dayTitleText(dayOfWeek) {
-    const iso = dateForDayInCurrentWeek(dayOfWeek);
-    if (!iso) return dayNames[dayOfWeek];
-    const d = new Date(iso + 'T00:00:00');
-    return dayNames[dayOfWeek] + ' ' + d.getDate() + ' ' + monthNamesRu[d.getMonth()].toLowerCase() + ' ' + d.getFullYear();
-}
-
-/** Число месяца для дня недели ТЕКУЩЕЙ календарной недели — для подписи "Среда 9". */
-function dayNumberInCurrentWeek(dayOfWeek) {
-    const iso = dateForDayInCurrentWeek(dayOfWeek);
-    if (!iso) return '';
-    return String(Number(iso.split('-')[2]));
-}
-
-/** "Сентябрь 2026" — по понедельнику текущей недели (задача 3). */
-function currentWeekMonthLabel() {
-    const mondayIso = dateForDayInCurrentWeek('MONDAY');
-    const d = new Date(mondayIso + 'T00:00:00');
-    return monthNamesRu[d.getMonth()] + ' ' + d.getFullYear();
-}
-
-/** Замена этой пары ИМЕННО на текущую неделю (см. dateForDayInCurrentWeek), либо null. */
-function currentWeekSubstitution(pair) {
-    const list = substitutionsMap[pair.id];
-    if (!list || !list.length) return null;
-    const targetDate = dateForDayInCurrentWeek(pair.dayOfWeek);
-    return list.find(s => s.lessonDate === targetDate) || null;
-}
-
-function getCurrentDayOfWeek() {
-    // Суббота и воскресенье — не учебные дни, вкладок для них больше нет; если сегодня
-    // один из них, по умолчанию открываем понедельник.
-    const days = {1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY', 5: 'FRIDAY'};
-    return days[new Date().getDay()] || 'MONDAY';
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    currentDay = getCurrentDayOfWeek();
-    document.querySelectorAll('.day-list li').forEach(li => {
-        li.classList.remove('active');
-        if (li.dataset.day === currentDay) li.classList.add('active');
-    });
-    document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
-
-    document.querySelectorAll('.day-list li').forEach(li => {
-        li.addEventListener('click', () => {
-            document.querySelectorAll('.day-list li').forEach(l => l.classList.remove('active'));
-            li.classList.add('active');
-            currentDay = li.dataset.day;
-            document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
-            renderPairs();
-        });
-    });
-
-    document.getElementById('yearSelect').addEventListener('change', loadPairs);
-
-    if (isAdmin) initAdminModes();
-    loadPairs();
-});
-
-function switchMode(mode) {
-    currentMode = mode;
-    ['List', 'Teacher', 'Group', 'Room'].forEach(m => {
-        document.getElementById('mode' + m).style.display = (m.toLowerCase() === mode) ? '' : 'none';
-        document.getElementById('tab' + m).classList.toggle('active', m.toLowerCase() === mode);
-    });
-    if (mode === 'teacher') renderTeacherGrid();
-    else if (mode === 'group') renderGroupGrid();
-    else if (mode === 'room') renderRoomGrid();
-}
-
-function initAdminModes() {
-    fetch('/api/teachers').then(r => r.json()).then(list => {
-        const sel = document.getElementById('teacherSelect');
-        (list || []).forEach(t => sel.add(new Option(t.fullName, t.id)));
-    }).catch(() => {});
-
-    fetch('/api/groups').then(r => r.json()).then(list => {
-        window.allGroupsData = list || [];
-        const sel = document.getElementById('groupSelect');
-        // Раньше в выпадающем списке был только "№4 ТО" без курса — при нескольких
-        // группах с похожими названиями непонятно, какая именно это группа. Курс
-        // (StudyGroup.course) уже приходит в ответе /api/groups, просто не выводился.
-        (list || []).forEach(g => sel.add(new Option(
-            g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
-    }).catch(() => {});
-}
-
-function loadPairs() {
-    const year = document.getElementById('yearSelect').value;
-    Promise.all([
-        fetch('/api/pairs?year=' + year).then(res => {
-            if (!res.ok) throw new Error('Ошибка сервера: ' + res.status);
-            return res.json();
-        }),
-        fetch('/api/pairs/substitutions?year=' + year).then(res => res.ok ? res.json() : []).catch(() => [])
-    ])
-        .then(([data, substitutions]) => {
-            pairsData = Array.isArray(data) ? data : [];
-            substitutionsMap = {};
-            (substitutions || []).forEach(s => {
-                (substitutionsMap[s.scheduleId] = substitutionsMap[s.scheduleId] || []).push(s);
-            });
-            renderPairs();
-            if (currentMode === 'teacher') renderTeacherGrid();
-            else if (currentMode === 'group') renderGroupGrid();
-            else if (currentMode === 'room') renderRoomGrid();
-            if (highlightPairId) jumpToPair(highlightPairId);
-        })
-        .catch(e => {
-            console.error('Error loading pairs:', e);
-            document.getElementById('pairsContainer').innerHTML = '<p class="text-danger">Ошибка загрузки расписания: ' + e.message + '</p>';
-        });
-}
-
-function jumpToPair(pairId) {
-    const pair = pairsData.find(p => String(p.id) === String(pairId));
-    if (!pair) return;
-    currentDay = pair.dayOfWeek;
-    document.querySelectorAll('.day-list li').forEach(l => l.classList.toggle('active', l.dataset.day === currentDay));
-    document.getElementById('dayTitle').textContent = dayTitleText(currentDay);
-    switchMode('list');
-    renderPairs();
-    setTimeout(() => {
-        const card = document.querySelector('[data-pair-id="' + pairId + '"]');
-        if (card) {
-            card.classList.add('highlighted');
-            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    }, 50);
-}
-
-function renderPairs() {
-    const container = document.getElementById('pairsContainer');
-    container.innerHTML = '';
-
-    const filtered = pairsData.filter(p => p.dayOfWeek === currentDay);
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty-state"><p class="empty-state-title">Нет пар в этот день</p>'
-            + '<p class="empty-state-text">Выберите другой день недели слева или проверьте фильтр по году.</p></div>';
-        return;
-    }
-    filtered.sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-    filtered.forEach(p => {
-        const startTime = p.startTime.substring(0, 5);
-        const endTime = p.endTime.substring(0, 5);
-        const week = p.academicWeek ? (p.academicWeek + ' нед.') : 'каждую нед.';
-
-        const div = document.createElement('div');
-        div.className = 'pair-card';
-        div.dataset.pairId = p.id;
-
-        const sub = currentWeekSubstitution(p);
-        let substituteBadge = '';
-        if (sub) {
-            div.classList.add('substituted-pair');
-            substituteBadge = '<span class="substitute-badge" title="' +
-                (sub.originalTeacherName ? 'Обычно: ' + sub.originalTeacherName : '') +
-                '">Замена' + (sub.actualTeacherName ? ': ' + sub.actualTeacherName : '') + '</span>';
-        }
-
-        let actionsHtml = '';
-        if (isAdmin) {
-            actionsHtml = '<div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">' +
-                '<button class="btn btn-sm btn-secondary" onclick="openEditPairModal(' + p.id + ', \'' + p.dayOfWeek + '\', \'' + p.startTime + '\', \'' + p.endTime + '\', \'' + p.classroom + '\', ' + (p.academicWeek || 'null') + ')">Изменить</button>' +
-                '<button class="btn btn-sm btn-danger" onclick="deletePair(' + p.id + ')">Удалить</button>' +
-                '</div>';
-        }
-
-        const teacherLine = isAdmin ? ('<span class="text-muted">Преподаватель: ' + p.teacherLoad.teacher.fullName + '</span><br>') : '';
-
-        div.innerHTML =
-            '<div class="pair-time mono-num">' + startTime + ' - ' + endTime + '</div>' + substituteBadge +
-            '<div class="pair-details">' +
-                '<strong>' + p.teacherLoad.discipline.name + '</strong><br>' +
-                teacherLine +
-                '<span class="text-muted">Группа: ' + p.teacherLoad.group.name + '</span><br>' +
-                '<span class="text-muted">Аудитория: ' + p.classroom + '</span> | ' +
-                '<span class="text-muted">' + week + '</span>' +
-                actionsHtml +
-            '</div>';
-        container.appendChild(div);
-    });
-}
-
-function collectTimeSlots(pairs) {
-    const slots = new Set();
-    pairs.forEach(p => slots.add(p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)));
-    return Array.from(slots).sort();
-}
-
-function buildWeekGrid(tableId, pairs, cellLabelFn, dayHeaderClickFn) {
-    const table = document.getElementById(tableId);
-    const slots = collectTimeSlots(pairs);
-
-    if (slots.length === 0) {
-        table.innerHTML = '<tr><td style="padding:2rem;text-align:center;" class="text-muted">Нет пар</td></tr>';
-        return;
-    }
-
-    let html = '<thead><tr><th class="time-col">Время</th>';
-    dayOrder.forEach(d => {
-        const dayLabel = dayNames[d] + ' <span class="day-number">' + dayNumberInCurrentWeek(d) + '</span>';
-        if (dayHeaderClickFn) {
-            html += '<th class="day-header-clickable" onclick="onDayHeaderClick(\'' + d + '\')" '
-                + 'title="Назначить экзамен/практику/вождение на этот день">' + dayLabel + ' ＋</th>';
-        } else {
-            html += '<th>' + dayLabel + '</th>';
-        }
-    });
-    html += '</tr></thead><tbody>';
-
-    slots.forEach(slot => {
-        html += '<tr><td class="time-col">' + slot + '</td>';
-        dayOrder.forEach(day => {
-            const cellPairs = pairs.filter(p =>
-                p.dayOfWeek === day && (p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)) === slot);
-            html += '<td class="grid-cell">';
-            if (cellPairs.length === 0) {
-                html += '<span class="text-muted" style="font-size:0.7rem;">—</span>';
-            } else {
-                cellPairs.forEach(p => { html += cellLabelFn(p); });
-            }
-            html += '</td>';
-        });
-        html += '</tr>';
-    });
-    html += '</tbody>';
-    table.innerHTML = html;
-}
-
-function renderTeacherGrid() {
-    const teacherIdSel = document.getElementById('teacherSelect').value;
-    const monthLabelEl = document.getElementById('teacherGridMonthLabel');
-    if (monthLabelEl) monthLabelEl.textContent = currentWeekMonthLabel();
-    if (!teacherIdSel) {
-        document.getElementById('teacherGridTable').innerHTML = '<tr><td class="text-muted" style="padding:1.5rem;text-align:center;">Выберите преподавателя</td></tr>';
-        return;
-    }
-    const pairs = pairsData.filter(p => String(p.teacherLoad.teacher.id) === String(teacherIdSel));
-    buildWeekGrid('teacherGridTable', pairs, p => {
-        const sub = currentWeekSubstitution(p);
-        return '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">замена</span>' : '') + '</div>' +
-            '<div>' + p.teacherLoad.group.name + ' · ауд. ' + p.classroom + '</div>' +
-        '</div>';
-    }, isAdmin ? onDayHeaderClick : null);
-}
-
-function renderGroupGrid() {
-    const groupIdSel = document.getElementById('groupSelect').value;
-    const monthLabelEl = document.getElementById('groupGridMonthLabel');
-    if (monthLabelEl) monthLabelEl.textContent = currentWeekMonthLabel();
-    const titleEl = document.getElementById('groupGridTitle');
-    if (!groupIdSel) {
-        document.getElementById('groupGridTable').innerHTML = '<tr><td class="text-muted" style="padding:1.5rem;text-align:center;">Выберите группу</td></tr>';
-        if (titleEl) titleEl.textContent = '';
-        return;
-    }
-    if (titleEl) {
-        const g = (window.allGroupsData || []).find(x => String(x.id) === String(groupIdSel));
-        titleEl.textContent = g ? (g.name + (g.course ? ' — ' + g.course + ' курс' : '')) : '';
-    }
-    loadGroupEventsBanner(groupIdSel);
-    const pairs = pairsData.filter(p => String(p.teacherLoad.group.id) === String(groupIdSel));
-    buildWeekGrid('groupGridTable', pairs, p => {
-        const sub = currentWeekSubstitution(p);
-        const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
-        const rescheduled = !!p.rescheduledFromDate;
-        const cls = (sub ? ' substituted-pair' : '') + (rescheduled ? ' rescheduled-pair' : '');
-        const badge = sub ? ' <span class="substitute-badge">замена</span>'
-            : (rescheduled ? ' <span class="rescheduled-badge" title="Перенесено с ' + p.rescheduledFromDate + '">перенесено</span>' : '');
-        return '<div class="grid-pair' + cls + '">' +
-            '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + badge + '</div>' +
-            '<div>' + teacherLabel + ' · ауд. ' + p.classroom + '</div>' +
-        '</div>';
-    }, isAdmin ? onDayHeaderClick : null);
-}
-
-function renderRoomGrid() {
-    const day = document.getElementById('roomDaySelect').value;
-    const dayPairs = pairsData.filter(p => p.dayOfWeek === day);
-    const table = document.getElementById('roomGridTable');
-
-    if (dayPairs.length === 0) {
-        table.innerHTML = '<tr><td style="padding:2rem;text-align:center;" class="text-muted">На этот день пар не найдено</td></tr>';
-        return;
-    }
-
-    const rooms = Array.from(new Set(dayPairs.map(p => p.classroom))).sort();
-    const slots = collectTimeSlots(dayPairs);
-
-    let html = '<thead><tr><th class="time-col">Аудитория</th>';
-    slots.forEach(s => html += '<th>' + s + '</th>');
-    html += '</tr></thead><tbody>';
-
-    rooms.forEach(room => {
-        html += '<tr><td class="time-col">' + room + '</td>';
-        slots.forEach(slot => {
-            const cellPairs = dayPairs.filter(p =>
-                p.classroom === room && (p.startTime.substring(0, 5) + '–' + p.endTime.substring(0, 5)) === slot);
-            html += '<td class="grid-cell">';
-            if (cellPairs.length === 0) {
-                html += '<div class="grid-pair empty-room">свободна</div>';
-            } else {
-                cellPairs.forEach(p => {
-                    const sub = currentWeekSubstitution(p);
-                    const teacherLabel = sub && sub.actualTeacherName ? sub.actualTeacherName : p.teacherLoad.teacher.fullName;
-                    html += '<div class="grid-pair' + (sub ? ' substituted-pair' : '') + '">' +
-                        '<div class="grid-pair-title">' + p.teacherLoad.discipline.name + (sub ? ' <span class="substitute-badge">замена</span>' : '') + '</div>' +
-                        '<div>' + p.teacherLoad.group.name + ' · ' + teacherLabel + '</div>' +
-                        '</div>';
-                });
-            }
-            html += '</td>';
-        });
-        html += '</tr>';
-    });
-    html += '</tbody>';
-    table.innerHTML = html;
-}
-
-function deletePair(id) {
-    if (!confirm('Вы уверены, что хотите удалить эту пару?')) return;
-    fetch('/api/pairs/' + id, { method: 'DELETE' }).then(r => {
-        if (r.ok) { loadPairs(); showToast('Пара удалена', 'success'); }
-        else showToast('Ошибка при удалении пары', 'danger');
-    });
-}
-
-function openEditPairModal(id, dayOfWeek, startTime, endTime, classroom, academicWeek) {
-    document.getElementById('editPairId').value = id;
-    document.getElementById('editDayOfWeek').value = dayOfWeek;
-    document.getElementById('editStartTime').value = startTime;
-    document.getElementById('editEndTime').value = endTime;
-    document.getElementById('editClassroom').value = classroom;
-    document.getElementById('editAcademicWeek').value = academicWeek || '';
-    document.getElementById('editPairModal').classList.add('active');
-}
-
-function closeEditPairModal() {
-    document.getElementById('editPairModal').classList.remove('active');
-}
-
-function saveEditPair() {
-    const id = document.getElementById('editPairId').value;
-    const dayOfWeek = document.getElementById('editDayOfWeek').value;
-    const startTime = document.getElementById('editStartTime').value;
-    const endTime = document.getElementById('editEndTime').value;
-    const classroom = document.getElementById('editClassroom').value;
-    const academicWeek = document.getElementById('editAcademicWeek').value;
-
-    fetch('/api/pairs/' + id, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            dayOfWeek: dayOfWeek, startTime: startTime, endTime: endTime, classroom: classroom,
-            academicWeek: academicWeek ? parseInt(academicWeek) : null
-        })
-    }).then(r => {
-        if (r.ok) {
-            closeEditPairModal();
-            loadPairs();
-            showToast('Изменения сохранены', 'success');
-        } else {
-            showToast('Ошибка при сохранении изменений', 'danger');
-        }
-    });
-}
-
-// ---- Периоды практики/экзамена/вождения у выбранной группы (баннер под сеткой) ----
-function loadGroupEventsBanner(groupId) {
-    const el = document.getElementById('groupEventsBanner');
-    if (!el || !groupId) { if (el) el.innerHTML = ''; return; }
-    fetch('/api/special-events?groupId=' + encodeURIComponent(groupId) + '&academicYear=' + encodeURIComponent(defaultYear))
-        .then(r => r.json())
-        .then(events => {
-            if (!events || !events.length) { el.innerHTML = ''; return; }
-            const labels = {EXAM: 'Экзамен', STUDY_PRACTICE: 'Учебная практика',
-                PRODUCTION_PRACTICE: 'Производственная практика', DRIVING: 'Вождение'};
-            el.innerHTML = events.map(e => {
-                const range = e.startDate === e.endDate ? e.startDate : (e.startDate + ' — ' + e.endDate);
-                const disc = e.discipline ? ': ' + e.discipline.name : '';
-                const delBtn = isAdmin ? ' <span onclick="deleteSpecialEvent(' + e.id + ',\'' + groupId + '\')" ' +
-                    'title="Удалить и вернуть перенесённые пары обратно" style="cursor:pointer; margin-left:0.3rem; font-weight:700;">×</span>' : '';
-                return '<span class="badge badge-warning" style="font-size:0.8rem; padding:0.3rem 0.7rem; margin:0 0.4rem 0.4rem 0;">' +
-                    (labels[e.type] || e.type) + disc + ' · ' + range + delBtn + '</span>';
-            }).join('');
-        })
-        .catch(() => { el.innerHTML = ''; });
-}
-
-async function deleteSpecialEvent(eventId, groupId) {
-    if (!confirm('Удалить это событие? Перенесённые из-за него пары удалятся, а отменённые вернутся на место.')) return;
-    try {
-        const res = await fetch('/api/special-events/' + eventId, {method: 'DELETE'});
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            showToast('Ошибка: ' + (body.error || res.status), 'danger');
-            return;
-        }
-        loadGroupEventsBanner(groupId);
-        loadPairs();
-        showToast('Событие удалено, пары возвращены', 'success');
-    } catch (e) {
-        showToast('Ошибка сети: ' + e.message, 'danger');
-    }
-}
-
-// ---- Назначение экзамена/практики/вождения прямо со вкладки "По группе"/"По преподавателю" ----
-let seModalDataReady = false;
-
-/** Клик по заголовку дня в сетке — сразу открывает модалку с этой датой (текущая неделя). */
-function onDayHeaderClick(dayOfWeek) {
-    const date = dateForDayInCurrentWeek(dayOfWeek);
-    // Со вкладки "По группе" группа уже выбрана в groupSelect — подставляем её.
-    // Со вкладки "По преподавателю" такого контекста нет — администратор выбирает группу
-    // в самой модалке (там уже есть выпадающий список).
-    const groupSelectEl = document.getElementById('groupSelect');
-    const presetGroupId = (groupSelectEl && groupSelectEl.value) ? groupSelectEl.value : null;
-    openSeModal(date, presetGroupId);
-}
-
-function openSeModalForCurrentGroup() {
-    const groupSelectEl = document.getElementById('groupSelect');
-    openSeModal(null, groupSelectEl ? groupSelectEl.value : null);
-}
-
-function openSeModal(presetDate, presetGroupId) {
-    document.getElementById('seModalResult').innerHTML = '';
-    const applyPresetGroup = () => {
-        if (presetGroupId) document.getElementById('seModalGroup').value = presetGroupId;
-    };
-    if (!seModalDataReady) {
-        Promise.all([
-            fetch('/api/groups').then(r => r.json()),
-            fetch('/api/disciplines').then(r => r.json())
-        ]).then(([groups, disciplines]) => {
-            const gSel = document.getElementById('seModalGroup');
-            gSel.innerHTML = '<option value="">Выберите группу</option>';
-            (groups || []).forEach(g => gSel.add(new Option(
-                g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id)));
-            const dSel = document.getElementById('seModalDiscipline');
-            dSel.innerHTML = '<option value="">—</option>';
-            (disciplines || []).forEach(d => dSel.add(new Option(d.name, d.id)));
-            seModalDataReady = true;
-            applyPresetGroup();
-        }).catch(() => {});
-    } else {
-        applyPresetGroup();
-    }
-    onSeModalTypeChange();
-    if (presetDate) {
-        document.getElementById('seModalStartDate').value = presetDate;
-        document.getElementById('seModalEndDate').value = presetDate;
-    }
-    document.getElementById('seModal').classList.add('active');
-}
-
-function closeSeModal() {
-    document.getElementById('seModal').classList.remove('active');
-}
-
-function onSeModalTypeChange() {
-    const isExam = document.getElementById('seModalType').value === 'EXAM';
-    document.getElementById('seModalDisciplineWrap').style.display = isExam ? 'block' : 'none';
-    document.getElementById('seModalEndWrap').style.display = isExam ? 'none' : 'block';
-    document.getElementById('seModalStartLabel').textContent = isExam ? 'Дата экзамена' : 'Дата начала';
-    if (isExam) {
-        // См. тот же комментарий в admin-schedule.html/onSeTypeChange — скрытое, но не
-        // очищенное поле "Дата окончания" могло уйти на сервер как конец экзамена.
-        document.getElementById('seModalEndDate').value = '';
-    }
-}
-
-async function submitSeModal() {
-    const groupId = document.getElementById('seModalGroup').value;
-    const type = document.getElementById('seModalType').value;
-    const disciplineId = document.getElementById('seModalDiscipline').value || null;
-    const startDate = document.getElementById('seModalStartDate').value;
-    const endDate = document.getElementById('seModalEndDate').value || startDate;
-    const resultEl = document.getElementById('seModalResult');
-
-    if (!groupId) { showToast('Выберите группу', 'danger'); return; }
-    if (!startDate) { showToast('Укажите дату', 'danger'); return; }
-    if (type === 'EXAM' && !disciplineId) { showToast('Для экзамена укажите предмет', 'danger'); return; }
-
-    const btn = document.getElementById('seModalSubmitBtn');
-    btn.disabled = true;
-    btn.textContent = 'Переносим...';
-    resultEl.innerHTML = '';
-
-    try {
-        const res = await fetch('/api/special-events', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                type, groupId: Number(groupId),
-                disciplineId: disciplineId ? Number(disciplineId) : null,
-                startDate, endDate, academicYear: defaultYear
-            })
-        });
-        const body = await res.json();
-        if (!res.ok) {
-            resultEl.innerHTML = '<div class="text-danger">Ошибка: ' + (body.error || res.status) + '</div>';
-            return;
-        }
-        let html = '<p style="font-weight:600;">Готово: <span style="color:var(--primary-dark);">' + body.typeLabel + '</span>'
-            + (body.disciplineName ? ' — ' + body.disciplineName : '') + ', '
-            + body.startDate + (body.endDate !== body.startDate ? ' — ' + body.endDate : '') + '</p>';
-        if (body.moved && body.moved.length) {
-            html += '<p style="color:var(--success);">Перенесено автоматически: ' + body.moved.length + '</p><ul style="font-size:0.85rem;">';
-            body.moved.forEach(m => {
-                html += '<li>' + m.disciplineName + ': ' + m.fromDayOfWeek + ' ' + m.fromDate + ' → '
-                    + m.toDayOfWeek + ' ' + m.toDate + ' ' + m.toStartTime + '-' + m.toEndTime + ', ауд. ' + m.classroom + '</li>';
-            });
-            html += '</ul>';
-        }
-        if (body.unresolved && body.unresolved.length) {
-            html += '<p style="color:var(--danger);">Не удалось перенести автоматически: ' + body.unresolved.length
-                + ' — перенесите вручную через "Изменить" на вкладке администратора.</p><ul style="font-size:0.85rem;">';
-            body.unresolved.forEach(u => {
-                html += '<li>' + u.disciplineName + ' (' + u.teacherName + '), было ' + u.originalDayOfWeek + ' ' + u.originalDate + '</li>';
-            });
-            html += '</ul>';
-        }
-        if ((!body.moved || !body.moved.length) && (!body.unresolved || !body.unresolved.length)) {
-            html += '<p class="text-muted">В этот период у группы других пар не было.</p>';
-        }
-        resultEl.innerHTML = html;
-        loadPairs();
-        loadGroupEventsBanner(groupId);
-    } catch (e) {
-        resultEl.innerHTML = '<div class="text-danger">Ошибка сети: ' + e.message + '</div>';
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Назначить и перенести';
-    }
-}
-</script>
-
-<div class="modal-overlay" id="editPairModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3>Редактировать пару</h3>
-            <button class="close-btn" onclick="closeEditPairModal()">×</button>
+<div th:fragment="pageContent" class="app-content">
+    <div class="control-bar">
+        <div class="control-bar-group">
+            <div class="segmented" id="modeSegmented">
+                <button type="button" class="active" data-mode="group">По группам</button>
+                <button type="button" data-mode="teacher">По преподавателям</button>
+                <button type="button" data-mode="room">По аудиториям</button>
+            </div>
+            <label class="select-control">
+                <span th:replace="~{fragments/icons :: filter}"></span>
+                <select id="entitySelect"></select>
+            </label>
         </div>
-        <div class="modal-body">
-            <input type="hidden" id="editPairId">
-            <label>День недели:</label>
-            <select id="editDayOfWeek" style="width:100%;margin-bottom:1rem">
-                <option value="MONDAY">Понедельник</option>
-                <option value="TUESDAY">Вторник</option>
-                <option value="WEDNESDAY">Среда</option>
-                <option value="THURSDAY">Четверг</option>
-                <option value="FRIDAY">Пятница</option>
-            </select>
-
-            <label>Время начала:</label>
-            <input type="time" id="editStartTime" style="width:100%;margin-bottom:1rem">
-
-            <label>Время конца:</label>
-            <input type="time" id="editEndTime" style="width:100%;margin-bottom:1rem">
-
-            <label>Аудитория:</label>
-            <input type="text" id="editClassroom" style="width:100%;margin-bottom:1rem">
-
-            <label>Неделя (необязательно):</label>
-            <input type="number" id="editAcademicWeek" min="1" max="20" placeholder="1-20" style="width:100%">
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeEditPairModal()">Отмена</button>
-            <button class="btn" onclick="saveEditPair()">Сохранить</button>
+        <div class="control-bar-group">
+            <div class="week-nav">
+                <button type="button" class="week-nav-btn" id="weekPrev" aria-label="Предыдущая неделя">
+                    <span th:replace="~{fragments/icons :: chevron-left}"></span>
+                </button>
+                <span class="week-nav-range" id="weekRange">—</span>
+                <button type="button" class="week-nav-btn" id="weekNext" aria-label="Следующая неделя">
+                    <span th:replace="~{fragments/icons :: chevron-right}"></span>
+                </button>
+            </div>
+            <label class="select-control">
+                Год:
+                <select id="yearSelect">
+                    <option th:each="y : ${#numbers.sequence(year - 1, year + 3)}"
+                            th:value="${y}" th:text="${y}" th:selected="${y == year}"></option>
+                </select>
+            </label>
+            <a class="btn btn-secondary" th:href="@{/reports}">
+                <span th:replace="~{fragments/icons :: download}"></span>Экспорт
+            </a>
+            <a class="btn" th:if="${isAdmin}" th:href="@{/admin/schedule}">
+                <span th:replace="~{fragments/icons :: plus}"></span>Сгенерировать
+            </a>
         </div>
     </div>
+
+    <div class="card" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+        <div class="week-grid" id="weekGrid">
+            <div class="week-grid-head">
+                <div class="week-grid-head-cell"></div>
+                <div class="week-grid-head-cell">Понедельник</div>
+                <div class="week-grid-head-cell">Вторник</div>
+                <div class="week-grid-head-cell">Среда</div>
+                <div class="week-grid-head-cell">Четверг</div>
+                <div class="week-grid-head-cell">Пятница</div>
+                <div class="week-grid-head-cell">Суббота</div>
+            </div>
+            <div id="weekGridBody" style="display:contents;"></div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-lecture-bg);"></span>Лекция</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-practice-bg);"></span>Практика</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-lab-bg);"></span>Лабораторная</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-conflict-bg); border:1.5px dashed #C1443C;"></span>Конфликт</div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+(function () {
+    const isAdmin = /*[[${isAdmin}]]*/ false;
+    const DAY_KEYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const MONTH_NAMES_RU = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+    let mode = 'group';
+    let pairsData = [];
+    let groupsData = [];
+    let teachersData = [];
+    let roomsData = [];
+    let weekMonday = mondayOfCurrentWeek();
+
+    function mondayOfCurrentWeek() {
+        const today = new Date();
+        const monday = new Date(today);
+        monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+        monday.setHours(0, 0, 0, 0);
+        return monday;
+    }
+
+    function fmtDate(d) {
+        return d.getDate() + ' ' + MONTH_NAMES_RU[d.getMonth()];
+    }
+
+    function updateWeekLabel() {
+        const saturday = new Date(weekMonday);
+        saturday.setDate(weekMonday.getDate() + 5);
+        document.getElementById('weekRange').textContent = fmtDate(weekMonday) + ' – ' + fmtDate(saturday);
+    }
+
+    function dateForDayIndex(idx) {
+        const d = new Date(weekMonday);
+        d.setDate(weekMonday.getDate() + idx);
+        return d;
+    }
+
+    function loadAll() {
+        const year = document.getElementById('yearSelect').value;
+        Promise.all([
+            fetch('/api/pairs?year=' + year).then(r => r.json()),
+            fetch('/api/groups').then(r => r.json()),
+            fetch('/api/teachers').then(r => r.json()),
+            fetch('/api/classrooms').then(r => r.json()).catch(() => [])
+        ]).then(([pairs, groups, teachers, rooms]) => {
+            pairsData = Array.isArray(pairs) ? pairs : [];
+            groupsData = groups || [];
+            teachersData = teachers || [];
+            roomsData = rooms || [];
+            populateEntitySelect();
+            renderGrid();
+        }).catch(e => {
+            document.getElementById('weekGridBody').innerHTML =
+                '<div style="grid-column:1/-1; padding:2rem;" class="empty-state">Не удалось загрузить расписание</div>';
+        });
+    }
+
+    function populateEntitySelect() {
+        const select = document.getElementById('entitySelect');
+        const previous = select.value;
+        select.innerHTML = '';
+        let items = [];
+        if (mode === 'group') {
+            items = groupsData.map(g => ({ id: g.id, label: g.name + (g.course ? ' (' + g.course + ' курс)' : '') }));
+        } else if (mode === 'teacher') {
+            items = teachersData.map(t => ({ id: t.id, label: t.fullName }));
+        } else {
+            const names = Array.from(new Set(roomsData.length ? roomsData.map(r => r.name) : pairsData.map(p => p.classroom))).sort();
+            items = names.map(n => ({ id: n, label: 'Ауд. ' + n }));
+        }
+        items.forEach(item => select.add(new Option(item.label, item.id)));
+        if (items.some(i => String(i.id) === previous)) select.value = previous;
+    }
+
+    function categoryClass(lessonType) {
+        const t = (lessonType || '').toLowerCase();
+        if (t.indexOf('лаб') !== -1) return 'lesson-lab';
+        if (t.indexOf('практ') !== -1) return 'lesson-practice';
+        return 'lesson-lecture';
+    }
+
+    function matchesSelection(pair, entityValue) {
+        if (mode === 'group') return pair.teacherLoad.group && String(pair.teacherLoad.group.id) === String(entityValue);
+        if (mode === 'teacher') return pair.teacherLoad.teacher && String(pair.teacherLoad.teacher.id) === String(entityValue);
+        return pair.classroom === entityValue;
+    }
+
+    function weekNumberOf(monday) {
+        const yearStart = new Date(monday.getFullYear(), 8, 1);
+        const diffDays = Math.round((monday - yearStart) / 86400000);
+        return Math.max(1, Math.floor(diffDays / 7) + 1);
+    }
+
+    function renderGrid() {
+        updateWeekLabel();
+        const entitySelect = document.getElementById('entitySelect');
+        const entityValue = entitySelect.value;
+        const body = document.getElementById('weekGridBody');
+        body.innerHTML = '';
+
+        if (!entityValue) {
+            body.innerHTML = '<div style="grid-column:1/-1;" class="empty-state"><p class="empty-state-title">Выберите значение фильтра</p></div>';
+            return;
+        }
+
+        const week = weekNumberOf(weekMonday);
+        const relevant = pairsData.filter(p =>
+            (p.academicWeek == null || p.academicWeek === week) && matchesSelection(p, entityValue));
+
+        const slots = Array.from(new Set(relevant.map(p => p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5))))
+            .sort();
+
+        if (!slots.length) {
+            body.innerHTML = '<div style="grid-column:1/-1;" class="empty-state"><p class="empty-state-title">Нет пар</p><p>На эту неделю пары не найдены</p></div>';
+            return;
+        }
+
+        slots.forEach((slot, rowIdx) => {
+            const timeCell = document.createElement('div');
+            timeCell.className = 'week-time-cell';
+            timeCell.innerHTML = '<div>' + (rowIdx + 1) + ' пара</div><div>' + slot + '</div>';
+            body.appendChild(timeCell);
+
+            DAY_KEYS.forEach((day, dayIdx) => {
+                const cell = document.createElement('div');
+                cell.className = 'week-day-cell';
+                const cellPairs = relevant.filter(p => p.dayOfWeek === day &&
+                    (p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5)) === slot);
+                const conflict = cellPairs.length > 1;
+                cellPairs.forEach(p => {
+                    const card = document.createElement('div');
+                    card.className = 'lesson-card ' + (conflict ? 'lesson-conflict' : categoryClass(p.lessonType));
+                    card.innerHTML =
+                        '<div class="lesson-card-title">' +
+                        (conflict ? iconWarningSvg() : '') +
+                        escapeHtml(p.teacherLoad.discipline.name) + '</div>' +
+                        '<div class="lesson-card-meta">' + escapeHtml(p.classroom) + ' · ' +
+                        escapeHtml(mode === 'teacher'
+                            ? (p.teacherLoad.group ? p.teacherLoad.group.name : '—')
+                            : (p.teacherLoad.teacher ? p.teacherLoad.teacher.fullName : 'без преподавателя')) + '</div>';
+                    cell.appendChild(card);
+                });
+                body.appendChild(cell);
+            });
+        });
+    }
+
+    function iconWarningSvg() {
+        return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+    }
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+    }
+
+    document.getElementById('modeSegmented').addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-mode]');
+        if (!btn) return;
+        mode = btn.dataset.mode;
+        Array.from(this.querySelectorAll('button')).forEach(b => b.classList.toggle('active', b === btn));
+        populateEntitySelect();
+        renderGrid();
+    });
+
+    document.getElementById('entitySelect').addEventListener('change', renderGrid);
+    document.getElementById('yearSelect').addEventListener('change', loadAll);
+    document.getElementById('weekPrev').addEventListener('click', function () {
+        weekMonday.setDate(weekMonday.getDate() - 7);
+        renderGrid();
+    });
+    document.getElementById('weekNext').addEventListener('click', function () {
+        weekMonday.setDate(weekMonday.getDate() + 7);
+        renderGrid();
+    });
+
+    fetch('/api/notifications/unread-count')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data) return;
+            var badge = document.getElementById('bellBadge');
+            if (data.unread > 0) { badge.style.display = 'flex'; badge.textContent = data.unread; }
+        }).catch(function () {});
+
+    loadAll();
+})();
+</script>
 </div>
 </body>
 </html>

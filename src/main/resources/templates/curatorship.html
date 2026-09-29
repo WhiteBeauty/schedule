@@ -1,84 +1,49 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Кураторство</title>
-    <link rel="stylesheet" href="/css/styles.css">
-    <script th:src="@{/js/toast.js}" defer></script>
-    <style>
-        .curatorship-layout {
-            display: flex;
-            gap: 1.5rem;
-            min-height: calc(100vh - 150px);
-        }
-        .curatorship-sidebar {
-            width: 280px;
-            flex-shrink: 0;
-        }
-        .curatorship-content {
-            flex: 1;
-        }
-        .group-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .group-list li {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
-            transition: .15s;
-        }
-        .group-list li:hover {
-            background: var(--bg);
-        }
-        .group-list li.active {
-            background: var(--substitute-bg);
-            border-left: 4px solid var(--substitute);
-            color: var(--substitute);
-            font-weight: 600;
-        }
-        .group-name {
-            font-weight: 600;
-            display: block;
-            margin-bottom: 0.25rem;
-        }
-        .group-specialty {
-            font-size: 0.8rem;
-            color: var(--muted);
-        }
-        .curatorship-detail {
-            margin-bottom: 1rem;
-        }
-        .curatorship-detail h4 {
-            margin: 0 0 0.75rem;
-            font-size: 1rem;
-            color: var(--primary);
-        }
-        .status-card {
-            padding: 1rem;
-            background: var(--bg);
-            border-radius: var(--radius-sm);
-            margin-bottom: 1rem;
-        }
-        .status-high { color: var(--success); }
-        .status-medium { color: var(--warning); }
-        .status-low { color: var(--danger); }
-    </style>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('settings', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <h1 class="page-title">Кураторство</h1>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Кураторство</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
+    <style>
+        .curatorship-layout { display: flex; gap: 18px; flex: 1; min-height: 0; }
+        .curatorship-sidebar { width: 280px; flex-shrink: 0; }
+        .curatorship-content { flex: 1; }
+        .group-list { list-style: none; padding: 0; margin: 0; }
+        .group-list li { padding: 12px 14px; border-bottom: 1px solid var(--color-border-light); cursor: pointer; }
+        .group-list li:hover { background: var(--color-bg); }
+        .group-list li.active {
+            background: var(--color-bg);
+            border-left: 4px solid var(--color-primary);
+            color: var(--color-primary);
+            font-weight: 600;
+        }
+        .group-name { font-weight: 600; display: block; margin-bottom: 3px; }
+        .group-specialty { font-size: 12.5px; color: var(--color-text-muted); }
+        .curatorship-detail { margin-bottom: 18px; }
+        .curatorship-detail h4 { margin: 0 0 12px; font-size: 15px; color: var(--color-primary); }
+        .status-card { padding: 16px; background: var(--color-bg); border-radius: var(--radius-control); margin-bottom: 18px; }
+        .status-high { color: var(--color-success-text); }
+        .status-medium { color: var(--color-warning-text); }
+        .status-low { color: var(--color-danger-text); }
+    </style>
 
     <div class="curatorship-layout">
         <div class="curatorship-sidebar">
-            <div class="card" style="padding: 1rem; margin: 0;">
-                <h4 style="margin: 0 0 1rem;">Закреплённые группы</h4>
+            <div class="card" style="padding: 16px; margin: 0;">
+                <h4 style="margin: 0 0 14px; font-size: 15px;">Закреплённые группы</h4>
                 <ul class="group-list" id="groupList">
-                    <li style="color: var(--muted); padding: 1rem;">Загрузка...</li>
+                    <li style="color: var(--color-text-muted); padding: 14px;">Загрузка...</li>
                 </ul>
             </div>
         </div>
@@ -86,49 +51,41 @@
         <div class="curatorship-content">
             <div class="card" id="groupCard" style="display:none">
                 <div class="card-header">
-                    <h2 class="card-title" id="groupTitle">Группа</h2>
-                    <button class="btn btn-sm btn-secondary" onclick="addEvent()">Мероприятие</button>
+                    <span class="card-title" id="groupTitle">Группа</span>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addEvent()">Мероприятие</button>
                 </div>
 
                 <div class="status-card">
                     <strong>Статус выполнения:</strong>
                     <span id="completionStatus" class="status-medium">Загрузка...</span>
-                    <div style="margin-top:0.5rem">
+                    <div style="margin-top:8px">
                         <div class="progress" style="width:100%">
                             <div id="completionBar" class="progress-bar" style="width:0%"></div>
                         </div>
-                        <small id="completionText" style="color:var(--muted)">0 / 0 часов</small>
+                        <small id="completionText" style="color:var(--color-text-muted)">0 / 0 часов</small>
                     </div>
                 </div>
 
                 <div class="curatorship-detail">
                     <h4>Кураторские часы</h4>
-                    <table id="hoursTable">
-                        <thead>
-                        <tr>
-                            <th>Месяц</th>
-                            <th>План</th>
-                            <th>Факт</th>
-                            <th>Статус</th>
-                        </tr>
-                        </thead>
-                        <tbody id="hoursBody">
-                        </tbody>
+                    <table class="data-table" id="hoursTable">
+                        <thead><tr><th>Месяц</th><th>План</th><th>Факт</th><th>Статус</th></tr></thead>
+                        <tbody id="hoursBody"></tbody>
                     </table>
                 </div>
 
                 <div class="curatorship-detail">
                     <h4>Мероприятия</h4>
-                    <ul id="eventsList" style="margin: 0; padding-left: 1.2rem;"></ul>
+                    <ul id="eventsList" style="margin: 0; padding-left: 18px;"></ul>
                 </div>
 
                 <div class="curatorship-detail">
                     <h4>Журнал куратора</h4>
-                    <div style="margin-bottom:0.5rem; display:flex; gap:0.5rem;">
+                    <div style="margin-bottom:10px; display:flex; gap:8px;">
                         <input type="text" id="newLogEntry" placeholder="Введите запись..." style="flex:1;">
-                        <button class="btn btn-sm btn-primary" onclick="addLog()">Добавить</button>
+                        <button type="button" class="btn btn-sm" onclick="addLog()">Добавить</button>
                     </div>
-                    <ul id="logsList" style="margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted);"></ul>
+                    <ul id="logsList" style="margin: 0; padding-left: 18px; font-size: 13px; color: var(--color-text-muted);"></ul>
                 </div>
             </div>
 
@@ -137,326 +94,320 @@
             </div>
         </div>
     </div>
-</main>
 
-<script th:inline="javascript">
-const currentTeacherId = /*[[${teacherId}]]*/ null;
-const currentYear = /*[[${defaultYear}]]*/ 2025;
+    <script th:inline="javascript">
+    const currentTeacherId = /*[[${teacherId}]]*/ null;
+    const currentYear = /*[[${defaultYear}]]*/ 2025;
 
-let currentCuratorshipId = null;
+    let currentCuratorshipId = null;
 
-document.addEventListener('DOMContentLoaded', () => {
-    if (!currentTeacherId) {
-        document.getElementById('groupList').innerHTML = '<li style="color: var(--muted); padding: 1rem;">У вас нет закрепленных групп</li>';
-        document.getElementById('noGroupsCard').style.display = 'block';
-        return;
-    }
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!currentTeacherId) {
+            document.getElementById('groupList').innerHTML = '<li style="color: var(--color-text-muted); padding: 14px;">У вас нет закреплённых групп</li>';
+            document.getElementById('noGroupsCard').style.display = 'block';
+            return;
+        }
 
-    // Загрузка списка групп преподавателя
-    fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка загрузки');
-            return r.json();
-        })
-        .then(data => {
-            const groupList = document.getElementById('groupList');
-            groupList.innerHTML = '';
-            
-            if (data.length === 0) {
-                groupList.innerHTML = '<li style="color: var(--muted); padding: 1rem;">Нет закреплённых групп</li>';
-                document.getElementById('noGroupsCard').style.display = 'block';
-                return;
-            }
+        fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка загрузки');
+                return r.json();
+            })
+            .then(data => {
+                const groupList = document.getElementById('groupList');
+                groupList.innerHTML = '';
 
-            document.getElementById('noGroupsCard').style.display = 'none';
+                if (data.length === 0) {
+                    groupList.innerHTML = '<li style="color: var(--color-text-muted); padding: 14px;">Нет закреплённых групп</li>';
+                    document.getElementById('noGroupsCard').style.display = 'block';
+                    return;
+                }
 
-            data.forEach((c, idx) => {
-                const li = document.createElement('li');
-                if (idx === 0) li.classList.add('active');
-                li.innerHTML = `
-                    <span class="group-name">${c.group.name}</span>
-                    <span class="group-specialty">${c.group.specialty || '—'}, ${c.group.course}-й курс</span>
-                `;
-                li.addEventListener('click', () => {
-                    document.querySelectorAll('.group-list li').forEach(l => l.classList.remove('active'));
-                    li.classList.add('active');
-                    loadGroupDetails(c);
+                document.getElementById('noGroupsCard').style.display = 'none';
+
+                data.forEach((c, idx) => {
+                    const li = document.createElement('li');
+                    if (idx === 0) li.classList.add('active');
+                    li.innerHTML = `
+                        <span class="group-name">${c.group.name}</span>
+                        <span class="group-specialty">${c.group.specialty || '—'}, ${c.group.course}-й курс</span>
+                    `;
+                    li.addEventListener('click', () => {
+                        document.querySelectorAll('.group-list li').forEach(l => l.classList.remove('active'));
+                        li.classList.add('active');
+                        loadGroupDetails(c);
+                    });
+                    groupList.appendChild(li);
                 });
-                groupList.appendChild(li);
+
+                if (data.length > 0) {
+                    loadGroupDetails(data[0]);
+                }
+            })
+            .catch(e => {
+                document.getElementById('groupList').innerHTML = '<li style="color: var(--color-text-muted); padding: 14px;">Ошибка загрузки</li>';
             });
+    });
 
-            // Загрузить первую группу
-            if (data.length > 0) {
-                loadGroupDetails(data[0]);
+    function loadGroupDetails(curatorship) {
+        currentCuratorshipId = curatorship.id;
+        document.getElementById('groupCard').style.display = 'block';
+        document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
+
+        const hoursBody = document.getElementById('hoursBody');
+        hoursBody.innerHTML = '';
+
+        const months = [
+            'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+            'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь'
+        ];
+        const monthNumbers = [9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
+
+        const yearlyPlan = curatorship.hours != null ? Number(curatorship.hours) : 0;
+        const monthlyPlan = months.length > 0 ? Math.round((yearlyPlan / months.length) * 10) / 10 : 0;
+
+        const events = Array.isArray(curatorship.events) ? curatorship.events : [];
+        const factByMonth = {};
+        monthNumbers.forEach(m => { factByMonth[m] = 0; });
+
+        events.forEach(ev => {
+            const text = String(ev);
+            let month = null;
+            const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+            const ru = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+            if (iso) month = parseInt(iso[2], 10);
+            else if (ru) month = parseInt(ru[2], 10);
+            if (month && factByMonth[month] !== undefined) {
+                factByMonth[month] += 1;
             }
-        })
-        .catch(e => {
-            console.error('Error loading curatorships:', e);
-            document.getElementById('groupList').innerHTML = '<li style="color: var(--muted); padding: 1rem;">Ошибка загрузки</li>';
         });
-});
 
-function loadGroupDetails(curatorship) {
-    currentCuratorshipId = curatorship.id;
-    document.getElementById('groupCard').style.display = 'block';
-    document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
+        let totalPlanned = 0, totalFact = 0;
+        months.forEach((monthName, idx) => {
+            const m = monthNumbers[idx];
+            const plan = monthlyPlan;
+            const fact = factByMonth[m] || 0;
+            totalPlanned += plan;
+            totalFact += fact;
 
-    const hoursBody = document.getElementById('hoursBody');
-    hoursBody.innerHTML = '';
+            const status = fact >= plan && plan > 0 ? '<span class="badge badge-success">Выполнено</span>' :
+                           fact > 0 ? '<span class="badge badge-warning">Частично</span>' :
+                           plan === 0 ? '<span class="badge badge-warning">План не задан</span>' :
+                           '<span class="badge badge-danger">Не выполнено</span>';
 
-    const months = [
-        'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-        'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь'
-    ];
-    const monthNumbers = [9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
-
-    // План: из поля hours кураторства (год), иначе 0 — без заглушек
-    const yearlyPlan = curatorship.hours != null ? Number(curatorship.hours) : 0;
-    const monthlyPlan = months.length > 0 ? Math.round((yearlyPlan / months.length) * 10) / 10 : 0;
-
-    // Факт: считаем мероприятия по месяцу из текста (если есть дата), иначе не распределяем
-    const events = Array.isArray(curatorship.events) ? curatorship.events : [];
-    const factByMonth = {};
-    monthNumbers.forEach(m => { factByMonth[m] = 0; });
-
-    events.forEach(ev => {
-        const text = String(ev);
-        // Ищем дату вида YYYY-MM-DD или DD.MM.YYYY в тексте мероприятия
-        let month = null;
-        const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-        const ru = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-        if (iso) month = parseInt(iso[2], 10);
-        else if (ru) month = parseInt(ru[2], 10);
-        if (month && factByMonth[month] !== undefined) {
-            factByMonth[month] += 1; // 1 час за мероприятие, если нет явных часов
-        }
-    });
-
-    let totalPlanned = 0, totalFact = 0;
-    months.forEach((monthName, idx) => {
-        const m = monthNumbers[idx];
-        const plan = monthlyPlan;
-        const fact = factByMonth[m] || 0;
-        totalPlanned += plan;
-        totalFact += fact;
-
-        const status = fact >= plan && plan > 0 ? '<span class="badge badge-success">Выполнено</span>' :
-                       fact > 0 ? '<span class="badge badge-warning">Частично</span>' :
-                       plan === 0 ? '<span class="badge badge-warning">План не задан</span>' :
-                       '<span class="badge badge-danger">Не выполнено</span>';
-
-        const yearLabel = m >= 9 ? currentYear : (parseInt(currentYear, 10) + 1);
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${monthName} ${yearLabel}</td>
-            <td>${plan}</td>
-            <td>${fact}</td>
-            <td>${status}</td>
-        `;
-        hoursBody.appendChild(tr);
-    });
-
-    const completion = totalPlanned > 0 ? (totalFact * 100 / totalPlanned) : 0;
-    const statusText = yearlyPlan <= 0 && events.length === 0 ? 'Нет данных' :
-                       completion >= 90 ? 'Высокая' : completion >= 70 ? 'Средняя' : 'Низкая';
-
-    document.getElementById('completionStatus').textContent = statusText;
-    document.getElementById('completionStatus').className = 'status-' + (completion >= 90 ? 'high' : completion >= 70 ? 'medium' : 'low');
-    document.getElementById('completionBar').style.width = Math.min(completion, 100) + '%';
-    document.getElementById('completionBar').className = 'progress-bar ' + (completion >= 90 ? 'success' : completion >= 70 ? 'warning' : 'danger');
-    document.getElementById('completionText').textContent =
-        `${totalFact} / ${totalPlanned} часов` +
-        (events.length ? ` · мероприятий: ${events.length}` : '') +
-        ` (${Math.round(completion)}%)`;
-
-    renderEvents(curatorship);
-    renderLogs(curatorship);
-}
-
-function renderEvents(curatorship) {
-    const eventsList = document.getElementById('eventsList');
-    eventsList.innerHTML = '';
-    if (curatorship.events && curatorship.events.length > 0) {
-        curatorship.events.forEach((e, idx) => {
-            const li = document.createElement('li');
-            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem';
-            li.innerHTML = `
-                <span>${e}</span>
-                <div style="display:flex;gap:0.25rem">
-                    <button class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Изменить</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Удалить</button>
-                </div>
+            const yearLabel = m >= 9 ? currentYear : (parseInt(currentYear, 10) + 1);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${monthName} ${yearLabel}</td>
+                <td>${plan}</td>
+                <td>${fact}</td>
+                <td>${status}</td>
             `;
-            eventsList.appendChild(li);
+            hoursBody.appendChild(tr);
         });
-    } else {
-        eventsList.innerHTML = '<li style="color: var(--muted)">Нет мероприятий</li>';
-    }
-}
 
-function renderLogs(curatorship) {
-    const logsList = document.getElementById('logsList');
-    logsList.innerHTML = '';
-    if (curatorship.logs && curatorship.logs.length > 0) {
-        curatorship.logs.forEach((l, idx) => {
-            const li = document.createElement('li');
-            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem';
-            li.innerHTML = `
-                <span>${l}</span>
-                <div style="display:flex;gap:0.25rem">
-                    <button class="btn btn-sm btn-secondary" onclick="editLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Изменить</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteLog(${idx})" style="padding:0.25rem 0.5rem;font-size:0.75rem">Удалить</button>
-                </div>
-            `;
-            logsList.appendChild(li);
+        const completion = totalPlanned > 0 ? (totalFact * 100 / totalPlanned) : 0;
+        const statusText = yearlyPlan <= 0 && events.length === 0 ? 'Нет данных' :
+                           completion >= 90 ? 'Высокая' : completion >= 70 ? 'Средняя' : 'Низкая';
+
+        document.getElementById('completionStatus').textContent = statusText;
+        document.getElementById('completionStatus').className = 'status-' + (completion >= 90 ? 'high' : completion >= 70 ? 'medium' : 'low');
+        document.getElementById('completionBar').style.width = Math.min(completion, 100) + '%';
+        document.getElementById('completionBar').className = 'progress-bar ' + (completion >= 90 ? 'success' : completion >= 70 ? 'warning' : 'danger');
+        document.getElementById('completionText').textContent =
+            `${totalFact} / ${totalPlanned} часов` +
+            (events.length ? ` · мероприятий: ${events.length}` : '') +
+            ` (${Math.round(completion)}%)`;
+
+        renderEvents(curatorship);
+        renderLogs(curatorship);
+    }
+
+    function renderEvents(curatorship) {
+        const eventsList = document.getElementById('eventsList');
+        eventsList.innerHTML = '';
+        if (curatorship.events && curatorship.events.length > 0) {
+            curatorship.events.forEach((e, idx) => {
+                const li = document.createElement('li');
+                li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+                li.innerHTML = `
+                    <span>${e}</span>
+                    <div style="display:flex;gap:4px">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:4px 8px;font-size:12px">Изменить</button>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:4px 8px;font-size:12px">Удалить</button>
+                    </div>
+                `;
+                eventsList.appendChild(li);
+            });
+        } else {
+            eventsList.innerHTML = '<li style="color: var(--color-text-muted)">Нет мероприятий</li>';
+        }
+    }
+
+    function renderLogs(curatorship) {
+        const logsList = document.getElementById('logsList');
+        logsList.innerHTML = '';
+        if (curatorship.logs && curatorship.logs.length > 0) {
+            curatorship.logs.forEach((l, idx) => {
+                const li = document.createElement('li');
+                li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+                li.innerHTML = `
+                    <span>${l}</span>
+                    <div style="display:flex;gap:4px">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="editLog(${idx})" style="padding:4px 8px;font-size:12px">Изменить</button>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="deleteLog(${idx})" style="padding:4px 8px;font-size:12px">Удалить</button>
+                    </div>
+                `;
+                logsList.appendChild(li);
+            });
+        } else {
+            logsList.innerHTML = '<li style="color: var(--color-text-muted)">Нет записей</li>';
+        }
+    }
+
+    function deleteEvent(eventIdx) {
+        if (!currentCuratorshipId) return;
+        if (!confirm('Удалить это мероприятие?')) return;
+
+        fetch(`/api/curatorships/${currentCuratorshipId}/event/${eventIdx}`, {
+            method: 'DELETE'
+        }).then(r => {
+            if (r.ok) {
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка удаления', 'danger');
+            }
         });
-    } else {
-        logsList.innerHTML = '<li style="color: var(--muted)">Нет записей</li>';
     }
-}
 
-function deleteEvent(eventIdx) {
-    if (!currentCuratorshipId) return;
-    if (!confirm('Удалить это мероприятие?')) return;
+    function editEvent(eventIdx) {
+        if (!currentCuratorshipId) return;
+        const eventsList = document.getElementById('eventsList');
+        const items = eventsList.querySelectorAll('li span');
+        const currentEvent = items[eventIdx]?.textContent.trim();
+        if (currentEvent === undefined) return;
 
-    fetch(`/api/curatorships/${currentCuratorshipId}/event/${eventIdx}`, {
-        method: 'DELETE'
-    }).then(r => {
-        if (r.ok) {
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка удаления', 'danger');
-        }
-    });
-}
+        const event = prompt('Редактировать мероприятие:', currentEvent);
+        if (!event) return;
 
-function editEvent(eventIdx) {
-    if (!currentCuratorshipId) return;
-    const eventsList = document.getElementById('eventsList');
-    const items = eventsList.querySelectorAll('li span');
-    const currentEvent = items[eventIdx]?.textContent.trim();
-    if (currentEvent === undefined) return;
+        fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ eventIdx, event })
+        }).then(r => {
+            if (r.ok) {
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка редактирования', 'danger');
+            }
+        });
+    }
 
-    const event = prompt('Редактировать мероприятие:', currentEvent);
-    if (!event) return;
+    function deleteLog(logIdx) {
+        if (!currentCuratorshipId) return;
+        if (!confirm('Удалить эту запись?')) return;
 
-    fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ eventIdx, event })
-    }).then(r => {
-        if (r.ok) {
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка редактирования', 'danger');
-        }
-    });
-}
+        fetch(`/api/curatorships/${currentCuratorshipId}/log/${logIdx}`, {
+            method: 'DELETE'
+        }).then(r => {
+            if (r.ok) {
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка удаления', 'danger');
+            }
+        });
+    }
 
-function deleteLog(logIdx) {
-    if (!currentCuratorshipId) return;
-    if (!confirm('Удалить эту запись?')) return;
+    function editLog(logIdx) {
+        if (!currentCuratorshipId) return;
+        const logsList = document.getElementById('logsList');
+        const items = logsList.querySelectorAll('li span');
+        const currentLog = items[logIdx]?.textContent.trim();
+        if (currentLog === undefined) return;
 
-    fetch(`/api/curatorships/${currentCuratorshipId}/log/${logIdx}`, {
-        method: 'DELETE'
-    }).then(r => {
-        if (r.ok) {
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка удаления', 'danger');
-        }
-    });
-}
+        const logEntry = prompt('Редактировать запись:', currentLog);
+        if (!logEntry) return;
 
-function editLog(logIdx) {
-    if (!currentCuratorshipId) return;
-    const logsList = document.getElementById('logsList');
-    const items = logsList.querySelectorAll('li span');
-    const currentLog = items[logIdx]?.textContent.trim();
-    if (currentLog === undefined) return;
+        fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ logIdx, logEntry })
+        }).then(r => {
+            if (r.ok) {
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка редактирования', 'danger');
+            }
+        });
+    }
 
-    const logEntry = prompt('Редактировать запись:', currentLog);
-    if (!logEntry) return;
+    function addEvent() {
+        if (!currentCuratorshipId) return;
+        const event = prompt('Введите мероприятие:');
+        if (!event) return;
 
-    fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ logIdx, logEntry })
-    }).then(r => {
-        if (r.ok) {
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка редактирования', 'danger');
-        }
-    });
-}
+        fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({event})
+        }).then(r => {
+            if (r.ok) {
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка добавления мероприятия', 'danger');
+            }
+        });
+    }
 
-function addEvent() {
-    if (!currentCuratorshipId) return;
-    const event = prompt('Введите мероприятие:');
-    if (!event) return;
+    function addLog() {
+        if (!currentCuratorshipId) return;
+        const logEntry = document.getElementById('newLogEntry').value;
+        if (!logEntry) return;
 
-    fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event})
-    }).then(r => {
-        if (r.ok) {
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка добавления мероприятия', 'danger');
-        }
-    });
-}
-
-function addLog() {
-    if (!currentCuratorshipId) return;
-    const logEntry = document.getElementById('newLogEntry').value;
-    if (!logEntry) return;
-
-    fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({logEntry})
-    }).then(r => {
-        if (r.ok) {
-            document.getElementById('newLogEntry').value = '';
-            fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                .then(r => r.json())
-                .then(data => {
-                    const c = data.find(x => x.id === currentCuratorshipId);
-                    if (c) loadGroupDetails(c);
-                });
-        } else {
-            showToast('Ошибка добавления записи', 'danger');
-        }
-    });
-}
-</script>
+        fetch(`/api/curatorships/${currentCuratorshipId}/log`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({logEntry})
+        }).then(r => {
+            if (r.ok) {
+                document.getElementById('newLogEntry').value = '';
+                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const c = data.find(x => x.id === currentCuratorshipId);
+                        if (c) loadGroupDetails(c);
+                    });
+            } else {
+                showToast('Ошибка добавления записи', 'danger');
+            }
+        });
+    }
+    </script>
+</div>
 </body>
 </html>

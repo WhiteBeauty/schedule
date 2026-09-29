@@ -1,21 +1,21 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Помесячный учёт</title>
-    <link rel="stylesheet" href="/css/styles.css">
-    <script th:src="@{/js/toast.js}" defer></script>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('settings', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
-        <h1 class="page-title" style="margin:0;">Помесячный учёт часов</h1>
-        <a th:href="@{/export/csv}" class="btn btn-sm btn-secondary" onclick="exportCsv(); return false;">Экспорт CSV</a>
-    </div>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Помесячный учёт часов</h1>
+</div>
 
+<div th:fragment="topbarRight" class="topbar-right">
+    <a th:href="@{/export/csv}" class="btn btn-sm btn-secondary" onclick="exportCsv(); return false;">Экспорт CSV</a>
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
     <div class="mode-tabs" style="display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
         <button class="btn btn-primary" id="tabBtnSemester" onclick="showSverkaTab('Semester')">Семестр</button>
         <button class="btn btn-outline" id="tabBtnWeek" onclick="showSverkaTab('Week')">Неделя</button>

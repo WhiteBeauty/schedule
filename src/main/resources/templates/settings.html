@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('settings', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
+<body>
+
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Настройки</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
+    <p class="page-heading-sub" style="margin:0;">
+        Управление справочниками и разделы, которые пока не переехали в новый дизайн — открываются в прежнем виде.
+    </p>
+
+    <div class="settings-grid" th:if="${isAdmin}">
+        <a class="settings-tile" th:href="@{/admin/schedule}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: grid}"></span></div>
+            <div class="settings-tile-title">Управление расписанием</div>
+            <div class="settings-tile-text">Группы, дисциплины, автосоставление с логом, экзамены и практика</div>
+        </a>
+        <a class="settings-tile" th:href="@{/admin/pairs}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: calendar}"></span></div>
+            <div class="settings-tile-title">Расписание пар и больничные</div>
+            <div class="settings-tile-text">Звонковая система, ручное добавление пар, больничные листы</div>
+        </a>
+        <a class="settings-tile" th:href="@{/admin/teachers}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: users}"></span></div>
+            <div class="settings-tile-title">Преподаватели</div>
+            <div class="settings-tile-text">Профили, кураторство, добавление нагрузки, утверждение часов</div>
+        </a>
+        <a class="settings-tile" th:href="@{/curatorship}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: users}"></span></div>
+            <div class="settings-tile-title">Кураторство</div>
+            <div class="settings-tile-text">Назначение кураторов групп, журнал мероприятий</div>
+        </a>
+        <a class="settings-tile" th:href="@{/admin/users}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: settings}"></span></div>
+            <div class="settings-tile-title">Пользователи и роли</div>
+            <div class="settings-tile-text">Назначение и снятие прав администратора, журнал изменений</div>
+        </a>
+        <a class="settings-tile" th:href="@{/monthly}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: bar-chart}"></span></div>
+            <div class="settings-tile-title">Помесячный учёт часов</div>
+            <div class="settings-tile-text">Сверка по семестру/неделе/месяцу, ручная корректировка часов</div>
+        </a>
+    </div>
+
+    <div class="settings-grid" th:unless="${isAdmin}">
+        <a class="settings-tile" th:href="@{/curatorship}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: users}"></span></div>
+            <div class="settings-tile-title">Кураторство</div>
+            <div class="settings-tile-text">Ваши закреплённые группы, журнал мероприятий</div>
+        </a>
+        <a class="settings-tile" th:href="@{/time-sync}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: bar-chart}"></span></div>
+            <div class="settings-tile-title">Сверка часов</div>
+            <div class="settings-tile-text">Плановые и фактические часы по вашей нагрузке</div>
+        </a>
+    </div>
+</div>
+
+</body>
+</html>

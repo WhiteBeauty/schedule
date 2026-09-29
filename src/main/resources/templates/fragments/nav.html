@@ -8,8 +8,10 @@
         Учебный год: <strong th:text="${currentAcademicYear}">2025-2026</strong>
     </div>
     <ul class="nav-list">
-        <li><a th:href="@{/dashboard}" id="nav-dashboard">Личный кабинет</a></li>
-        <li><a th:href="@{/schedule}" id="nav-schedule">Моё расписание</a></li>
+        <li><a th:href="@{/dashboard}" id="nav-dashboard">Дашборд</a></li>
+        <li><a th:href="@{/schedule}" id="nav-schedule">Расписание</a></li>
+        <li><a th:href="@{/teacher-load}" id="nav-teacher-load">Нагрузка (новый вид)</a></li>
+        <li><a th:href="@{/reports}" id="nav-reports">Отчёты (новый вид)</a></li>
         <li><a th:href="@{/schedule/month}" id="nav-schedule-month">Расписание на месяц</a></li>
         <li>
             <a th:href="@{/notifications}" id="nav-notifications">

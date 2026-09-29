@@ -1,26 +1,26 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Преподаватели</title>
-    <link rel="stylesheet" href="/css/styles.css">
-    <script th:src="@{/js/toast.js}" defer></script>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('teacher-load', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h1 class="page-title" style="margin:0">Преподаватели</h1>
-        <button id="addTeacherBtn" class="btn btn-primary" style="display:none" onclick="openCreateModal()">Добавить</button>
-    </div>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Преподаватели</h1>
+</div>
 
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="btn btn-primary" id="addTeacherBtn" style="display:none" onclick="openCreateModal()">Добавить</a>
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Список преподавателей</h2>
+            <span class="card-title">Список преподавателей</span>
         </div>
-        <table id="teacherTable">
+        <table class="data-table" id="teacherTable">
             <thead>
             <tr>
                 <th>ФИО</th>
@@ -31,220 +31,190 @@
                 <th>Действия</th>
             </tr>
             </thead>
-            <tbody id="teacherBody"></tbody>
+            <tbody id="teacherBody"><tr><td colspan="6"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
         </table>
     </div>
-</main>
 
-<div class="modal-overlay" id="profileModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3 style="margin:0">Профиль преподавателя</h3>
-            <button class="close-btn" onclick="closeProfile()">×</button>
-        </div>
-        <div class="modal-body" id="profileBody"></div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeProfile()">Закрыть</button>
+    <div class="modal-overlay" id="profileModal">
+        <div class="modal">
+            <div class="modal-header"><h3>Профиль преподавателя</h3><button type="button" class="close-btn" onclick="closeProfile()">×</button></div>
+            <div class="modal-body" id="profileBody"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeProfile()">Закрыть</button></div>
         </div>
     </div>
-</div>
 
-<div class="modal-overlay" id="teacherModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3 style="margin:0" id="teacherModalTitle">Добавить преподавателя</h3>
-            <button class="close-btn" onclick="closeTeacherModal()">×</button>
-        </div>
-        <div class="modal-body">
-            <form id="teacherForm">
-                <input type="hidden" id="teacherId">
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Email *</label>
-                    <input type="email" id="email" required>
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">ФИО *</label>
-                    <input type="text" id="fullName" required>
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Кафедра *</label>
-                    <input type="text" id="department" required>
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Должность *</label>
-                    <input type="text" id="position" required>
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Ставка *</label>
-                    <input type="number" step="0.5" id="rate" required>
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Телефон</label>
-                    <input type="text" id="phone">
-                </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Пароль (для нового)</label>
-                    <input type="password" id="password" placeholder="Оставить пустым если не меняется">
-                </div>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeTeacherModal()">Отмена</button>
-            <button class="btn btn-primary" onclick="saveTeacher()">Сохранить</button>
+    <div class="modal-overlay" id="teacherModal">
+        <div class="modal">
+            <div class="modal-header"><h3 id="teacherModalTitle">Добавить преподавателя</h3><button type="button" class="close-btn" onclick="closeTeacherModal()">×</button></div>
+            <div class="modal-body">
+                <form id="teacherForm">
+                    <input type="hidden" id="teacherId">
+                    <div class="field" style="margin-bottom:14px;"><label>Email *</label><input type="email" id="email" required></div>
+                    <div class="field" style="margin-bottom:14px;"><label>ФИО *</label><input type="text" id="fullName" required></div>
+                    <div class="field" style="margin-bottom:14px;"><label>Кафедра *</label><input type="text" id="department" required></div>
+                    <div class="field" style="margin-bottom:14px;"><label>Должность *</label><input type="text" id="position" required></div>
+                    <div class="field" style="margin-bottom:14px;"><label>Ставка *</label><input type="number" step="0.5" id="rate" required></div>
+                    <div class="field" style="margin-bottom:14px;"><label>Телефон</label><input type="text" id="phone"></div>
+                    <div class="field"><label>Пароль (для нового)</label><input type="password" id="password" placeholder="Оставить пустым если не меняется"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeTeacherModal()">Отмена</button>
+                <button type="button" class="btn" onclick="saveTeacher()">Сохранить</button>
+            </div>
         </div>
     </div>
-</div>
 
-<script th:inline="javascript">
-/*<![CDATA[*/
-const isAdmin = /*[[${isAdmin}]]*/ false;
-const defaultYear = /*[[${defaultYear}]]*/ 2025;
+    <script th:inline="javascript">
+    const isAdmin = /*[[${isAdmin}]]*/ false;
+    const defaultYear = /*[[${defaultYear}]]*/ 2025;
 
-document.addEventListener('DOMContentLoaded', () => {
-    if (isAdmin) {
-        document.getElementById('addTeacherBtn').style.display = 'block';
-    }
-
-    fetch('/api/teachers')
-        .then(r => r.json())
-        .then(data => {
-            const tbody = document.getElementById('teacherBody');
-            data.forEach(t => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><a href="#" onclick="openProfile(${t.id}); return false;" style="color:var(--primary);text-decoration:none;font-weight:600">${t.fullName}</a></td>
-                    <td>${t.department || '-'}</td>
-                    <td>${t.position || '-'}</td>
-                    <td>${t.rate || '-'}</td>
-                    <td>${t.email || '-'}<br><small class="text-muted">${t.phone || ''}</small></td>
-                    <td>
-                        <button class="btn btn-sm btn-secondary" onclick="openProfile(${t.id})">Профиль</button>
-                        ${isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="editTeacher(${t.id})">Изменить</button>` : ''}
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        });
-});
-
-function openProfile(id) {
-    fetch(`/api/teachers/${id}/profile?year=${defaultYear}`)
-        .then(r => r.json())
-        .then(p => {
-            const body = document.getElementById('profileBody');
-            const loadsHtml = p.loads.map(l => `
-                <tr>
-                    <td>${l.discipline}</td>
-                    <td>${l.groupName}</td>
-                    <td>${l.planned}</td>
-                    <td>${l.read}</td>
-                    <td>${l.remaining}</td>
-                    <td><div class="progress" style="width:80px"><div class="progress-bar" style="width:${Math.min(l.completion,100)}%"></div></div></td>
-                </tr>
-            `).join('');
-
-            const dynamicsHtml = p.monthlyDynamics.map(m => `
-                <div class="month-card">
-                    <h4>${m.month}</h4>
-                    <div class="month-hours">${m.hours}</div>
-                </div>
-            `).join('');
-
-            let prodColor = p.avgProductivity >= 90 ? 'success' : (p.avgProductivity >= 70 ? 'warning' : 'danger');
-
-            body.innerHTML = `
-                <div class="grid" style="margin-bottom:1rem">
-                    <div class="stat"><div class="stat-label">Кафедра</div><div class="stat-value" style="font-size:1rem">${p.department || '-'}</div></div>
-                    <div class="stat"><div class="stat-label">Должность</div><div class="stat-value" style="font-size:1rem">${p.position || '-'}</div></div>
-                    <div class="stat"><div class="stat-label">Ставка</div><div class="stat-value" style="font-size:1rem">${p.rate || '-'}</div></div>
-                    <div class="stat"><div class="stat-label">Email</div><div class="stat-value" style="font-size:1rem">${p.email || '-'}</div></div>
-                </div>
-                <div class="grid" style="margin-bottom:1rem">
-                    <div class="stat"><div class="stat-label">План (час)</div><div class="stat-value">${p.totalPlannedHours}</div></div>
-                    <div class="stat"><div class="stat-label">Вычитано (час)</div><div class="stat-value">${p.totalReadHours}</div></div>
-                    <div class="stat"><div class="stat-label">Осталось (час)</div><div class="stat-value">${p.totalRemainingHours}</div></div>
-                    <div class="stat"><div class="stat-label">Продуктивность</div><div class="stat-value ${prodColor === 'success' ? 'text-success' : prodColor === 'warning' ? 'text-warning' : 'text-danger'}">${p.avgProductivity}%</div></div>
-                </div>
-                <h4>Нагрузка по дисциплинам</h4>
-                <table style="margin-bottom:1rem">
-                    <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th><th>%</th></tr></thead>
-                    <tbody>${loadsHtml}</tbody>
-                </table>
-                <h4>Динамика вычитанных часов по месяцам</h4>
-                <div class="month-grid">${dynamicsHtml}</div>
-            `;
-            document.getElementById('profileModal').classList.add('active');
-        });
-}
-
-function closeProfile() {
-    document.getElementById('profileModal').classList.remove('active');
-}
-
-function openCreateModal() {
-    document.getElementById('teacherModalTitle').textContent = 'Добавить преподавателя';
-    document.getElementById('teacherForm').reset();
-    document.getElementById('teacherId').value = '';
-    document.getElementById('teacherModal').classList.add('active');
-}
-
-function editTeacher(id) {
-    fetch(`/api/teachers/${id}`)
-        .then(r => r.json())
-        .then(t => {
-            document.getElementById('teacherModalTitle').textContent = 'Редактировать преподавателя';
-            document.getElementById('teacherId').value = t.id;
-            document.getElementById('email').value = t.email || '';
-            document.getElementById('fullName').value = t.fullName;
-            document.getElementById('department').value = t.department || '';
-            document.getElementById('position').value = t.position || '';
-            document.getElementById('rate').value = t.rate || '';
-            document.getElementById('phone').value = t.phone || '';
-            document.getElementById('password').value = '';
-            document.getElementById('teacherModal').classList.add('active');
-        });
-}
-
-function closeTeacherModal() {
-    document.getElementById('teacherModal').classList.remove('active');
-}
-
-function saveTeacher() {
-    const id = document.getElementById('teacherId').value;
-    const data = {
-        email: document.getElementById('email').value,
-        fullName: document.getElementById('fullName').value,
-        department: document.getElementById('department').value,
-        position: document.getElementById('position').value,
-        rate: parseFloat(document.getElementById('rate').value),
-        phone: document.getElementById('phone').value,
-        password: document.getElementById('password').value
-    };
-
-    if (!data.email || !data.fullName || !data.department || !data.position || !data.rate) {
-        showToast('Заполните обязательные поля', 'danger');
-        return;
-    }
-
-    const url = id ? `/api/teachers/${id}` : '/api/teachers';
-    const method = id ? 'PUT' : 'POST';
-
-    fetch(url, {
-        method,
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(r => {
-        if (r.ok) {
-            closeTeacherModal();
-            location.reload();
-        } else {
-            r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
+    document.addEventListener('DOMContentLoaded', () => {
+        if (isAdmin) {
+            document.getElementById('addTeacherBtn').style.display = 'inline-flex';
         }
-    })
-    .catch(e => showToast('Ошибка: ' + e.message, 'danger'));
-}
-/*]]>*/
-</script>
+
+        fetch('/api/teachers')
+            .then(r => r.json())
+            .then(data => {
+                const tbody = document.getElementById('teacherBody');
+                tbody.innerHTML = '';
+                data.forEach(t => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><a href="#" onclick="openProfile(${t.id}); return false;" style="color:var(--color-primary);text-decoration:none;font-weight:600">${t.fullName}</a></td>
+                        <td>${t.department || '-'}</td>
+                        <td>${t.position || '-'}</td>
+                        <td>${t.rate || '-'}</td>
+                        <td>${t.email || '-'}<br><small class="text-muted">${t.phone || ''}</small></td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="openProfile(${t.id})">Профиль</button>
+                            ${isAdmin ? `<button type="button" class="btn btn-sm btn-secondary" onclick="editTeacher(${t.id})">Изменить</button>` : ''}
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            });
+    });
+
+    function openProfile(id) {
+        fetch(`/api/teachers/${id}/profile?year=${defaultYear}`)
+            .then(r => r.json())
+            .then(p => {
+                const body = document.getElementById('profileBody');
+                const loadsHtml = p.loads.map(l => `
+                    <tr>
+                        <td>${l.discipline}</td>
+                        <td>${l.groupName}</td>
+                        <td>${l.planned}</td>
+                        <td>${l.read}</td>
+                        <td>${l.remaining}</td>
+                        <td><div class="progress" style="width:80px"><div class="progress-bar" style="width:${Math.min(l.completion,100)}%"></div></div></td>
+                    </tr>
+                `).join('');
+
+                const dynamicsHtml = p.monthlyDynamics.map(m => `
+                    <div class="month-card">
+                        <h4>${m.month}</h4>
+                        <div class="month-hours">${m.hours}</div>
+                    </div>
+                `).join('');
+
+                let prodColor = p.avgProductivity >= 90 ? 'success' : (p.avgProductivity >= 70 ? 'warning' : 'danger');
+
+                body.innerHTML = `
+                    <div class="grid" style="margin-bottom:16px">
+                        <div class="stat"><div class="stat-label">Кафедра</div><div class="stat-value" style="font-size:16px">${p.department || '-'}</div></div>
+                        <div class="stat"><div class="stat-label">Должность</div><div class="stat-value" style="font-size:16px">${p.position || '-'}</div></div>
+                        <div class="stat"><div class="stat-label">Ставка</div><div class="stat-value" style="font-size:16px">${p.rate || '-'}</div></div>
+                        <div class="stat"><div class="stat-label">Email</div><div class="stat-value" style="font-size:16px">${p.email || '-'}</div></div>
+                    </div>
+                    <div class="grid" style="margin-bottom:16px">
+                        <div class="stat"><div class="stat-label">План (час)</div><div class="stat-value">${p.totalPlannedHours}</div></div>
+                        <div class="stat"><div class="stat-label">Вычитано (час)</div><div class="stat-value">${p.totalReadHours}</div></div>
+                        <div class="stat"><div class="stat-label">Осталось (час)</div><div class="stat-value">${p.totalRemainingHours}</div></div>
+                        <div class="stat"><div class="stat-label">Продуктивность</div><div class="stat-value ${prodColor === 'success' ? 'text-success' : prodColor === 'warning' ? 'text-warning' : 'text-danger'}">${p.avgProductivity}%</div></div>
+                    </div>
+                    <h4 style="margin-bottom:10px;">Нагрузка по дисциплинам</h4>
+                    <table class="data-table" style="margin-bottom:16px">
+                        <thead><tr><th>Дисциплина</th><th>Группа</th><th>План</th><th>Вычитано</th><th>Осталось</th><th>%</th></tr></thead>
+                        <tbody>${loadsHtml}</tbody>
+                    </table>
+                    <h4 style="margin-bottom:10px;">Динамика вычитанных часов по месяцам</h4>
+                    <div class="month-grid">${dynamicsHtml}</div>
+                `;
+                document.getElementById('profileModal').classList.add('active');
+            });
+    }
+
+    function closeProfile() {
+        document.getElementById('profileModal').classList.remove('active');
+    }
+
+    function openCreateModal() {
+        document.getElementById('teacherModalTitle').textContent = 'Добавить преподавателя';
+        document.getElementById('teacherForm').reset();
+        document.getElementById('teacherId').value = '';
+        document.getElementById('teacherModal').classList.add('active');
+    }
+
+    function editTeacher(id) {
+        fetch(`/api/teachers/${id}`)
+            .then(r => r.json())
+            .then(t => {
+                document.getElementById('teacherModalTitle').textContent = 'Редактировать преподавателя';
+                document.getElementById('teacherId').value = t.id;
+                document.getElementById('email').value = t.email || '';
+                document.getElementById('fullName').value = t.fullName;
+                document.getElementById('department').value = t.department || '';
+                document.getElementById('position').value = t.position || '';
+                document.getElementById('rate').value = t.rate || '';
+                document.getElementById('phone').value = t.phone || '';
+                document.getElementById('password').value = '';
+                document.getElementById('teacherModal').classList.add('active');
+            });
+    }
+
+    function closeTeacherModal() {
+        document.getElementById('teacherModal').classList.remove('active');
+    }
+
+    function saveTeacher() {
+        const id = document.getElementById('teacherId').value;
+        const data = {
+            email: document.getElementById('email').value,
+            fullName: document.getElementById('fullName').value,
+            department: document.getElementById('department').value,
+            position: document.getElementById('position').value,
+            rate: parseFloat(document.getElementById('rate').value),
+            phone: document.getElementById('phone').value,
+            password: document.getElementById('password').value
+        };
+
+        if (!data.email || !data.fullName || !data.department || !data.position || !data.rate) {
+            showToast('Заполните обязательные поля', 'danger');
+            return;
+        }
+
+        const url = id ? `/api/teachers/${id}` : '/api/teachers';
+        const method = id ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(r => {
+            if (r.ok) {
+                closeTeacherModal();
+                location.reload();
+            } else {
+                r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
+            }
+        })
+        .catch(e => showToast('Ошибка: ' + e.message, 'danger'));
+    }
+    </script>
+</div>
 </body>
 </html>

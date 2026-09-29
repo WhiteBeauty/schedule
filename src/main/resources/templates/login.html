@@ -2,107 +2,76 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Вход в систему</title>
-    <link rel="stylesheet" th:href="@{/css/styles.css}">
-    <style>
-        body { display: block; background: var(--bg); }
-        .auth-shell {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem 1.5rem;
-        }
-        .auth-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 2.5rem;
-            width: 380px;
-        }
-        .auth-title {
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            margin: 0 0 0.35rem;
-        }
-        .auth-subtitle {
-            color: var(--muted);
-            font-size: 0.9rem;
-            margin: 0 0 1.5rem;
-        }
-        .auth-notice {
-            font-size: 0.85rem;
-            margin-bottom: 1.25rem;
-            padding: 0.6rem 0.85rem;
-            border-radius: var(--radius-sm);
-        }
-        .auth-notice.error { background: var(--danger-bg); color: var(--danger); }
-        .auth-notice.success { background: var(--success-bg); color: var(--success); }
-        .auth-divider {
-            text-align: center;
-            margin: 1.25rem 0;
-            color: var(--muted);
-            font-size: 0.8rem;
-            position: relative;
-        }
-        .auth-divider::before, .auth-divider::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            width: 35%;
-            height: 1px;
-            background: var(--border);
-        }
-        .auth-divider::before { left: 0; }
-        .auth-divider::after { right: 0; }
-        .auth-links {
-            text-align: center;
-            font-size: 0.85rem;
-        }
-        .auth-links a {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        .auth-links a:hover { text-decoration: underline; }
-        .btn-block { width: 100%; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — Учёт нагрузки</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body>
 <div class="auth-shell">
-    <div class="auth-card">
-        <h1 class="auth-title">Учёт нагрузки</h1>
-        <p class="auth-subtitle">Вход в личный кабинет</p>
-
-        <div th:if="${param.error}" class="auth-notice error">
-            Неверный email или пароль
+    <div class="auth-hero">
+        <div class="auth-hero-grid">
+            <span th:each="i : ${#numbers.sequence(1, 48)}"></span>
         </div>
-        <div th:if="${param.logout}" class="auth-notice success">
-            Вы успешно вышли из системы
-        </div>
-        <div th:if="${param.registered}" class="auth-notice success">
-            Регистрация успешна. Войдите с помощью email и пароля
-        </div>
-
-        <form th:action="@{/login}" method="post" id="login-form" novalidate>
-            <div class="field" id="field-email">
-                <label for="email">Email</label>
-                <input type="email" id="email" name="email" required placeholder="you@example.com" autocomplete="username">
-                <div class="field-error" id="error-email" style="display:none;"></div>
+        <div class="auth-hero-content">
+            <div class="sidebar-brand">
+                <div class="sidebar-brand-mark">Р</div>
+                <div>
+                    <div class="sidebar-brand-name">Учёт нагрузки</div>
+                    <div class="sidebar-brand-sub">ИАТЭ НИЯУ МИФИ</div>
+                </div>
             </div>
-            <div class="field" id="field-password">
-                <label for="password">Пароль</label>
-                <input type="password" id="password" name="password" required placeholder="Введите пароль" autocomplete="current-password">
-                <div class="field-error" id="error-password" style="display:none;"></div>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Войти</button>
-        </form>
+            <h1 class="auth-hero-title">Расписание и учёт нагрузки без ручной сверки</h1>
+            <p class="auth-hero-text">
+                Автоматическое составление расписания, контроль плановых и фактических часов,
+                отчёты по кафедрам и преподавателям — в одном месте.
+            </p>
+        </div>
+        <div class="auth-hero-footer">© ИАТЭ НИЯУ МИФИ, <span th:text="${#dates.format(#dates.createNow(), 'yyyy')}">2026</span></div>
+    </div>
 
-        <div class="auth-divider">или</div>
+    <div class="auth-form-side">
+        <div class="auth-form">
+            <h1>Вход в систему</h1>
+            <p class="auth-form-sub">Введите рабочую почту и пароль, чтобы открыть кабинет.</p>
 
-        <div class="auth-links">
-            <a th:href="@{/register}">Создать учётную запись</a>
+            <div th:if="${param.error}" class="auth-notice error">Неверная почта или пароль</div>
+            <div th:if="${param.logout}" class="auth-notice success">Вы успешно вышли из системы</div>
+            <div th:if="${param.registered}" class="auth-notice success">Регистрация выполнена. Войдите с помощью почты и пароля</div>
+
+            <form th:action="@{/login}" method="post" id="login-form" novalidate>
+                <div class="field" id="field-email">
+                    <label for="email">Электронная почта</label>
+                    <input type="email" id="email" name="email" required placeholder="you@iate.ru" autocomplete="username">
+                    <span class="field-error" id="error-email" style="display:none;"></span>
+                </div>
+                <div class="field" id="field-password">
+                    <label for="password">Пароль</label>
+                    <input type="password" id="password" name="password" required placeholder="Введите пароль" autocomplete="current-password">
+                    <span class="field-error" id="error-password" style="display:none;"></span>
+                </div>
+
+                <div class="auth-row">
+                    <label class="auth-checkbox">
+                        <input type="checkbox" name="remember-me">
+                        Запомнить меня
+                    </label>
+                    <a class="auth-link" href="#">Забыли пароль?</a>
+                </div>
+
+                <button type="submit" class="btn" style="width:100%;">Войти</button>
+            </form>
+
+            <div class="auth-divider">или</div>
+
+            <button type="button" class="btn btn-secondary" style="width:100%;" disabled title="Доступно после интеграции с университетской SSO">
+                <span th:replace="~{fragments/icons :: lock}"></span>
+                Войти через SSO университета
+            </button>
+
+            <p class="auth-footnote">
+                Нет учётной записи? <a class="auth-link" th:href="@{/register}">Создать</a> — доступ
+                администратора выдаётся отдельно, после регистрации.
+            </p>
         </div>
     </div>
 </div>
@@ -112,7 +81,7 @@
         var email = document.getElementById('email');
         var password = document.getElementById('password');
 
-        function setError(input, fieldId, errorId, message) {
+        function setError(fieldId, errorId, message) {
             var field = document.getElementById(fieldId);
             var error = document.getElementById(errorId);
             if (message) {
@@ -126,24 +95,15 @@
         }
 
         function validateEmail() {
-            if (!email.value) {
-                setError(email, 'field-email', 'error-email', 'Укажите email');
-                return false;
-            }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
-                setError(email, 'field-email', 'error-email', 'Проверьте формат email');
-                return false;
-            }
-            setError(email, 'field-email', 'error-email', null);
+            if (!email.value) { setError('field-email', 'error-email', 'Укажите почту'); return false; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { setError('field-email', 'error-email', 'Проверьте формат почты'); return false; }
+            setError('field-email', 'error-email', null);
             return true;
         }
 
         function validatePassword() {
-            if (!password.value) {
-                setError(password, 'field-password', 'error-password', 'Введите пароль');
-                return false;
-            }
-            setError(password, 'field-password', 'error-password', null);
+            if (!password.value) { setError('field-password', 'error-password', 'Введите пароль'); return false; }
+            setError('field-password', 'error-password', null);
             return true;
         }
 
@@ -151,9 +111,8 @@
         password.addEventListener('blur', validatePassword);
 
         form.addEventListener('submit', function (e) {
-            var emailOk = validateEmail();
-            var passwordOk = validatePassword();
-            if (!emailOk || !passwordOk) e.preventDefault();
+            var ok = validateEmail() && validatePassword();
+            if (!ok) e.preventDefault();
         });
     })();
 </script>

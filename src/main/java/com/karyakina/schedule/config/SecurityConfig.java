@@ -63,6 +63,12 @@ public class SecurityConfig {
                 .defaultSuccessUrl("/dashboard", true)
                 .permitAll()
             )
+            .rememberMe(remember -> remember
+                .key("schedule-remember-me")
+                .rememberMeParameter("remember-me")
+                .tokenValiditySeconds(1209600)
+                .userDetailsService(customUserDetailsService)
+            )
             .logout(logout -> logout
                 .logoutUrl("/logout")
                 .logoutSuccessUrl("/login?logout")

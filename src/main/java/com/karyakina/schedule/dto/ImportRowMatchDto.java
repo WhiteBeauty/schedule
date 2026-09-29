@@ -11,6 +11,7 @@ public class ImportRowMatchDto {
     private String disciplineName;
     private String groupName;
     private Integer totalHours;
+    private String preferredDays;
 
     private String matchStatus;
     private Long candidateTeacherId;

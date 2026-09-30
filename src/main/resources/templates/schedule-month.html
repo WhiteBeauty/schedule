@@ -1,11 +1,20 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Расписание на месяц</title>
-    <link rel="stylesheet" th:href="@{/css/styles.css}">
-    <script th:src="@{/js/toast.js}" defer></script>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('settings', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
+<body>
+
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Расписание на месяц</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
     <style>
         .month-calendar {
             width: 100%;
@@ -75,22 +84,14 @@
             margin-right: 0.3rem; vertical-align: middle;
         }
     </style>
-</head>
-<body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap;">
-        <div>
-            <h1 class="page-title" style="margin:0;">Расписание на месяц</h1>
-            <p class="page-subtitle">
-                Календарь занятий за месяц. Пары с заменой преподавателя выделены
-                <span class="legend-dot" style="background: var(--substitute);"></span>фиолетовым — наведите на пару, чтобы увидеть, кто заменяет.
-            </p>
-        </div>
-        <div th:if="${isAdmin}" style="display:flex; gap:0.5rem;">
-            <div th:replace="~{fragments/special-event-modal :: modal}"></div>
-        </div>
+    <p class="page-heading-sub" style="margin:0;">
+        Календарь занятий за месяц. Пары с заменой преподавателя выделены
+        <span class="legend-dot" style="background: var(--substitute);"></span>фиолетовым — наведите на пару, чтобы увидеть, кто заменяет.
+    </p>
+
+    <div th:if="${isAdmin}" style="display:flex; gap:0.5rem;">
+        <div th:replace="~{fragments/special-event-modal :: modal}"></div>
     </div>
 
     <div class="card" style="margin-bottom:1.25rem;">
@@ -136,9 +137,8 @@
             <tbody id="substitutionsBody"><tr><td colspan="7" class="text-muted">Загрузка…</td></tr></tbody>
         </table>
     </div>
-</main>
 
-<script th:inline="javascript">
+    <script th:inline="javascript">
 /*<![CDATA[*/
 const isAdmin = /*[[${isAdmin}]]*/ false;
 const teacherId = /*[[${teacherId}]]*/ null;
@@ -324,5 +324,6 @@ function renderSubstitutions(lessons) {
 loadFilters();
 loadMonth();
 </script>
+</div>
 </body>
 </html>

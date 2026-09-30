@@ -50,9 +50,19 @@
             <div class="settings-tile-title">Помесячный учёт часов</div>
             <div class="settings-tile-text">Сверка по семестру/неделе/месяцу, ручная корректировка часов</div>
         </a>
+        <a class="settings-tile" th:href="@{/schedule/month}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: calendar}"></span></div>
+            <div class="settings-tile-title">Расписание на месяц</div>
+            <div class="settings-tile-text">Календарь занятий за месяц с заменами преподавателей</div>
+        </a>
     </div>
 
     <div class="settings-grid" th:unless="${isAdmin}">
+        <a class="settings-tile" th:href="@{/schedule/month}">
+            <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: calendar}"></span></div>
+            <div class="settings-tile-title">Расписание на месяц</div>
+            <div class="settings-tile-text">Календарь занятий за месяц с заменами преподавателей</div>
+        </a>
         <a class="settings-tile" th:href="@{/curatorship}">
             <div class="settings-tile-icon"><span th:replace="~{fragments/icons :: users}"></span></div>
             <div class="settings-tile-title">Кураторство</div>

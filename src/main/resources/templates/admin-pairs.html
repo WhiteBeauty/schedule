@@ -1,28 +1,25 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Расписание пар</title>
-    <link rel="stylesheet" href="/css/styles.css">
-    <script th:src="@{/js/toast.js}" defer></script>
-    <script th:inline="javascript">
-        /*<![CDATA[*/
-        window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
-        /*]]>*/
-    </script>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('settings', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
 <body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h1 class="page-title" style="margin:0">Расписание пар</h1>
-        <div style="display:flex;gap:0.5rem">
-            <button class="btn btn-secondary" onclick="openSickLeavesModal()">Больничные</button>
-            <button class="btn btn-primary" onclick="openCreatePairModal()">Добавить пару</button>
-        </div>
-    </div>
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Расписание пар</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <button type="button" class="btn btn-secondary" onclick="openSickLeavesModal()">Больничные</button>
+    <button type="button" class="btn" onclick="openCreatePairModal()">Добавить пару</button>
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
+    <script th:inline="javascript">
+        window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
+    </script>
 
     <div class="card" style="margin-bottom:1.5rem">
         <div class="filters">
@@ -40,7 +37,7 @@
     </div>
 
     <div class="card">
-        <table id="pairsTable">
+        <table class="data-table" id="pairsTable">
             <thead>
             <tr>
                 <th>Преподаватель</th>
@@ -49,14 +46,13 @@
                 <th>День</th>
                 <th>Время</th>
                 <th>Аудитория</th>
-            <th>Неделя</th>
-            <th>Действия</th>
-        </tr>
-        </thead>
-        <tbody id="pairsBody"></tbody>
-    </table>
-</div>
-</main>
+                <th>Неделя</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="pairsBody"></tbody>
+        </table>
+    </div>
 
 <div class="modal-overlay" id="editPairModal">
     <div class="modal">
@@ -675,5 +671,6 @@ function deleteSickLeave(id) {
         .then(r => { if (r.ok) { loadSickLeaves(); showToast('Больничный лист удалён', 'success'); } else showToast('Ошибка удаления', 'danger'); });
 }
 </script>
+</div>
 </body>
 </html>

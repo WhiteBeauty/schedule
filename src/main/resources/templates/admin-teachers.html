@@ -1,16 +1,24 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Все преподаватели - Администратор</title>
-    <link rel="stylesheet" th:href="@{/css/styles.css}">
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: page('teacher-load', ~{::topbarLeft}, ~{::topbarRight}, ~{::pageContent})}">
+<head></head>
+<body>
+
+<div th:fragment="topbarLeft" class="topbar-left">
+    <h1 class="topbar-title">Все преподаватели</h1>
+</div>
+
+<div th:fragment="topbarRight" class="topbar-right">
+    <a class="btn" onclick="openCreateModal()">Добавить преподавателя</a>
+    <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
+        <span th:replace="~{fragments/icons :: bell}"></span>
+    </a>
+</div>
+
+<div th:fragment="pageContent" class="app-content">
     <script th:inline="javascript">
-        /*<![CDATA[*/
         window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
-        /*]]>*/
     </script>
-    <script th:src="@{/js/toast.js}" defer></script>
     <style>
         .teacher-card {
             display: flex;
@@ -50,20 +58,10 @@
             margin: 0.15rem 0;
         }
     </style>
-</head>
-<body>
-<div th:replace="~{fragments/nav :: sidebar}"></div>
 
-<main class="main">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-            <h1 class="page-title" style="margin: 0;">Список всех преподавателей системы</h1>
-            <button id="addTeacherBtn" class="btn btn-primary" onclick="openCreateModal()">Добавить преподавателя</button>
-        </div>
-
-        <div id="teacherList">
-            <p class="text-muted">Загрузка списка преподавателей...</p>
-        </div>
-    </main>
+    <div id="teacherList">
+        <span class="skeleton skeleton-row"></span>
+    </div>
 
     <div class="modal-overlay" id="teacherModal">
         <div class="modal" style="max-width: 800px;">
@@ -721,5 +719,6 @@
             document.getElementById('approveHoursModal').classList.remove('active');
         }
     </script>
+</div>
 </body>
 </html>

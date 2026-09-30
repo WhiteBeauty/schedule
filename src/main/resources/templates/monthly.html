@@ -34,6 +34,7 @@
             (динамически). "Проведено" — по факту (подтверждённые занятия), а не просто по
             шаблону расписания.
         </p>
+        <div class="table-scroll">
         <table id="sverkaTable">
             <thead>
             <tr>
@@ -47,6 +48,7 @@
             </thead>
             <tbody id="sverkaBody"></tbody>
         </table>
+        </div>
     </div>
 
     <div class="card" id="tabPaneWeek" style="display:none;">
@@ -58,6 +60,7 @@
             минус уже реально проведённые (по датам, которые уже прошли). Остальное — сколько
             ещё должно состояться до конца недели.
         </p>
+        <div class="table-scroll">
         <table id="sverkaWeekTable">
             <thead>
             <tr>
@@ -67,6 +70,7 @@
             </thead>
             <tbody id="sverkaWeekBody"></tbody>
         </table>
+        </div>
     </div>
 
     <div class="card" id="tabPaneMonth" style="display:none;">
@@ -76,6 +80,7 @@
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
             То же самое, что по неделе, но за весь календарный месяц.
         </p>
+        <div class="table-scroll">
         <table id="sverkaMonthTable">
             <thead>
             <tr>
@@ -85,6 +90,7 @@
             </thead>
             <tbody id="sverkaMonthBody"></tbody>
         </table>
+        </div>
     </div>
 
     <div class="card" id="tabPaneAudit" th:if="${isAdmin}" style="display:none;">
@@ -129,6 +135,7 @@
             <h2 class="card-title">Таблица помесячного учёта</h2>
             <button class="btn btn-outline" onclick="exportCsv()">Экспорт CSV</button>
         </div>
+        <div class="table-scroll">
         <table id="monthlyTable">
             <thead>
             <tr>
@@ -145,36 +152,29 @@
             </thead>
             <tbody id="monthlyBody"></tbody>
         </table>
-    </div>
-</main>
-
-<div class="modal-overlay" id="adjustModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3 style="margin:0">Корректировка часов</h3>
-            <button class="close-btn" onclick="closeAdjust()">×</button>
-        </div>
-        <div class="modal-body">
-            <p><strong>Запись:</strong> <span id="adjInfo"></span></p>
-            <label>Фактические часы:</label>
-            <input type="number" id="adjHours" min="0" style="width:120px"><br><br>
-            <label>Примечание:</label>
-            <input type="text" id="adjNote" style="width:100%" placeholder="Причина корректировки">
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeAdjust()">Отмена</button>
-            <button class="btn" onclick="saveAdjust()">Сохранить</button>
         </div>
     </div>
-</div>
 
-<script th:inline="javascript">
-/*<![CDATA[*/
-window.isAdmin = /*[[${isAdmin}]]*/ false;
-/*]]>*/
-</script>
-<script>
-const isAdmin = window.isAdmin === true;
+    <div class="modal-overlay" id="adjustModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Корректировка часов</h3>
+                <button type="button" class="close-btn" onclick="closeAdjust()">×</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Запись:</strong> <span id="adjInfo"></span></p>
+                <div class="field" style="margin-bottom:14px;"><label>Фактические часы</label><input type="number" id="adjHours" min="0" style="width:120px"></div>
+                <div class="field"><label>Примечание</label><input type="text" id="adjNote" placeholder="Причина корректировки"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeAdjust()">Отмена</button>
+                <button type="button" class="btn" onclick="saveAdjust()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+const isAdmin = /*[[${isAdmin}]]*/ false;
 let allRecords = [];
 let currentRecordId = null;
 
@@ -486,5 +486,6 @@ function exportCsv() {
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
+</div>
 </body>
 </html>

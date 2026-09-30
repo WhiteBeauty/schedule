@@ -84,7 +84,27 @@
                 Двойных занятий по аудиториям и преподавателям на этой неделе не найдено,
                 все перенесённые пары успешно расставлены.
             </p>
-            <div style="margin-top:auto; display:flex; gap:10px;">
+
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                <span class="card-title" style="font-size:13px;" th:text="'Сегодня, ' + ${todayLabel}">Сегодня</span>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="segmented" id="todayModeSegmented">
+                        <button type="button" class="active" data-mode="all">Все</button>
+                        <button type="button" data-mode="teacher">Преподаватель</button>
+                        <button type="button" data-mode="group">Группа</button>
+                    </div>
+                    <label class="select-control" id="todayEntityWrap" style="display:none;">
+                        <span th:replace="~{fragments/icons :: filter}"></span>
+                        <select id="todayEntitySelect"></select>
+                    </label>
+                </div>
+            </div>
+
+            <div id="todayScheduleList" style="max-height:230px; overflow-y:auto;">
+                <p class="text-muted" style="margin:0;">Загрузка…</p>
+            </div>
+
+            <div style="margin-top:auto; display:flex; gap:10px; padding-top:14px;">
                 <a class="btn" th:href="@{/schedule}">Просмотреть расписание</a>
                 <a class="btn btn-secondary" th:if="${isAdmin}" th:href="@{/import}">Импорт данных</a>
             </div>
@@ -126,6 +146,107 @@
                 if (e.key !== 'Enter') return;
                 var q = e.target.value.trim();
                 if (q) window.location.href = '/schedule?q=' + encodeURIComponent(q);
+            });
+
+            var todayMode = 'all';
+            var todayEntityId = '';
+            var teachersData = [];
+            var groupsData = [];
+
+            function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+            function todayIso() {
+                var d = new Date();
+                return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+            }
+
+            function escapeHtml(s) {
+                var div = document.createElement('div');
+                div.textContent = s == null ? '' : s;
+                return div.innerHTML;
+            }
+
+            function populateTodayEntitySelect() {
+                var select = document.getElementById('todayEntitySelect');
+                select.innerHTML = '';
+                var items = [];
+                if (todayMode === 'teacher') {
+                    items = teachersData.map(function (t) { return { id: t.id, label: t.fullName }; });
+                } else if (todayMode === 'group') {
+                    items = groupsData.map(function (g) { return { id: g.id, label: g.name }; });
+                }
+                items.forEach(function (i) { select.add(new Option(i.label, i.id)); });
+                todayEntityId = items.length ? String(items[0].id) : '';
+            }
+
+            function renderTodaySchedule(lessons) {
+                var list = document.getElementById('todayScheduleList');
+                if (!lessons.length) {
+                    list.innerHTML = '<p class="text-muted" style="margin:0;">Сегодня пар нет.</p>';
+                    return;
+                }
+                list.innerHTML = lessons.map(function (l) {
+                    var teacherLine = l.substituted
+                        ? '<span class="substitute-badge">замена</span> ' + escapeHtml(l.actualTeacherName || '—')
+                            + ' <span class="text-muted">вместо ' + escapeHtml(l.originalTeacherName || '—') + '</span>'
+                        : escapeHtml(l.actualTeacherName || l.originalTeacherName || '—');
+                    return '<div class="notif-item">' +
+                        '<div class="notif-dot info" style="width:auto; height:auto; border-radius:6px; padding:4px 8px; font-size:11.5px; font-weight:700; white-space:nowrap;">'
+                        + l.startTime.substring(0, 5) + '</div>' +
+                        '<div>' +
+                            '<div class="notif-text">' + escapeHtml(l.disciplineName) + '</div>' +
+                            '<div class="notif-time">' + escapeHtml(l.groupName || '—') + ' · ' + teacherLine
+                            + ' · ауд. ' + escapeHtml(l.classroom || '—') + '</div>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            }
+
+            function loadTodaySchedule() {
+                var now = new Date();
+                var params = new URLSearchParams({ year: now.getFullYear(), month: now.getMonth() + 1 });
+                if (todayMode === 'teacher' && todayEntityId) params.set('teacherId', todayEntityId);
+                if (todayMode === 'group' && todayEntityId) params.set('groupId', todayEntityId);
+
+                var list = document.getElementById('todayScheduleList');
+                list.innerHTML = '<p class="text-muted" style="margin:0;">Загрузка…</p>';
+
+                fetch('/api/schedule/month?' + params.toString())
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        var iso = todayIso();
+                        var lessons = (data.lessons || [])
+                            .filter(function (l) { return l.date === iso; })
+                            .sort(function (a, b) { return a.startTime.localeCompare(b.startTime); });
+                        renderTodaySchedule(lessons);
+                    })
+                    .catch(function () {
+                        list.innerHTML = '<p class="text-danger" style="margin:0;">Не удалось загрузить расписание</p>';
+                    });
+            }
+
+            document.getElementById('todayModeSegmented').addEventListener('click', function (e) {
+                var btn = e.target.closest('button[data-mode]');
+                if (!btn) return;
+                todayMode = btn.dataset.mode;
+                Array.from(this.querySelectorAll('button')).forEach(function (b) { b.classList.toggle('active', b === btn); });
+                document.getElementById('todayEntityWrap').style.display = todayMode === 'all' ? 'none' : '';
+                if (todayMode !== 'all') populateTodayEntitySelect();
+                loadTodaySchedule();
+            });
+
+            document.getElementById('todayEntitySelect').addEventListener('change', function () {
+                todayEntityId = this.value;
+                loadTodaySchedule();
+            });
+
+            Promise.all([
+                fetch('/api/teachers').then(function (r) { return r.json(); }).catch(function () { return []; }),
+                fetch('/api/groups').then(function (r) { return r.json(); }).catch(function () { return []; })
+            ]).then(function (results) {
+                teachersData = results[0] || [];
+                groupsData = results[1] || [];
+                loadTodaySchedule();
             });
         })();
     </script>

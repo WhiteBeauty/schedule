@@ -8,13 +8,7 @@
     <h1 class="topbar-title">Управление расписанием</h1>
 </div>
 
-<div th:fragment="topbarRight" class="topbar-right" style="flex-wrap:wrap; justify-content:flex-end;">
-    <button type="button" class="btn btn-secondary btn-sm" onclick="openGroupsModal()">Группы</button>
-    <button type="button" class="btn btn-secondary btn-sm" onclick="openDisciplinesModal()">Дисциплины</button>
-    <button type="button" class="btn btn-secondary btn-sm" id="genRunBtn">Автосоставление</button>
-    <button type="button" class="btn btn-secondary btn-sm" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">Разбить слитные группы/дисциплины</button>
-    <button type="button" class="btn btn-danger btn-sm" onclick="openWipeModal()">Снести расписание</button>
-    <button type="button" class="btn btn-secondary btn-sm" onclick="openExportMonthModal()">Скачать за месяц</button>
+<div th:fragment="topbarRight" class="topbar-right">
     <button type="button" class="btn btn-sm" onclick="openCreateModal()">Добавить запись</button>
     <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
         <span th:replace="~{fragments/icons :: bell}"></span>
@@ -26,7 +20,15 @@
         window.DEFAULT_ACADEMIC_YEAR = /*[[${year}]]*/ 2025;
     </script>
 
-    <div th:replace="~{fragments/special-event-modal :: modal}"></div>
+    <div class="card" style="display:flex; gap:10px; flex-wrap:wrap; padding:14px 16px;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openGroupsModal()">Группы</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openDisciplinesModal()">Дисциплины</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="genRunBtn">Автосоставление</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">Разбить слитные группы/дисциплины</button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="openWipeModal()">Снести расписание</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openExportMonthModal()">Скачать за месяц</button>
+        <div th:replace="~{fragments/special-event-modal :: modal}"></div>
+    </div>
 
     <div class="modal-overlay" id="exportMonthModal">
         <div class="modal">

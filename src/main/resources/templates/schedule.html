@@ -223,7 +223,10 @@
         const semester = semesterOfWeek(weekMonday);
         const relevant = pairsData.filter(p =>
             (p.semester == null || p.semester === semester) &&
-            (p.academicWeek == null || p.academicWeek === week) && matchesSelection(p, entityValue));
+            (p.academicWeek == null || p.academicWeek === week) &&
+            (p.activeFromWeek == null || week >= p.activeFromWeek) &&
+            (p.activeUntilWeek == null || week <= p.activeUntilWeek) &&
+            matchesSelection(p, entityValue));
 
         const slots = Array.from(new Set(relevant.map(p => p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5))))
             .sort();

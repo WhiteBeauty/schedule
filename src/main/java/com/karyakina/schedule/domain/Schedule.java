@@ -42,4 +42,8 @@ public class Schedule {
     private Long specialEventId;
 
     private Integer semester;
+
+    private Integer activeFromWeek;
+
+    private Integer activeUntilWeek;
 }

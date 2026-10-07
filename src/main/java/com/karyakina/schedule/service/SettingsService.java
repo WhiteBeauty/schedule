@@ -16,6 +16,7 @@ public class SettingsService {
 
     private static final String GLOBAL_LUNCH_START_KEY = "global.lunch.start";
     private static final String GLOBAL_LUNCH_END_KEY = "global.lunch.end";
+    private static final String PACE_RECALC_ENABLED_KEY = "pace.recalculation.enabled";
 
     private final AppSettingRepository settingRepository;
 
@@ -46,6 +47,17 @@ public class SettingsService {
     public void clearGlobalLunch() {
         settingRepository.findBySettingKey(GLOBAL_LUNCH_START_KEY).ifPresent(settingRepository::delete);
         settingRepository.findBySettingKey(GLOBAL_LUNCH_END_KEY).ifPresent(settingRepository::delete);
+    }
+
+    public boolean isPaceRecalculationEnabled() {
+        return settingRepository.findBySettingKey(PACE_RECALC_ENABLED_KEY)
+                .map(s -> Boolean.parseBoolean(s.getSettingValue()))
+                .orElse(false);
+    }
+
+    @Transactional
+    public void setPaceRecalculationEnabled(boolean enabled) {
+        upsert(PACE_RECALC_ENABLED_KEY, Boolean.toString(enabled));
     }
 
     private void upsert(String key, String value) {

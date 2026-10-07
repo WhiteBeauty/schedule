@@ -78,6 +78,11 @@
                     '<button class="btn btn-sm" onclick="respond(' + n.substitutionRequestId + ', \'accept\', this)">Подтвердить замену</button>' +
                     '<button class="btn btn-sm btn-secondary" onclick="respond(' + n.substitutionRequestId + ', \'decline\', this)">Отклонить</button>' +
                     '</div>';
+            } else if (n.type === 'PACE_ADJUSTMENT_SUGGESTED' && !n.isRead) {
+                actions = '<div class="notif-actions">' +
+                    '<button class="btn btn-sm" onclick="respondPace(' + n.paceAdjustmentId + ', \'accept\', this)">Применить</button>' +
+                    '<button class="btn btn-sm btn-secondary" onclick="respondPace(' + n.paceAdjustmentId + ', \'decline\', this)">Отклонить</button>' +
+                    '</div>';
             }
 
             const markBtn = !n.isRead
@@ -145,6 +150,23 @@
                     btn.disabled = false;
                     return;
                 }
+                await load();
+            } catch (e) {
+                showToast('Ошибка: ' + e.message, 'danger');
+                btn.disabled = false;
+            }
+        }
+
+        async function respondPace(suggestionId, action, btn) {
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/pace-adjustments/' + suggestionId + '/' + action, { method: 'POST' });
+                if (!res.ok) {
+                    showToast('Не удалось выполнить действие', 'danger');
+                    btn.disabled = false;
+                    return;
+                }
+                showToast(action === 'accept' ? 'Темп скорректирован' : 'Предложение отклонено', 'success');
                 await load();
             } catch (e) {
                 showToast('Ошибка: ' + e.message, 'danger');

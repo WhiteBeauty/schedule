@@ -233,9 +233,10 @@ public class ScheduleExportService {
             }
         }
         for (Schedule s : candidates) {
-            if (s.getAcademicWeek() == null) {
-                return s;
-            }
+            if (s.getAcademicWeek() != null) continue;
+            if (s.getActiveFromWeek() != null && academicWeek < s.getActiveFromWeek()) continue;
+            if (s.getActiveUntilWeek() != null && academicWeek > s.getActiveUntilWeek()) continue;
+            return s;
         }
         return null;
     }

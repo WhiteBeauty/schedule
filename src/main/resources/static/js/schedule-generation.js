@@ -6,8 +6,13 @@
         issues: [],
         index: 0,
         answers: [],
-        result: null
+        result: null,
+        bothMode: false,
+        semesterQueue: [],
+        currentSemester: null
     };
+
+    const SEMESTER_LABEL = {1: '1 (осень)', 2: '2 (весна)'};
 
     const API = '/api/schedule-generation';
 
@@ -56,13 +61,30 @@
         };
     }
 
-    async function generate() {
+    async function generate(semesterOverride) {
         const yearSelect = document.getElementById('yearSelect');
         const academicYear = yearSelect ? Number(yearSelect.value) : null;
         const tarificationSelect = document.getElementById('genTarificationSelect');
         const tarificationId = tarificationSelect && tarificationSelect.value ? Number(tarificationSelect.value) : null;
-        const semesterSelect = document.getElementById('genSemesterSelect');
-        const semester = semesterSelect ? Number(semesterSelect.value) : null;
+
+        let semester;
+        if (typeof semesterOverride === 'number') {
+            semester = semesterOverride;
+        } else {
+            const semesterSelect = document.getElementById('genSemesterSelect');
+            const raw = semesterSelect ? semesterSelect.value : null;
+            if (raw === 'both') {
+                state.bothMode = true;
+                state.semesterQueue = [2];
+                semester = 1;
+            } else {
+                state.bothMode = false;
+                state.semesterQueue = [];
+                semester = raw ? Number(raw) : null;
+            }
+        }
+        state.currentSemester = semester;
+
         setBusy(true, 'Считаем расписание...');
 
         const manualLoad = typeof window.collectManualLoad === 'function' ? window.collectManualLoad() : [];
@@ -112,6 +134,14 @@
         handleResult(result);
         if (result.persisted && typeof window.loadSchedule === 'function') {
             window.loadSchedule();
+        }
+        if (result.persisted && state.bothMode && state.semesterQueue.length > 0) {
+            const next = state.semesterQueue.shift();
+            if (typeof showToast === 'function') {
+                showToast('Семестр ' + SEMESTER_LABEL[state.currentSemester] + ' сохранён. Считаем семестр '
+                    + SEMESTER_LABEL[next] + '...', 'success');
+            }
+            generate(next);
         }
     }
 
@@ -274,7 +304,13 @@
         }[result.status] || result.status;
 
         const metrics = result.metrics || {};
+        const semesterLabel = state.currentSemester ? SEMESTER_LABEL[state.currentSemester] : null;
+        const progressLabel = state.bothMode
+            ? ' (семестр ' + (2 - state.semesterQueue.length) + ' из 2)'
+            : '';
         document.getElementById('genSummary').innerHTML =
+            (semesterLabel ? '<div style="margin-bottom:0.35rem; font-size:0.85rem; color:var(--muted);">Семестр '
+                + semesterLabel + progressLabel + '</div>' : '') +
             '<b>' + statusText + '</b>' + (result.persisted ? ' — сохранено в расписании' : ' — черновик') +
             '<div class="gen-metrics">' +
             metric('Пар расставлено', (result.successSchedule || []).length) +
@@ -480,7 +516,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        bind('genRunBtn', generate);
+        bind('genRunBtn', function () { generate(); });
         bind('genCommitBtn', commit);
         bind('genIssueSkipBtn', skip);
         bind('genIssueCloseBtn', closeModal);

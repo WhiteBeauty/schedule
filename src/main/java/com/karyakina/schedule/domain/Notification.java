@@ -37,6 +37,8 @@ public class Notification {
 
     private Long substitutionRequestId;
 
+    private Long paceAdjustmentId;
+
     private String linkUrl;
 
     @Column(nullable = false)
@@ -56,6 +58,7 @@ public class Notification {
         SICK_LEAVE,
         SCHEDULE_CHANGED,
         LOAD_CHANGED,
+        PACE_ADJUSTMENT_SUGGESTED,
         INFO
     }
 }

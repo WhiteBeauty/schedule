@@ -30,6 +30,17 @@
         <div th:replace="~{fragments/special-event-modal :: modal}"></div>
     </div>
 
+    <div class="card" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:14px 16px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="paceRecalcToggle" onchange="togglePaceRecalc(this.checked)">
+            Автоматически пересчитывать темп по остатку часов (раз в неделю)
+        </label>
+        <button type="button" class="btn btn-secondary btn-sm" id="paceCheckBtn" onclick="runPaceCheckNow()">Проверить темп сейчас</button>
+        <span class="text-muted" style="font-size:12.5px;">
+            Если расписание отстаёт/опережает план — предложение придёт в Уведомления, расписание не меняется без подтверждения
+        </span>
+    </div>
+
     <div class="modal-overlay" id="exportMonthModal">
         <div class="modal">
             <div class="modal-header">
@@ -340,7 +351,51 @@ let selectedIds = new Set();
 document.addEventListener('DOMContentLoaded', () => {
     loadSchedule();
     loadSelectOptions();
+    loadPaceRecalcSetting();
 });
+
+function loadPaceRecalcSetting() {
+    fetch('/api/pace-adjustments/settings')
+        .then(r => r.json())
+        .then(data => { document.getElementById('paceRecalcToggle').checked = !!data.enabled; })
+        .catch(() => {});
+}
+
+function togglePaceRecalc(enabled) {
+    fetch('/api/pace-adjustments/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: enabled})
+    }).then(r => {
+        if (r.ok) {
+            showToast(enabled ? 'Автопересчёт темпа включён' : 'Автопересчёт темпа выключен', 'success');
+        } else {
+            showToast('Не удалось сохранить настройку', 'danger');
+        }
+    });
+}
+
+function runPaceCheckNow() {
+    const btn = document.getElementById('paceCheckBtn');
+    btn.disabled = true;
+    btn.textContent = 'Проверяем...';
+    fetch('/api/pace-adjustments/check', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = 'Проверить темп сейчас';
+            if (data.created > 0) {
+                showToast('Найдено предложений: ' + data.created + '. Смотри Уведомления.', 'success');
+            } else {
+                showToast('Отклонений от плана не найдено', 'success');
+            }
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.textContent = 'Проверить темп сейчас';
+            showToast('Ошибка проверки темпа', 'danger');
+        });
+}
 
 function loadSelectOptions() {
     // Load teachers

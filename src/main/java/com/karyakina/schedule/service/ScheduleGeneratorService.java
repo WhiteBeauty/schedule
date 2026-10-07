@@ -217,7 +217,10 @@ public class ScheduleGeneratorService {
             TeacherAssignmentService.Resolution assignment = teacherAssignmentService.resolve(allLoads, allTeachers);
             warnings.addAll(assignment.conflicts);
 
-            List<Schedule> existing = scheduleRepository.findByAcademicYear(year);
+            int semester = resolveSemester(session);
+            List<Schedule> existing = scheduleRepository.findByAcademicYear(year).stream()
+                    .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
+                    .toList();
             Set<Long> loadsWithSchedule = new HashSet<>();
             existing.forEach(s -> {
                 if (s.getTeacherLoad() != null && s.getTeacherLoad().getId() != null) {
@@ -253,8 +256,6 @@ public class ScheduleGeneratorService {
             detectDuplicates(candidates, session, issues);
             Map<Long, ResolvedHours> hoursByLoad = reconcileHours(candidates, session, config, issues);
             Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, assignment, session, allTeachers, issues);
-
-            int semester = resolveSemester(session);
 
             List<SolverInput.Demand> demands = new ArrayList<>();
             Map<Long, TeacherLoad> loadById = new HashMap<>();

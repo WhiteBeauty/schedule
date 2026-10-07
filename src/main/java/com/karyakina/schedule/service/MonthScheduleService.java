@@ -64,6 +64,8 @@ public class MonthScheduleService {
                 if (s.getDayOfWeek() != date.getDayOfWeek()) continue;
                 if (s.getSemester() != null && !s.getSemester().equals(dateSemester)) continue;
                 if (s.getAcademicWeek() != null && !s.getAcademicWeek().equals(week)) continue;
+                if (s.getActiveFromWeek() != null && week < s.getActiveFromWeek()) continue;
+                if (s.getActiveUntilWeek() != null && week > s.getActiveUntilWeek()) continue;
 
                 LessonInstance instance = instanceByKey.get(s.getId() + "_" + date);
                 String originalTeacherName = s.getTeacherLoad().getTeacher().getFullName();

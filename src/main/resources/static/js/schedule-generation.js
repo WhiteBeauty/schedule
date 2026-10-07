@@ -100,6 +100,15 @@
         handleResult(result);
     }
 
+    function formatImportDate(iso) {
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+        } catch (e) {
+            return iso;
+        }
+    }
+
     async function loadTarifications() {
         const select = document.getElementById('genTarificationSelect');
         if (!select) {
@@ -116,9 +125,16 @@
             tarifications.forEach(function (t) {
                 const option = document.createElement('option');
                 option.value = t.id;
-                option.textContent = t.name + ' (' + t.academicYear + '/' + (t.academicYear + 1) + ')';
+                const dateLabel = t.importedAt ? formatImportDate(t.importedAt) : '';
+                const countLabel = t.loadCount === 0 ? 'пусто, 0 записей' : t.loadCount + ' записей';
+                option.textContent = (t.loadCount === 0 ? '⚠ ' : '') + t.name + ' (' + t.academicYear + '/'
+                    + (t.academicYear + 1) + ') — ' + dateLabel + ', ' + countLabel;
                 select.appendChild(option);
             });
+            const firstNonEmpty = tarifications.find(function (t) { return t.loadCount > 0; });
+            if (firstNonEmpty) {
+                select.value = firstNonEmpty.id;
+            }
         } catch (e) {
             select.innerHTML = '<option value="">Список тарификаций недоступен</option>';
         }

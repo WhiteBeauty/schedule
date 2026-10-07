@@ -29,7 +29,11 @@ public class DataInitializer implements CommandLineRunner {
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
     private final UserRepository userRepository;
+    private final ClassroomRepository classroomRepository;
     private final PasswordEncoder passwordEncoder;
+
+    private static final int DEFAULT_CLASSROOM_COUNT = 17;
+    private static final int DEFAULT_CLASSROOM_CAPACITY = 25;
 
     @org.springframework.beans.factory.annotation.Value("${app.initial-admin-password:admin123}")
     private String initialAdminPassword;
@@ -43,6 +47,7 @@ public class DataInitializer implements CommandLineRunner {
         log.info("Initializing application data...");
 
         ensureAdminExists();
+        ensureDefaultClassrooms();
 
         monthlyRecordService.initializeMonthlyRecordsForAllLoads();
 
@@ -442,6 +447,19 @@ public class DataInitializer implements CommandLineRunner {
             log.info("Guaranteed admin {} exists but not ADMIN, promoting...", GUARANTEED_ADMIN_EMAIL);
             admin.setRole(User.Role.ADMIN);
             userRepository.save(admin);
+        }
+    }
+
+    private void ensureDefaultClassrooms() {
+        if (classroomRepository.count() > 0) {
+            return;
+        }
+        log.info("No classrooms found, creating {} default classrooms...", DEFAULT_CLASSROOM_COUNT);
+        for (int i = 1; i <= DEFAULT_CLASSROOM_COUNT; i++) {
+            classroomRepository.save(Classroom.builder()
+                    .name(String.valueOf(i))
+                    .capacity(DEFAULT_CLASSROOM_CAPACITY)
+                    .build());
         }
     }
 }

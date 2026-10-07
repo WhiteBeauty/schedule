@@ -18,6 +18,8 @@ public interface TeacherLoadRepository extends JpaRepository<TeacherLoad, Long> 
     @EntityGraph(attributePaths = {"teacher", "group", "discipline"})
     List<TeacherLoad> findByTarificationId(Long tarificationId);
 
+    long countByTarificationId(Long tarificationId);
+
     List<TeacherLoad> findByTarificationIsNull();
 
     @EntityGraph(attributePaths = {"teacher", "group", "discipline"})

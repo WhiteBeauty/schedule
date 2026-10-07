@@ -40,10 +40,10 @@
                 </button>
             </div>
             <label class="select-control">
-                Год:
+                Учебный год:
                 <select id="yearSelect">
                     <option th:each="y : ${#numbers.sequence(year - 1, year + 3)}"
-                            th:value="${y}" th:text="${y}" th:selected="${y == year}"></option>
+                            th:value="${y}" th:text="${y} + '/' + ${y + 1}" th:selected="${y == year}"></option>
                 </select>
             </label>
             <a class="btn btn-secondary" th:if="${isAdmin}" th:href="@{/admin/schedule}">
@@ -197,7 +197,8 @@
     }
 
     function weekNumberOf(monday) {
-        const yearStart = new Date(monday.getFullYear(), 8, 1);
+        const academicYear = Number(document.getElementById('yearSelect').value);
+        const yearStart = new Date(academicYear, 8, 1);
         const diffDays = Math.round((monday - yearStart) / 86400000);
         return Math.max(1, Math.floor(diffDays / 7) + 1);
     }

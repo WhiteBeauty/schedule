@@ -61,8 +61,7 @@ public class TeacherLoadService {
             List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
             double curatorshipPlan = curatorships.stream()
                     .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
-            double curatorshipDone = curatorships.stream()
-                    .mapToInt(c -> c.getLogs() != null ? c.getLogs().size() : 0).sum();
+            double curatorshipDone = curatorshipDoneHours(curatorships);
 
             long totalCp = teacherLoads.stream()
                     .mapToLong(l -> l.getControlPoints().size()).sum();
@@ -123,6 +122,17 @@ public class TeacherLoadService {
 
         result.sort(Comparator.comparingDouble(ProductivityDto::getProductivityIndex).reversed());
         return result;
+    }
+
+    private double curatorshipDoneHours(List<Curatorship> curatorships) {
+        double total = 0;
+        for (Curatorship c : curatorships) {
+            if (c.getEvents() == null) continue;
+            for (CuratorEvent event : c.getEvents()) {
+                total += event.getHours() != null ? event.getHours() : 0;
+            }
+        }
+        return total;
     }
 
     private double computePlanCompletion(List<TeacherLoad> teacherLoads, double totalPlan, double totalRead,
@@ -286,8 +296,7 @@ public class TeacherLoadService {
         List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
         double curatorshipPlan = curatorships.stream()
                 .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
-        double curatorshipDone = curatorships.stream()
-                .mapToInt(c -> c.getLogs() != null ? c.getLogs().size() : 0).sum();
+        double curatorshipDone = curatorshipDoneHours(curatorships);
 
         double planCompletion = computePlanCompletion(
                 loads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, academicYearProgress);

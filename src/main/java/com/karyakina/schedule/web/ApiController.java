@@ -159,11 +159,20 @@ public class ApiController {
     }
 
     @PostMapping("/teachers")
-    public ResponseEntity<Teacher> createTeacher(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> createTeacher(@RequestBody Map<String, Object> body, Authentication authentication) {
+        User caller = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (caller.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
         String email = (String) body.get("email");
         String fullName = (String) body.get("fullName");
         String department = (String) body.get("department");
         String position = (String) body.get("position");
+        if (!(body.get("rate") instanceof Number)) {
+            return ResponseEntity.badRequest().body("Укажите ставку");
+        }
         Double rate = ((Number) body.get("rate")).doubleValue();
         String phone = (String) body.get("phone");
         String password = (String) body.get("password");
@@ -189,14 +198,24 @@ public class ApiController {
     }
 
     @PutMapping("/teachers/{id}")
-    public ResponseEntity<Teacher> updateTeacher(@PathVariable Long id,
-                                                  @RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> updateTeacher(@PathVariable Long id,
+                                            @RequestBody Map<String, Object> body,
+                                            Authentication authentication) {
+        User caller = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (caller.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+
         Teacher teacher = teacherRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Teacher not found: " + id));
 
         String fullName = (String) body.get("fullName");
         String department = (String) body.get("department");
         String position = (String) body.get("position");
+        if (!(body.get("rate") instanceof Number)) {
+            return ResponseEntity.badRequest().body("Укажите ставку");
+        }
         Double rate = ((Number) body.get("rate")).doubleValue();
         String phone = (String) body.get("phone");
         String password = (String) body.get("password");
@@ -604,7 +623,12 @@ public class ApiController {
     }
 
     @PostMapping("/admin/teachers")
-    public ResponseEntity<?> createTeacherByAdmin(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> createTeacherByAdmin(@RequestBody Map<String, Object> body, Authentication authentication) {
+        User caller = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (caller.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
         try {
             String email = (String) body.get("email");
             String username = (String) body.getOrDefault("username", email.split("@")[0]);
@@ -908,7 +932,7 @@ public class ApiController {
     }
 
     @PutMapping("/curatorships/{id}")
-    public ResponseEntity<Curatorship> updateCuratorship(
+    public ResponseEntity<?> updateCuratorship(
             @PathVariable Long id,
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
@@ -921,17 +945,20 @@ public class ApiController {
         Curatorship curatorship = curatorshipRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
 
+        if (body.containsKey("teacherId")) {
+            Long teacherId = Long.valueOf(body.get("teacherId").toString());
+            if (!teacherId.equals(curatorship.getTeacher().getId())) {
+                var clash = curatorshipRepository.findByTeacherIdAndGroupId(teacherId, curatorship.getGroup().getId());
+                if (clash.isPresent()) {
+                    return ResponseEntity.badRequest().body("Этот преподаватель уже является куратором данной группы");
+                }
+                Teacher teacher = teacherRepository.findById(teacherId)
+                        .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
+                curatorship.setTeacher(teacher);
+            }
+        }
         if (body.containsKey("hours")) {
             curatorship.setHours(Integer.valueOf(body.get("hours").toString()));
-        }
-        if (body.containsKey("events")) {
-            curatorship.setEvents((List<String>) body.get("events"));
-        }
-        if (body.containsKey("logs")) {
-            curatorship.setLogs((List<String>) body.get("logs"));
-        }
-        if (body.containsKey("responsiblePerson")) {
-            curatorship.setResponsiblePerson(body.get("responsiblePerson").toString());
         }
 
         return ResponseEntity.ok(curatorshipRepository.save(curatorship));
@@ -954,7 +981,7 @@ public class ApiController {
     @PostMapping("/curatorships/{id}/event")
     public ResponseEntity<Curatorship> addEvent(
             @PathVariable Long id,
-            @RequestBody Map<String, String> body,
+            @RequestBody Map<String, Object> body,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -969,13 +996,31 @@ public class ApiController {
             }
         }
 
-        String event = body.get("event");
-        if (event != null && !event.isEmpty()) {
-            curatorship.getEvents().add(event);
+        String description = body.get("description") != null ? body.get("description").toString() : null;
+        if (description != null && !description.isEmpty()) {
+            curatorship.getEvents().add(CuratorEvent.builder()
+                    .date(parseEventDate(body.get("date")))
+                    .hours(parseEventHours(body.get("hours")))
+                    .description(description)
+                    .build());
             curatorship = curatorshipRepository.save(curatorship);
         }
 
         return ResponseEntity.ok(curatorship);
+    }
+
+    private java.time.LocalDate parseEventDate(Object value) {
+        if (value == null || value.toString().isBlank()) {
+            return java.time.LocalDate.now();
+        }
+        return java.time.LocalDate.parse(value.toString());
+    }
+
+    private Double parseEventHours(Object value) {
+        if (value == null || value.toString().isBlank()) {
+            return 0.0;
+        }
+        return Double.valueOf(value.toString());
     }
 
     @DeleteMapping("/curatorships/{id}/event/{eventIdx}")
@@ -1024,10 +1069,14 @@ public class ApiController {
 
         Object eventIdxObj = body.get("eventIdx");
         Integer eventIdx = eventIdxObj != null ? Integer.valueOf(eventIdxObj.toString()) : null;
-        String event = body.get("event") != null ? body.get("event").toString() : null;
+        String description = body.get("description") != null ? body.get("description").toString() : null;
 
-        if (eventIdx != null && eventIdx >= 0 && eventIdx < curatorship.getEvents().size() && event != null) {
-            curatorship.getEvents().set(eventIdx.intValue(), event);
+        if (eventIdx != null && eventIdx >= 0 && eventIdx < curatorship.getEvents().size() && description != null) {
+            curatorship.getEvents().set(eventIdx, CuratorEvent.builder()
+                    .date(parseEventDate(body.get("date")))
+                    .hours(parseEventHours(body.get("hours")))
+                    .description(description)
+                    .build());
             curatorship = curatorshipRepository.save(curatorship);
         }
 

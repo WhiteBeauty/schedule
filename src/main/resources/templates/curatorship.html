@@ -95,11 +95,102 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="eventModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="eventModalTitle">Мероприятие</h3>
+                <button type="button" class="close-btn" onclick="closeEventModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="field" style="margin-bottom:14px;"><label>Дата</label><input type="date" id="eventDate"></div>
+                <div class="field" style="margin-bottom:14px;"><label>Часы</label><input type="number" id="eventHours" min="0" step="0.5"></div>
+                <div class="field"><label>Описание</label><input type="text" id="eventDescription" placeholder="Что проведено"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeEventModal()">Отмена</button>
+                <button type="button" class="btn" onclick="saveEventModal()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
     <script th:inline="javascript">
     const currentTeacherId = /*[[${teacherId}]]*/ null;
     const currentYear = /*[[${defaultYear}]]*/ 2025;
 
     let currentCuratorshipId = null;
+    let currentEvents = [];
+    let eventModalIdx = null;
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+    }
+
+    function formatDateRu(iso) {
+        const parts = String(iso).split('-');
+        return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : iso;
+    }
+
+    function refreshCurrentCuratorship() {
+        fetch(`/api/curatorships/teacher/${currentTeacherId}`)
+            .then(r => r.json())
+            .then(data => {
+                const c = data.find(x => x.id === currentCuratorshipId);
+                if (c) loadGroupDetails(c);
+            });
+    }
+
+    function openEventModal(idx) {
+        eventModalIdx = idx != null ? idx : null;
+        const title = document.getElementById('eventModalTitle');
+        const dateEl = document.getElementById('eventDate');
+        const hoursEl = document.getElementById('eventHours');
+        const descEl = document.getElementById('eventDescription');
+        if (idx != null && currentEvents[idx]) {
+            title.textContent = 'Изменить мероприятие';
+            dateEl.value = currentEvents[idx].date || '';
+            hoursEl.value = currentEvents[idx].hours != null ? currentEvents[idx].hours : '';
+            descEl.value = currentEvents[idx].description || '';
+        } else {
+            title.textContent = 'Новое мероприятие';
+            dateEl.value = new Date().toISOString().slice(0, 10);
+            hoursEl.value = '';
+            descEl.value = '';
+        }
+        document.getElementById('eventModal').classList.add('active');
+    }
+
+    function closeEventModal() {
+        document.getElementById('eventModal').classList.remove('active');
+    }
+
+    function saveEventModal() {
+        if (!currentCuratorshipId) return;
+        const description = document.getElementById('eventDescription').value.trim();
+        if (!description) { showToast('Укажите описание', 'danger'); return; }
+        const date = document.getElementById('eventDate').value;
+        const hours = document.getElementById('eventHours').value;
+
+        const isEdit = eventModalIdx != null;
+        const method = isEdit ? 'PUT' : 'POST';
+        const body = isEdit
+            ? { eventIdx: eventModalIdx, date, hours, description }
+            : { date, hours, description };
+
+        fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
+            method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }).then(r => {
+            if (r.ok) {
+                closeEventModal();
+                refreshCurrentCuratorship();
+            } else {
+                showToast('Ошибка сохранения', 'danger');
+            }
+        });
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         if (!currentTeacherId) {
@@ -151,6 +242,7 @@
 
     function loadGroupDetails(curatorship) {
         currentCuratorshipId = curatorship.id;
+        currentEvents = Array.isArray(curatorship.events) ? curatorship.events : [];
         document.getElementById('groupCard').style.display = 'block';
         document.getElementById('groupTitle').textContent = `Группа ${curatorship.group.name}`;
 
@@ -166,19 +258,15 @@
         const yearlyPlan = curatorship.hours != null ? Number(curatorship.hours) : 0;
         const monthlyPlan = months.length > 0 ? Math.round((yearlyPlan / months.length) * 10) / 10 : 0;
 
-        const events = Array.isArray(curatorship.events) ? curatorship.events : [];
+        const events = currentEvents;
         const factByMonth = {};
         monthNumbers.forEach(m => { factByMonth[m] = 0; });
 
         events.forEach(ev => {
-            const text = String(ev);
-            let month = null;
-            const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-            const ru = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-            if (iso) month = parseInt(iso[2], 10);
-            else if (ru) month = parseInt(ru[2], 10);
-            if (month && factByMonth[month] !== undefined) {
-                factByMonth[month] += 1;
+            if (!ev.date) return;
+            const month = parseInt(String(ev.date).split('-')[1], 10);
+            if (factByMonth[month] !== undefined) {
+                factByMonth[month] += (ev.hours != null ? Number(ev.hours) : 0);
             }
         });
 
@@ -186,7 +274,7 @@
         months.forEach((monthName, idx) => {
             const m = monthNumbers[idx];
             const plan = monthlyPlan;
-            const fact = factByMonth[m] || 0;
+            const fact = Math.round((factByMonth[m] || 0) * 10) / 10;
             totalPlanned += plan;
             totalFact += fact;
 
@@ -215,7 +303,7 @@
         document.getElementById('completionBar').style.width = Math.min(completion, 100) + '%';
         document.getElementById('completionBar').className = 'progress-bar ' + (completion >= 90 ? 'success' : completion >= 70 ? 'warning' : 'danger');
         document.getElementById('completionText').textContent =
-            `${totalFact} / ${totalPlanned} часов` +
+            `${Math.round(totalFact * 10) / 10} / ${totalPlanned} часов` +
             (events.length ? ` · мероприятий: ${events.length}` : '') +
             ` (${Math.round(completion)}%)`;
 
@@ -226,12 +314,14 @@
     function renderEvents(curatorship) {
         const eventsList = document.getElementById('eventsList');
         eventsList.innerHTML = '';
-        if (curatorship.events && curatorship.events.length > 0) {
-            curatorship.events.forEach((e, idx) => {
+        const events = Array.isArray(curatorship.events) ? curatorship.events : [];
+        if (events.length > 0) {
+            events.forEach((e, idx) => {
                 const li = document.createElement('li');
                 li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+                const dateLabel = e.date ? formatDateRu(e.date) : '—';
                 li.innerHTML = `
-                    <span>${e}</span>
+                    <span><strong>${dateLabel}</strong> · ${e.hours != null ? e.hours : 0} ч — ${escapeHtml(e.description || '')}</span>
                     <div style="display:flex;gap:4px">
                         <button type="button" class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:4px 8px;font-size:12px">Изменить</button>
                         <button type="button" class="btn btn-sm btn-danger" onclick="deleteEvent(${idx})" style="padding:4px 8px;font-size:12px">Удалить</button>
@@ -272,45 +362,17 @@
         fetch(`/api/curatorships/${currentCuratorshipId}/event/${eventIdx}`, {
             method: 'DELETE'
         }).then(r => {
-            if (r.ok) {
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
-            } else {
-                showToast('Ошибка удаления', 'danger');
-            }
+            if (r.ok) refreshCurrentCuratorship();
+            else showToast('Ошибка удаления', 'danger');
         });
     }
 
     function editEvent(eventIdx) {
-        if (!currentCuratorshipId) return;
-        const eventsList = document.getElementById('eventsList');
-        const items = eventsList.querySelectorAll('li span');
-        const currentEvent = items[eventIdx]?.textContent.trim();
-        if (currentEvent === undefined) return;
+        openEventModal(eventIdx);
+    }
 
-        const event = prompt('Редактировать мероприятие:', currentEvent);
-        if (!event) return;
-
-        fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ eventIdx, event })
-        }).then(r => {
-            if (r.ok) {
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
-            } else {
-                showToast('Ошибка редактирования', 'danger');
-            }
-        });
+    function addEvent() {
+        openEventModal(null);
     }
 
     function deleteLog(logIdx) {
@@ -320,16 +382,8 @@
         fetch(`/api/curatorships/${currentCuratorshipId}/log/${logIdx}`, {
             method: 'DELETE'
         }).then(r => {
-            if (r.ok) {
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
-            } else {
-                showToast('Ошибка удаления', 'danger');
-            }
+            if (r.ok) refreshCurrentCuratorship();
+            else showToast('Ошибка удаления', 'danger');
         });
     }
 
@@ -348,39 +402,8 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ logIdx, logEntry })
         }).then(r => {
-            if (r.ok) {
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
-            } else {
-                showToast('Ошибка редактирования', 'danger');
-            }
-        });
-    }
-
-    function addEvent() {
-        if (!currentCuratorshipId) return;
-        const event = prompt('Введите мероприятие:');
-        if (!event) return;
-
-        fetch(`/api/curatorships/${currentCuratorshipId}/event`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({event})
-        }).then(r => {
-            if (r.ok) {
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
-            } else {
-                showToast('Ошибка добавления мероприятия', 'danger');
-            }
+            if (r.ok) refreshCurrentCuratorship();
+            else showToast('Ошибка редактирования', 'danger');
         });
     }
 
@@ -396,12 +419,7 @@
         }).then(r => {
             if (r.ok) {
                 document.getElementById('newLogEntry').value = '';
-                fetch(`/api/curatorships/teacher/${currentTeacherId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const c = data.find(x => x.id === currentCuratorshipId);
-                        if (c) loadGroupDetails(c);
-                    });
+                refreshCurrentCuratorship();
             } else {
                 showToast('Ошибка добавления записи', 'danger');
             }

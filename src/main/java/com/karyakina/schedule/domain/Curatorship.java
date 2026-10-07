@@ -26,16 +26,15 @@ public class Curatorship {
     private Integer hours;
 
     @ElementCollection
-    @CollectionTable(name = "curatorship_events", joinColumns = @JoinColumn(name = "curatorship_id"))
-    @Column(name = "event")
+    @CollectionTable(name = "curatorship_events_v2", joinColumns = @JoinColumn(name = "curatorship_id"))
+    @OrderColumn(name = "event_order")
     @Builder.Default
-    private List<String> events = new ArrayList<>();
+    private List<CuratorEvent> events = new ArrayList<>();
 
     @ElementCollection
     @CollectionTable(name = "curatorship_logs", joinColumns = @JoinColumn(name = "curatorship_id"))
     @Column(name = "log_entry")
+    @OrderColumn(name = "log_order")
     @Builder.Default
     private List<String> logs = new ArrayList<>();
-
-    private String responsiblePerson;
 }

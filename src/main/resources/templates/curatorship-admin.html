@@ -29,6 +29,7 @@
     </div>
 
     <div class="card">
+        <div class="table-scroll">
         <table class="data-table" id="curatorshipTable">
             <thead>
             <tr>
@@ -36,6 +37,7 @@
                 <th>Группа</th>
                 <th>Курс</th>
                 <th>Часы (план)</th>
+                <th>Часы (факт)</th>
                 <th>Мероприятия</th>
                 <th>Записи в журнале</th>
                 <th>Действия</th>
@@ -43,6 +45,7 @@
             </thead>
             <tbody id="curatorshipBody"></tbody>
         </table>
+        </div>
     </div>
 
     <div class="modal-overlay" id="assignModal">
@@ -71,19 +74,73 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="reassignModal">
+        <div class="modal">
+            <div class="modal-header"><h3>Изменить назначение</h3><button type="button" class="close-btn" onclick="closeReassignModal()">×</button></div>
+            <div class="modal-body">
+                <div class="field" style="margin-bottom:14px;"><label>Преподаватель</label><select id="reassignTeacher"></select></div>
+                <div class="field"><label>Кураторские часы (план)</label><input type="number" id="reassignHours" min="0"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeReassignModal()">Отмена</button>
+                <button type="button" class="btn" onclick="saveReassign()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="eventModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="eventModalTitle">Мероприятие</h3>
+                <button type="button" class="close-btn" onclick="closeEventModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="field" style="margin-bottom:14px;"><label>Дата</label><input type="date" id="eventDate"></div>
+                <div class="field" style="margin-bottom:14px;"><label>Часы</label><input type="number" id="eventHours" min="0" step="0.5"></div>
+                <div class="field"><label>Описание</label><input type="text" id="eventDescription" placeholder="Что проведено"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeEventModal()">Отмена</button>
+                <button type="button" class="btn" onclick="saveEventModal()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
     <script th:inline="javascript">
     const currentYear = /*[[${defaultYear}]]*/ 2025;
+    let allTeachers = [];
+    let currentCuratorships = [];
+    let currentViewId = null;
+    let currentViewEvents = [];
+    let eventModalIdx = null;
+    let reassignId = null;
 
     document.addEventListener('DOMContentLoaded', () => {
         loadCuratorships();
         loadFilters();
     });
 
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+    }
+
+    function formatDateRu(iso) {
+        const parts = String(iso).split('-');
+        return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : iso;
+    }
+
+    function eventHours(c) {
+        return (c.events || []).reduce((sum, e) => sum + (e.hours != null ? Number(e.hours) : 0), 0);
+    }
+
     function loadFilters() {
         Promise.all([
             fetch('/api/teachers').then(r => r.json()),
             fetch('/api/groups').then(r => r.json())
         ]).then(([teachers, groups]) => {
+            allTeachers = teachers;
             const teacherSelect = document.getElementById('filterTeacher');
             const groupSelect = document.getElementById('filterGroup');
             const assignTeacherSelect = document.getElementById('assignTeacher');
@@ -108,6 +165,7 @@
         fetch('/api/curatorships')
             .then(r => r.json())
             .then(data => {
+                currentCuratorships = data;
                 const tbody = document.getElementById('curatorshipBody');
                 tbody.innerHTML = '';
 
@@ -117,20 +175,57 @@
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>${c.teacher.fullName}</td>
-                        <td>${c.group.name}</td>
+                        <td>${escapeHtml(c.teacher.fullName)}</td>
+                        <td>${escapeHtml(c.group.name)}</td>
                         <td>${c.group.course}</td>
                         <td>${c.hours || 36}</td>
+                        <td>${Math.round(eventHours(c) * 10) / 10}</td>
                         <td>${c.events ? c.events.length : 0}</td>
                         <td>${c.logs ? c.logs.length : 0}</td>
                         <td>
                             <button type="button" class="btn btn-sm btn-secondary" onclick="viewCuratorship(${c.id})">Просмотр</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="openReassignModal(${c.id})">Изменить</button>
                             <button type="button" class="btn btn-sm btn-danger" onclick="deleteCuratorship(${c.id})">Удалить</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 });
             });
+    }
+
+    function openReassignModal(id) {
+        const c = currentCuratorships.find(x => x.id === id);
+        if (!c) return;
+        reassignId = id;
+        const select = document.getElementById('reassignTeacher');
+        select.innerHTML = '';
+        allTeachers.forEach(t => select.add(new Option(t.fullName, t.id)));
+        select.value = c.teacher.id;
+        document.getElementById('reassignHours').value = c.hours || 36;
+        document.getElementById('reassignModal').classList.add('active');
+    }
+
+    function closeReassignModal() {
+        document.getElementById('reassignModal').classList.remove('active');
+    }
+
+    function saveReassign() {
+        if (!reassignId) return;
+        const teacherId = document.getElementById('reassignTeacher').value;
+        const hours = document.getElementById('reassignHours').value;
+
+        fetch(`/api/curatorships/${reassignId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ teacherId: parseInt(teacherId), hours: parseInt(hours) })
+        }).then(r => {
+            if (r.ok) {
+                closeReassignModal();
+                loadCuratorships();
+            } else {
+                r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
+            }
+        });
     }
 
     function openAssignModal() {
@@ -169,33 +264,41 @@
         fetch(`/api/curatorships/by-id/${id}`)
             .then(r => r.json())
             .then(c => {
+                currentViewId = c.id;
+                currentViewEvents = Array.isArray(c.events) ? c.events : [];
                 const body = document.getElementById('editBody');
 
-                const eventsHtml = c.events && c.events.length > 0
-                    ? c.events.map((e, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">${e} <button type="button" class="btn btn-sm btn-danger" onclick="deleteEvent(${c.id}, ${idx})" style="margin-left:8px">×</button></li>`).join('')
+                const eventsHtml = currentViewEvents.length > 0
+                    ? currentViewEvents.map((e, idx) => {
+                        const dateLabel = e.date ? formatDateRu(e.date) : '—';
+                        return `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">`
+                            + `<span><strong>${dateLabel}</strong> · ${e.hours != null ? e.hours : 0} ч — ${escapeHtml(e.description || '')}</span>`
+                            + `<div style="display:flex;gap:4px;margin-left:8px">`
+                            + `<button type="button" class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:4px 8px;font-size:12px">Изменить</button>`
+                            + `<button type="button" class="btn btn-sm btn-danger" onclick="deleteEvent(${c.id}, ${idx})" style="padding:4px 8px;font-size:12px">×</button>`
+                            + `</div></li>`;
+                    }).join('')
                     : '<li class="text-muted">Нет мероприятий</li>';
 
                 const logsHtml = c.logs && c.logs.length > 0
-                    ? c.logs.map((l, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">${l} <button type="button" class="btn btn-sm btn-danger" onclick="deleteLog(${c.id}, ${idx})" style="margin-left:8px">×</button></li>`).join('')
+                    ? c.logs.map((l, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">${escapeHtml(l)} <button type="button" class="btn btn-sm btn-danger" onclick="deleteLog(${c.id}, ${idx})" style="margin-left:8px">×</button></li>`).join('')
                     : '<li class="text-muted">Нет записей</li>';
 
                 const totalHours = c.hours || 36;
-                const eventsCount = c.events ? c.events.length : 0;
-                const hoursPerEvent = eventsCount > 0 ? (totalHours / eventsCount).toFixed(1) : 0;
+                const doneHours = Math.round(eventHours(c) * 10) / 10;
 
                 body.innerHTML = `
                     <div class="grid" style="margin-bottom:16px">
-                        <div class="stat"><div class="stat-label">Преподаватель</div><div class="stat-value" style="font-size:16px">${c.teacher.fullName}</div></div>
-                        <div class="stat"><div class="stat-label">Группа</div><div class="stat-value" style="font-size:16px">${c.group.name}</div></div>
+                        <div class="stat"><div class="stat-label">Преподаватель</div><div class="stat-value" style="font-size:16px">${escapeHtml(c.teacher.fullName)}</div></div>
+                        <div class="stat"><div class="stat-label">Группа</div><div class="stat-value" style="font-size:16px">${escapeHtml(c.group.name)}</div></div>
                         <div class="stat"><div class="stat-label">Курс</div><div class="stat-value" style="font-size:16px">${c.group.course}</div></div>
                         <div class="stat"><div class="stat-label">Часы (план)</div><div class="stat-value" style="font-size:16px">${totalHours}</div></div>
-                        <div class="stat"><div class="stat-label">Мероприятий</div><div class="stat-value" style="font-size:16px">${eventsCount}</div></div>
-                        <div class="stat"><div class="stat-label">Часов на мероприятие</div><div class="stat-value" style="font-size:16px">${hoursPerEvent}</div></div>
+                        <div class="stat"><div class="stat-label">Часов проведено</div><div class="stat-value" style="font-size:16px">${doneHours}</div></div>
                     </div>
 
                     <h4 style="margin:16px 0 10px">Мероприятия</h4>
                     <ul style="padding-left:18px;margin-bottom:16px;list-style:none">${eventsHtml}</ul>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="addEvent(${c.id})">Добавить мероприятие</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addEvent()">Добавить мероприятие</button>
 
                     <h4 style="margin:16px 0 10px">Журнал</h4>
                     <ul style="padding-left:18px;margin-bottom:16px;list-style:none">${logsHtml}</ul>
@@ -213,36 +316,77 @@
         document.getElementById('editModal').classList.remove('active');
     }
 
-    function addEvent(id) {
-        const event = prompt('Введите мероприятие:');
-        if (!event) return;
+    function openEventModal(idx) {
+        eventModalIdx = idx != null ? idx : null;
+        const title = document.getElementById('eventModalTitle');
+        const dateEl = document.getElementById('eventDate');
+        const hoursEl = document.getElementById('eventHours');
+        const descEl = document.getElementById('eventDescription');
+        if (idx != null && currentViewEvents[idx]) {
+            title.textContent = 'Изменить мероприятие';
+            dateEl.value = currentViewEvents[idx].date || '';
+            hoursEl.value = currentViewEvents[idx].hours != null ? currentViewEvents[idx].hours : '';
+            descEl.value = currentViewEvents[idx].description || '';
+        } else {
+            title.textContent = 'Новое мероприятие';
+            dateEl.value = new Date().toISOString().slice(0, 10);
+            hoursEl.value = '';
+            descEl.value = '';
+        }
+        document.getElementById('eventModal').classList.add('active');
+    }
 
-        fetch(`/api/curatorships/${id}/event`, {
-            method: 'POST',
+    function closeEventModal() {
+        document.getElementById('eventModal').classList.remove('active');
+    }
+
+    function saveEventModal() {
+        if (!currentViewId) return;
+        const description = document.getElementById('eventDescription').value.trim();
+        if (!description) { showToast('Укажите описание', 'danger'); return; }
+        const date = document.getElementById('eventDate').value;
+        const hours = document.getElementById('eventHours').value;
+
+        const isEdit = eventModalIdx != null;
+        const method = isEdit ? 'PUT' : 'POST';
+        const body = isEdit
+            ? { eventIdx: eventModalIdx, date, hours, description }
+            : { date, hours, description };
+
+        fetch(`/api/curatorships/${currentViewId}/event`, {
+            method,
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({event})
+            body: JSON.stringify(body)
         }).then(r => {
-            if (r.ok) viewCuratorship(id);
-            else showToast('Ошибка добавления', 'danger');
+            if (r.ok) {
+                closeEventModal();
+                viewCuratorship(currentViewId);
+                loadCuratorships();
+            } else {
+                showToast('Ошибка сохранения', 'danger');
+            }
         });
+    }
+
+    function addEvent() {
+        openEventModal(null);
+    }
+
+    function editEvent(idx) {
+        openEventModal(idx);
     }
 
     function deleteEvent(curatorshipId, eventIndex) {
         if (!confirm('Удалить это мероприятие?')) return;
 
-        fetch(`/api/curatorships/${curatorshipId}`)
-            .then(r => r.json())
-            .then(c => {
-                c.events.splice(eventIndex, 1);
-                return fetch(`/api/curatorships/${curatorshipId}`, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({events: c.events})
-                });
-            })
+        fetch(`/api/curatorships/${curatorshipId}/event/${eventIndex}`, { method: 'DELETE' })
             .then(r => {
-                if (r.ok) viewCuratorship(curatorshipId);
-                else showToast('Ошибка удаления', 'danger');
+                if (r.ok) {
+                    viewCuratorship(curatorshipId);
+                    loadCuratorships();
+                } else {
+                    showToast('Ошибка удаления', 'danger');
+                }
             });
     }
 
@@ -263,16 +407,7 @@
     function deleteLog(curatorshipId, logIndex) {
         if (!confirm('Удалить эту запись из журнала?')) return;
 
-        fetch(`/api/curatorships/${curatorshipId}`)
-            .then(r => r.json())
-            .then(c => {
-                c.logs.splice(logIndex, 1);
-                return fetch(`/api/curatorships/${curatorshipId}`, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({logs: c.logs})
-                });
-            })
+        fetch(`/api/curatorships/${curatorshipId}/log/${logIndex}`, { method: 'DELETE' })
             .then(r => {
                 if (r.ok) viewCuratorship(curatorshipId);
                 else showToast('Ошибка удаления', 'danger');

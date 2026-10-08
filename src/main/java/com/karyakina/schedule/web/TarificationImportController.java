@@ -68,6 +68,27 @@ public class TarificationImportController {
         return ResponseEntity.ok(result);
     }
 
+    @DeleteMapping("/api/tarifications/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id, Authentication authentication) {
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        Tarification tarification = tarificationRepository.findById(id).orElse(null);
+        if (tarification == null) {
+            return ResponseEntity.notFound().build();
+        }
+        long loadCount = teacherLoadRepository.countByTarificationId(id);
+        if (loadCount > 0) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Нельзя удалить: с тарификацией связано записей нагрузки — " + loadCount
+                            + ". Сначала удалите или перенесите эту нагрузку."));
+        }
+        tarificationRepository.delete(tarification);
+        return ResponseEntity.ok().build();
+    }
+
     private String adminDisplayName(User user) {
         return user.getFirstName() != null ? user.getFirstName() + " " + user.getLastName() : user.getEmail();
     }

@@ -131,8 +131,9 @@
                 <button type="button" class="btn btn-secondary btn-sm" id="toggleAddClassroomBtn">Добавить</button>
             </div>
             <p class="page-heading-sub" style="margin:0 0 14px;">
-                Фонд аудиторий для автосоставления расписания. Аудитория без указанных дисциплин
-                открыта для любых пар.
+                Фонд аудиторий для автосоставления расписания. По умолчанию создано 17 аудиторий (1–17,
+                вместимость 25) — их можно переименовать, изменить вместимость, удалить или добавить свои
+                ниже. Аудитория без указанных дисциплин открыта для любых пар.
             </p>
             <div id="addClassroomForm" style="display:none; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end;">
                 <div class="field" style="width:160px;"><label>Название</label><input type="text" id="newClassroomName" placeholder="например 305"></div>
@@ -200,6 +201,19 @@
                 <button type="button" class="btn btn-secondary" id="tarifRestartBtn">Импортировать ещё файл</button>
                 <a class="btn" th:href="@{/admin/schedule}">Перейти к автосоставлению расписания →</a>
             </div>
+        </div>
+
+        <div class="card" style="margin-top:18px;">
+            <div class="card-header"><span class="card-title">Загруженные тарификации</span></div>
+            <p class="page-heading-sub" style="margin:0 0 14px;">
+                Каждая загрузка файла сохраняется отдельной записью. Удалить можно только тарификацию,
+                с которой уже не связана ни одна запись нагрузки (например, если вся нагрузка перешла
+                в более позднюю загрузку того же файла).
+            </p>
+            <table class="data-table">
+                <thead><tr><th>Название</th><th>Учебный год</th><th>Загружена</th><th>Записей нагрузки</th><th></th></tr></thead>
+                <tbody id="tarificationsBody"><tr><td colspan="5"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
+            </table>
         </div>
 
         <div class="card" style="margin-top:18px; border-color:var(--color-danger-bg-strong);">
@@ -595,7 +609,53 @@
         }
     };
 
+    async function loadTarificationsList() {
+        const tbody = document.getElementById('tarificationsBody');
+        try {
+            const res = await fetch('/api/tarifications');
+            if (!res.ok) throw new Error('status ' + res.status);
+            const list = await res.json();
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state" style="padding:20px;"><p class="empty-state-title" style="font-size:14px;">Пока пусто</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = '';
+            list.forEach(t => {
+                const date = t.importedAt ? new Date(t.importedAt).toLocaleString('ru-RU') : '—';
+                const deleteBtn = t.loadCount === 0
+                    ? '<button type="button" class="btn btn-sm btn-danger" onclick="window.__deleteTarification(' + t.id + ')">Удалить</button>'
+                    : '<span class="page-heading-sub">используется</span>';
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + escapeHtml(t.name) + '</td>' +
+                    '<td>' + t.academicYear + '/' + (t.academicYear + 1) + '</td>' +
+                    '<td>' + date + '</td>' +
+                    '<td>' + t.loadCount + '</td>' +
+                    '<td>' + deleteBtn + '</td>';
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-danger">Не удалось загрузить список тарификаций</td></tr>';
+        }
+    }
+
+    window.__deleteTarification = async function (id) {
+        if (!confirm('Удалить эту тарификацию?')) return;
+        try {
+            const res = await fetch('/api/tarifications/' + id, {method: 'DELETE'});
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                showToast(body.error || 'Не удалось удалить тарификацию', 'danger');
+                return;
+            }
+            loadTarificationsList();
+            showToast('Тарификация удалена', 'success');
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'danger');
+        }
+    };
+
     loadClassrooms();
+    loadTarificationsList();
 
     let tarifSelectedFile = null;
     const tarifDropzone = document.getElementById('tarifDropzone');
@@ -652,6 +712,7 @@
             }
             const report = await res.json();
             showTarifResult(report);
+            loadTarificationsList();
             showToast('Импорт завершён', 'success');
         } catch (e) {
             showToast('Ошибка сети: ' + e.message, 'danger');

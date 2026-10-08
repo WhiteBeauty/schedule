@@ -290,7 +290,7 @@ public class ScheduleGeneratorService {
                     demands,
                     config);
 
-            checkGridCapacity(input, loadById, issues, warnings);
+            checkGridCapacity(input, loadById, issues, warnings, session);
 
             SolverResult solution = solver.solve(input, index -> occupyExisting(index, existing));
 
@@ -537,11 +537,15 @@ public class ScheduleGeneratorService {
     private void checkGridCapacity(SolverInput input,
                                    Map<Long, TeacherLoad> loadById,
                                    List<MissingResourceRequest> issues,
-                                   List<String> warnings) {
+                                   List<String> warnings,
+                                   GenerationSessionStore.Session session) {
         Map<Long, Integer> pairsByGroup = new HashMap<>();
         input.demands().forEach(d -> pairsByGroup.merge(d.groupId(), d.pairsPerWeek(), Integer::sum));
 
         for (SolverInput.GroupRef group : input.groups()) {
+            if (session.getDismissedCapacityWarnings().contains(group.id())) {
+                continue;
+            }
             int needed = pairsByGroup.getOrDefault(group.id(), 0);
             if (needed == 0) {
                 continue;
@@ -715,6 +719,11 @@ public class ScheduleGeneratorService {
                 int perDay = decision.intValue("perDay", 0);
                 if (perDay > 0) {
                     session.setMaxSameSubjectPerDay(perDay);
+                }
+            }
+            case MissingResourceRequest.Actions.KEEP_AS_IS -> {
+                if (groupId != null && issue != null && issue.code() == MissingResourceRequest.Code.GRID_CAPACITY) {
+                    session.getDismissedCapacityWarnings().add(groupId);
                 }
             }
             default -> {

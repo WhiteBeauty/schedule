@@ -29,12 +29,13 @@ public class UnresolvedReschedule {
 
     private String teacherName;
 
-    @Column(nullable = false)
     private LocalDate originalDate;
 
     private String originalDayOfWeek;
 
     private LocalTime originalStartTime;
+
+    private Integer hours;
 
     @Column(length = 1000)
     private String reason;

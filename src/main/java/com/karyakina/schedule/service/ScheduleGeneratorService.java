@@ -5,6 +5,7 @@ import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.StudyGroup;
 import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.domain.TeacherLoad;
+import com.karyakina.schedule.domain.UnresolvedReschedule;
 import com.karyakina.schedule.dto.GenerationRequestDTO;
 import com.karyakina.schedule.dto.GenerationResultDTO;
 import com.karyakina.schedule.dto.MissingResourceRequest;
@@ -16,6 +17,7 @@ import com.karyakina.schedule.repository.ClassroomRepository;
 import com.karyakina.schedule.repository.TarificationRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.TeacherRepository;
+import com.karyakina.schedule.repository.UnresolvedRescheduleRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
 import com.karyakina.schedule.service.generator.OccupancyIndex;
 import com.karyakina.schedule.service.generator.ScheduleSolver;
@@ -61,6 +63,7 @@ public class ScheduleGeneratorService {
     private final ScheduleSolver solver;
     private final GenerationSessionStore sessionStore;
     private final TarificationRepository tarificationRepository;
+    private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
@@ -140,6 +143,7 @@ public class ScheduleGeneratorService {
             scheduleRepository.saveAll(created);
             recalculateMonthlyRecords(created, session.getAcademicYear());
             notifyTeachers(created, adminName);
+            saveUnresolvedFromGeneration(session);
             session.setPersisted(true);
             session.getDraft().clear();
 
@@ -154,6 +158,35 @@ public class ScheduleGeneratorService {
             return GenerationResultDTO.failed(session.getId(), MissingResourceRequest.technical(
                     "Расписание не сохранено: " + describe(e) + ". Черновик остался в силе, изменения не применены."));
         }
+    }
+
+    private void saveUnresolvedFromGeneration(GenerationSessionStore.Session session) {
+        List<MissingResourceRequest> unplacedIssues = session.getLastIssues().stream()
+                .filter(issue -> issue.code() == MissingResourceRequest.Code.UNPLACED_LESSONS)
+                .toList();
+        if (unplacedIssues.isEmpty()) {
+            return;
+        }
+        SolverConfig hoursConfig = SolverConfig.defaults();
+        List<UnresolvedReschedule> rows = new ArrayList<>();
+        for (MissingResourceRequest issue : unplacedIssues) {
+            Long loadId = asLong(issue.context().get("loadId"));
+            if (loadId == null) continue;
+            TeacherLoad load = loadRepository.findById(loadId).orElse(null);
+            if (load == null) continue;
+            int missingPairs = asInt(issue.context().get("missingPairs"), 0);
+            rows.add(UnresolvedReschedule.builder()
+                    .teacherLoadId(loadId)
+                    .groupId(load.getGroup().getId())
+                    .groupName(load.getGroup().getName())
+                    .disciplineName(load.getDiscipline().getName())
+                    .teacherName(load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен")
+                    .hours(hoursConfig.pairsToHours(missingPairs))
+                    .reason("Автосоставление: " + issue.message())
+                    .academicYear(session.getAcademicYear())
+                    .build());
+        }
+        unresolvedRescheduleRepository.saveAll(rows);
     }
 
     @Transactional
@@ -245,9 +278,9 @@ public class ScheduleGeneratorService {
             if (!practiceOrDriving.isEmpty()) {
                 Set<String> distinctGroups = new java.util.TreeSet<>();
                 practiceOrDriving.forEach(l -> distinctGroups.add(l.getGroup().getName()));
-                warnings.add("Практика и вождение (" + practiceOrDriving.size() + " записей нагрузки, группы: "
-                        + String.join(", ", distinctGroups) + ") не учтены в автосоставлении — "
-                        + "по правилам их размещает администратор вручную, блоками.");
+                warnings.add("Практика, вождение, ВКР, ГИА, ПДП и демоэкзамен (" + practiceOrDriving.size()
+                        + " записей нагрузки, группы: " + String.join(", ", distinctGroups)
+                        + ") не учтены в автосоставлении — по правилам их размещает администратор вручную, блоками.");
                 candidates = candidates.stream().filter(l -> !isPracticeOrDriving(l.getDiscipline().getName())).toList();
             }
 
@@ -531,7 +564,10 @@ public class ScheduleGeneratorService {
         if (disciplineName == null) return false;
         String normalized = disciplineName.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
         if (normalized.contains("вождение")) return true;
-        return normalized.matches("^(пп|уп)[\\s.].*") || normalized.matches("^(пп|уп)\\d.*");
+        if (normalized.matches("^(пп|уп)[\\s.].*") || normalized.matches("^(пп|уп)\\d.*")) return true;
+        if (normalized.equals("уп") || normalized.equals("пп")) return true;
+        if (normalized.equals("вкр") || normalized.equals("гиа") || normalized.equals("пдп")) return true;
+        return normalized.contains("дем") && normalized.contains("экз");
     }
 
     private void checkGridCapacity(SolverInput input,

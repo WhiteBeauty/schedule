@@ -32,7 +32,7 @@ public class DataInitializer implements CommandLineRunner {
     private final ClassroomRepository classroomRepository;
     private final PasswordEncoder passwordEncoder;
 
-    private static final int DEFAULT_CLASSROOM_COUNT = 17;
+    private static final int DEFAULT_CLASSROOM_COUNT = 30;
     private static final int DEFAULT_CLASSROOM_CAPACITY = 25;
 
     @org.springframework.beans.factory.annotation.Value("${app.initial-admin-password:admin123}")

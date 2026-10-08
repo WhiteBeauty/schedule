@@ -66,14 +66,15 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
-                        Пары, которые не удалось автоматически перенести при назначении экзамена/практики/вождения.
-                        Перенесите их вручную через редактирование пары на самом расписании.
+                        Пары, которые не удалось автоматически перенести при назначении экзамена/практики/вождения,
+                        а также нагрузка, которая не встала при автосоставлении расписания.
+                        Перенесите/расставьте их вручную через редактирование пары на самом расписании.
                     </p>
                     <table class="table" style="width:100%; font-size:0.85rem;">
                         <thead>
-                        <tr><th>Дата</th><th>Дисциплина</th><th>Группа</th><th>Преподаватель</th><th>Причина</th><th></th></tr>
+                        <tr><th>Дата</th><th>Дисциплина</th><th>Группа</th><th>Преподаватель</th><th>Часы</th><th>Причина</th><th></th></tr>
                         </thead>
-                        <tbody id="unresolvedCloudBody"><tr><td colspan="6" class="text-muted">Загрузка…</td></tr></tbody>
+                        <tbody id="unresolvedCloudBody"><tr><td colspan="7" class="text-muted">Загрузка…</td></tr></tbody>
                     </table>
                 </div>
                 <div class="modal-footer">
@@ -282,22 +283,23 @@
                     const res = await fetch('/api/special-events/unresolved?academicYear=' + resolveAcademicYearForSpecialEvent());
                     const items = await res.json();
                     if (!items.length) {
-                        tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Пусто — всё перенесено</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Пусто — всё перенесено</td></tr>';
                         return;
                     }
                     tbody.innerHTML = '';
                     items.forEach(u => {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = '<td>' + u.originalDate + '</td>' +
+                        tr.innerHTML = '<td>' + (u.originalDate || '—') + '</td>' +
                             '<td>' + escapeHtmlSafe(u.disciplineName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.groupName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.teacherName) + '</td>' +
+                            '<td>' + (u.hours != null ? u.hours : '—') + '</td>' +
                             '<td>' + escapeHtmlSafe(u.reason) + '</td>' +
                             '<td><button class="btn btn-sm btn-secondary" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
                         tbody.appendChild(tr);
                     });
                 } catch (e) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-danger">Не удалось загрузить</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить</td></tr>';
                 }
             }
 

@@ -9,7 +9,8 @@
         result: null,
         bothMode: false,
         semesterQueue: [],
-        currentSemester: null
+        currentSemester: null,
+        needsConfirmBanner: false
     };
 
     const SEMESTER_LABEL = {1: '1 (осень)', 2: '2 (весна)'};
@@ -82,6 +83,7 @@
                 state.semesterQueue = [];
                 semester = raw ? Number(raw) : null;
             }
+            state.needsConfirmBanner = false;
         }
         state.currentSemester = semester;
 
@@ -157,6 +159,7 @@
                 showToast('Семестр ' + SEMESTER_LABEL[state.currentSemester] + ' сохранён. Считаем семестр '
                     + SEMESTER_LABEL[next] + '...', 'success');
             }
+            state.needsConfirmBanner = true;
             generate(next);
         }
     }
@@ -324,7 +327,18 @@
         const progressLabel = state.bothMode
             ? ' (семестр ' + (2 - state.semesterQueue.length) + ' из 2)'
             : '';
+
+        const showConfirmBanner = state.needsConfirmBanner && !result.persisted;
+        const banner = showConfirmBanner
+            ? '<div style="background:var(--danger-bg,#fdecea); border:1px solid var(--danger,#c0392b); ' +
+              'color:var(--danger,#c0392b); border-radius:var(--radius-sm); padding:0.6rem 0.9rem; ' +
+              'margin-bottom:0.75rem; font-weight:600;">' +
+              '⚠ Это черновик семестра ' + semesterLabel + ' — он ещё НЕ сохранён. ' +
+              'Проверьте и нажмите «Сохранить в расписание» ниже ещё раз.</div>'
+            : '';
+
         document.getElementById('genSummary').innerHTML =
+            banner +
             (semesterLabel ? '<div style="margin-bottom:0.35rem; font-size:0.85rem; color:var(--muted);">Семестр '
                 + semesterLabel + progressLabel + '</div>' : '') +
             '<b>' + statusText + '</b>' + (result.persisted ? ' — сохранено в расписании' : ' — черновик') +
@@ -345,6 +359,13 @@
         const blocking = (result.missingData || []).some(function (i) { return i.severity === 'BLOCKING'; });
         commitBtn.disabled = blocking || result.persisted || (result.successSchedule || []).length === 0;
         commitBtn.textContent = result.persisted ? 'Сохранено' : 'Сохранить в расписание';
+
+        if (showConfirmBanner && !blocking) {
+            card.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+        if (result.persisted) {
+            state.needsConfirmBanner = false;
+        }
     }
 
     function metric(label, value) {

@@ -33,12 +33,30 @@
     <div class="card" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:14px 16px;">
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer;">
             <input type="checkbox" id="paceRecalcToggle" onchange="togglePaceRecalc(this.checked)">
-            Автоматически пересчитывать темп по остатку часов (раз в неделю)
+            Автоматически пересчитывать расписание по вычитанным часам (каждый понедельник)
         </label>
-        <button type="button" class="btn btn-secondary btn-sm" id="paceCheckBtn" onclick="runPaceCheckNow()">Проверить темп сейчас</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="recalcPreviewBtn" onclick="runRecalcPreview()">Пересчитать по часам</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="paceCheckBtn" onclick="runPaceCheckNow()">Проверить темп (предложения)</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="rebuildReadBtn" onclick="runRebuildPreview()">Сверить «вычитано» с журналом</button>
         <span class="text-muted" style="font-size:12.5px;">
-            Если расписание отстаёт/опережает план — предложение придёт в Уведомления, расписание не меняется без подтверждения
+            Пересчёт сравнивает план семестра с вычитанными часами и будущими парами (с учётом экзаменов, больничных
+            и отмен): недостающие пары ставит в свободные слоты без окон, лишние снимает в конце семестра.
+            Сначала показывается предпросмотр.
         </span>
+    </div>
+
+    <div class="modal-overlay" id="recalcModal">
+        <div class="modal" style="max-width:900px; width:95%;">
+            <div class="modal-header">
+                <h3 style="margin:0;" id="recalcTitle">Пересчёт по часам</h3>
+                <button class="close-btn" type="button" onclick="closeRecalcModal()" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body" id="recalcBody" style="max-height:65vh; overflow:auto;"></div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" type="button" onclick="closeRecalcModal()">Закрыть</button>
+                <button class="btn btn-primary" type="button" id="recalcApplyBtn">Применить</button>
+            </div>
+        </div>
     </div>
 
     <div class="modal-overlay" id="exportMonthModal">
@@ -354,6 +372,140 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPaceRecalcSetting();
 });
 
+function closeRecalcModal() {
+    document.getElementById('recalcModal').classList.remove('active');
+}
+
+function recalcEsc(v) {
+    const div = document.createElement('div');
+    div.textContent = v == null ? '' : String(v);
+    return div.innerHTML;
+}
+
+function recalcYearParam() {
+    const el = document.getElementById('yearSelect') || document.getElementById('filterYear');
+    return el && el.value ? '&academicYear=' + encodeURIComponent(el.value) : '';
+}
+
+async function runRecalcPreview() {
+    const btn = document.getElementById('recalcPreviewBtn');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/pace-adjustments/recalculate?apply=false' + recalcYearParam(), {method: 'POST'});
+        if (!res.ok) { showToast('Не удалось посчитать (код ' + res.status + ')', 'danger'); return; }
+        renderRecalc(await res.json(), false);
+    } catch (e) {
+        showToast('Ошибка пересчёта', 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function renderRecalc(r, applied) {
+    document.getElementById('recalcTitle').textContent = (applied ? 'Пересчёт применён' : 'Предпросмотр пересчёта')
+        + ' — семестр ' + r.semester + ', ' + r.academicYear + '/' + (r.academicYear + 1);
+    let html = '<p>Проверено нагрузок: <b>' + r.loadsChecked + '</b>. Расхождений с планом: <b>' + r.imbalances.length
+        + '</b>. ' + (applied ? 'Добавлено' : 'Будет добавлено') + ' пар: <b>' + r.added.length + '</b>, '
+        + (applied ? 'снято' : 'будет снято') + ': <b>' + r.cancelled.length + '</b>.</p>';
+    if (r.imbalances.length) {
+        html += '<table class="table" style="width:100%; font-size:0.82rem;"><thead><tr><th>Дисциплина</th><th>Группа</th>'
+            + '<th>Преподаватель</th><th>Цель, ч</th><th>Вычитано, ч</th><th>Впереди, ч</th><th>Баланс, ч</th></tr></thead><tbody>';
+        r.imbalances.forEach(b => {
+            html += '<tr><td>' + recalcEsc(b.disciplineName) + '</td><td>' + recalcEsc(b.groupName) + '</td><td>'
+                + recalcEsc(b.teacherName) + '</td><td>' + b.targetHours + '</td><td>' + b.deliveredHours + '</td><td>'
+                + b.futureHours + '</td><td style="font-weight:600; color:' + (b.balanceHours > 0 ? 'var(--danger)' : 'var(--primary-dark)')
+                + ';">' + (b.balanceHours > 0 ? '+' : '') + b.balanceHours + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+    const changeList = (title, list) => {
+        if (!list.length) return '';
+        let h = '<p style="font-weight:600; margin-top:0.75rem;">' + title + ' (' + list.length + '):</p><ul style="font-size:0.82rem;">';
+        list.slice(0, 200).forEach(c => {
+            h += '<li>' + c.date + ', ' + c.pairNumber + '-я пара — ' + recalcEsc(c.disciplineName) + ', ' + recalcEsc(c.groupName)
+                + ' (' + recalcEsc(c.teacherName) + ')' + (c.classroom ? ', ауд. ' + recalcEsc(c.classroom) : '') + '</li>';
+        });
+        if (list.length > 200) h += '<li>… и ещё ' + (list.length - 200) + '</li>';
+        return h + '</ul>';
+    };
+    html += changeList(applied ? 'Добавлены пары' : 'Будут добавлены пары', r.added);
+    html += changeList(applied ? 'Сняты пары' : 'Будут сняты пары', r.cancelled);
+    if (r.unresolved.some(u => u.indexOf('сверьте «вычитано» с журналом') >= 0)) {
+        html += '<p style="font-weight:600; color:var(--danger);">У части нагрузок «вычитано» больше, чем вообще стояло пар в расписании. '
+            + 'Сначала нажмите «Сверить «вычитано» с журналом», иначе пересчёт по этим нагрузкам пропускается.</p>';
+    }
+    if (r.unresolved.length) {
+        html += '<p style="font-weight:600; color:var(--danger); margin-top:0.75rem;">Требует внимания:</p><ul style="font-size:0.82rem;">';
+        r.unresolved.forEach(u => { html += '<li>' + recalcEsc(u) + '</li>'; });
+        html += '</ul>';
+    }
+    document.getElementById('recalcBody').innerHTML = html;
+    const apply = document.getElementById('recalcApplyBtn');
+    apply.style.display = applied || (!r.added.length && !r.cancelled.length) ? 'none' : '';
+    apply.onclick = async () => {
+        apply.disabled = true;
+        try {
+            const res = await fetch('/api/pace-adjustments/recalculate?apply=true&semester=' + r.semester
+                + '&academicYear=' + r.academicYear, {method: 'POST'});
+            if (!res.ok) { showToast('Не удалось применить (код ' + res.status + ')', 'danger'); return; }
+            renderRecalc(await res.json(), true);
+            showToast('Расписание пересчитано', 'success');
+            if (typeof loadSchedule === 'function') loadSchedule();
+        } finally {
+            apply.disabled = false;
+        }
+    };
+    document.getElementById('recalcModal').classList.add('active');
+}
+
+async function runRebuildPreview() {
+    const btn = document.getElementById('rebuildReadBtn');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/pace-adjustments/rebuild-read-hours?apply=false' + recalcYearParam(), {method: 'POST'});
+        if (!res.ok) { showToast('Не удалось сверить (код ' + res.status + ')', 'danger'); return; }
+        renderRebuild(await res.json());
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function renderRebuild(r) {
+    document.getElementById('recalcTitle').textContent = r.applied ? '«Вычитано» восстановлено по журналу' : 'Сверка «вычитано» с журналом занятий';
+    let html = '<p>Сейчас записано вычитанных часов: <b>' + r.currentTotal + '</b>, по журналу проведённых занятий: <b>'
+        + r.journalTotal + '</b>. Расходится нагрузок: <b>' + r.loadsChanged + '</b>.</p>';
+    if (!r.applied && r.loadsChanged) {
+        html += '<p class="text-muted" style="font-size:0.85rem;">Расхождение обычно остаётся после сноса и пересоздания расписания: '
+            + 'занятия удаляются, а вычитанные по ним часы остаются. «Применить» перепишет вычитанные часы по журналу '
+            + '(ручные правки «вычитано» будут заменены). Прошедшие пары без отметки затем засчитает автосписание.</p>';
+    }
+    if (r.changes.length) {
+        html += '<table class="table" style="width:100%; font-size:0.82rem;"><thead><tr><th>Дисциплина</th><th>Группа</th>'
+            + '<th>Преподаватель</th><th>Сейчас, ч</th><th>По журналу, ч</th></tr></thead><tbody>';
+        r.changes.slice(0, 300).forEach(c => {
+            html += '<tr><td>' + recalcEsc(c.disciplineName) + '</td><td>' + recalcEsc(c.groupName) + '</td><td>'
+                + recalcEsc(c.teacherName) + '</td><td>' + c.currentReadHours + '</td><td>' + c.journalHours + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+    document.getElementById('recalcBody').innerHTML = html;
+    const apply = document.getElementById('recalcApplyBtn');
+    apply.style.display = r.applied || !r.loadsChanged ? 'none' : '';
+    apply.onclick = async () => {
+        if (!confirm('Переписать вычитанные часы по журналу занятий?')) return;
+        apply.disabled = true;
+        try {
+            const res = await fetch('/api/pace-adjustments/rebuild-read-hours?apply=true' + recalcYearParam(), {method: 'POST'});
+            if (!res.ok) { showToast('Не удалось применить (код ' + res.status + ')', 'danger'); return; }
+            renderRebuild(await res.json());
+            showToast('Вычитанные часы восстановлены по журналу', 'success');
+        } finally {
+            apply.disabled = false;
+        }
+    };
+    document.getElementById('recalcModal').classList.add('active');
+}
+
 function loadPaceRecalcSetting() {
     fetch('/api/pace-adjustments/settings')
         .then(r => r.json())
@@ -368,7 +520,7 @@ function togglePaceRecalc(enabled) {
         body: JSON.stringify({enabled: enabled})
     }).then(r => {
         if (r.ok) {
-            showToast(enabled ? 'Автопересчёт темпа включён' : 'Автопересчёт темпа выключен', 'success');
+            showToast(enabled ? 'Еженедельный пересчёт по часам включён' : 'Еженедельный пересчёт по часам выключен', 'success');
         } else {
             showToast('Не удалось сохранить настройку', 'danger');
         }
@@ -383,7 +535,7 @@ function runPaceCheckNow() {
         .then(r => r.json())
         .then(data => {
             btn.disabled = false;
-            btn.textContent = 'Проверить темп сейчас';
+            btn.textContent = 'Проверить темп (предложения)';
             if (data.created > 0) {
                 showToast('Найдено предложений: ' + data.created + '. Смотри Уведомления.', 'success');
             } else {
@@ -392,7 +544,7 @@ function runPaceCheckNow() {
         })
         .catch(() => {
             btn.disabled = false;
-            btn.textContent = 'Проверить темп сейчас';
+            btn.textContent = 'Проверить темп (предложения)';
             showToast('Ошибка проверки темпа', 'danger');
         });
 }

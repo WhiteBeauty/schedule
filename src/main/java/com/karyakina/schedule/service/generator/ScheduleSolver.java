@@ -367,13 +367,13 @@ public class ScheduleSolver {
                     candidateDayPairs.add(p);
                 }
             }
-            if (candidateDayPairs.size() < 2) {
+            if (candidateDayPairs.isEmpty()) {
                 continue;
             }
             candidateDayPairs.sort(Comparator.comparingInt(SolverResult.PlacedPair::pairIndex));
             int candidateFirst = candidateDayPairs.get(0).pairIndex();
             int candidateSpan = candidateDayPairs.get(candidateDayPairs.size() - 1).pairIndex() - candidateFirst + 1;
-            if (candidateSpan == candidateDayPairs.size()) {
+            if (candidateSpan == candidateDayPairs.size() && candidateFirst == 0) {
                 continue;
             }
             dayPairs = candidateDayPairs;
@@ -410,39 +410,48 @@ public class ScheduleSolver {
         }
         dayPairs.forEach(index::remove);
 
-        List<SolverResult.PlacedPair> compacted = new ArrayList<>();
-        boolean ok = true;
+        List<SolverResult.PlacedPair> compacted = null;
         double after = 0;
-        for (int i = 0; i < dayPairs.size(); i++) {
-            SolverResult.PlacedPair original = dayPairs.get(i);
-            int targetPairIdx = first + i;
-            SolverInput.Demand demand = demandById.get(original.loadId());
-            SolverInput.TeacherRef teacher = teachers.get(original.teacherId());
-            GenerationGrid.Room preferredRoom = roomByName.get(original.room());
-            GenerationGrid.Room room = preferredRoom != null
-                    && index.check(demand, group, teacher, preferredRoom, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE
-                    ? preferredRoom : null;
-            if (room == null) {
-                for (GenerationGrid.Room candidate : roomsByDemand.getOrDefault(original.loadId(), List.of())) {
-                    if (index.check(demand, group, teacher, candidate, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE) {
-                        room = candidate;
-                        break;
+        for (int start : first == 0 ? new int[]{0} : new int[]{0, first}) {
+            List<SolverResult.PlacedPair> attempt = new ArrayList<>();
+            boolean ok = true;
+            double attemptPenalty = 0;
+            for (int i = 0; i < dayPairs.size(); i++) {
+                SolverResult.PlacedPair original = dayPairs.get(i);
+                int targetPairIdx = start + i;
+                SolverInput.Demand demand = demandById.get(original.loadId());
+                SolverInput.TeacherRef teacher = teachers.get(original.teacherId());
+                GenerationGrid.Room preferredRoom = roomByName.get(original.room());
+                GenerationGrid.Room room = preferredRoom != null
+                        && index.check(demand, group, teacher, preferredRoom, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE
+                        ? preferredRoom : null;
+                if (room == null) {
+                    for (GenerationGrid.Room candidate : roomsByDemand.getOrDefault(original.loadId(), List.of())) {
+                        if (index.check(demand, group, teacher, candidate, dayIdx, targetPairIdx) == OccupancyIndex.Violation.NONE) {
+                            room = candidate;
+                            break;
+                        }
                     }
                 }
+                if (room == null) {
+                    ok = false;
+                    break;
+                }
+                attemptPenalty += scorer.placementPenalty(index, demand, group, teacher, room, dayIdx, targetPairIdx, target);
+                SolverResult.PlacedPair moved = new SolverResult.PlacedPair(original.loadId(), original.groupId(),
+                        original.disciplineId(), original.teacherId(), room.name(), dayIdx, targetPairIdx);
+                index.place(moved);
+                attempt.add(moved);
             }
-            if (room == null) {
-                ok = false;
+            if (ok) {
+                compacted = attempt;
+                after = attemptPenalty;
                 break;
             }
-            after += scorer.placementPenalty(index, demand, group, teacher, room, dayIdx, targetPairIdx, target);
-            SolverResult.PlacedPair moved = new SolverResult.PlacedPair(original.loadId(), original.groupId(),
-                    original.disciplineId(), original.teacherId(), room.name(), dayIdx, targetPairIdx);
-            index.place(moved);
-            compacted.add(moved);
+            attempt.forEach(index::remove);
         }
 
-        if (!ok) {
-            compacted.forEach(index::remove);
+        if (compacted == null) {
             dayPairs.forEach(index::place);
             return;
         }

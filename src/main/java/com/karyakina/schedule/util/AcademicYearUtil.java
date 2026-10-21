@@ -21,9 +21,42 @@ public class AcademicYearUtil {
         return STATE_HOLIDAYS.contains(MonthDay.from(date));
     }
 
+    /**
+     * Учебный год начинается 1 сентября: январь–июнь относятся к году, начавшемуся прошлой осенью.
+     * Июль–август считаем уже предстоящим учебным годом (как и {@link #getCurrentSemester()}).
+     */
     public static int[] getCurrentAcademicYear() {
-        int year = LocalDate.now().getYear();
-        return new int[]{year, year + 1};
+        return new int[]{academicYearOf(LocalDate.now()), academicYearOf(LocalDate.now()) + 1};
+    }
+
+    public static int academicYearOf(LocalDate date) {
+        return date.getMonthValue() >= 7 ? date.getYear() : date.getYear() - 1;
+    }
+
+    /** Номер учебной недели от недели, в которую попадает 1 сентября (понедельник — первый день). */
+    public static int academicWeek(LocalDate date, int academicYear) {
+        LocalDate start = LocalDate.of(academicYear, 9, 1);
+        if (date.isBefore(start.with(java.time.DayOfWeek.MONDAY))) {
+            start = LocalDate.of(academicYear - 1, 9, 1);
+        }
+        java.time.temporal.WeekFields iso = java.time.temporal.WeekFields.ISO;
+        long weeks = java.time.temporal.ChronoUnit.WEEKS.between(
+                start.with(iso.getFirstDayOfWeek()), date.with(iso.getFirstDayOfWeek()));
+        return (int) weeks + 1;
+    }
+
+    public static boolean isWorkDay(LocalDate date) {
+        java.time.DayOfWeek d = date.getDayOfWeek();
+        return d != java.time.DayOfWeek.SATURDAY && d != java.time.DayOfWeek.SUNDAY;
+    }
+
+    /** Учебные дни (пн–пт, не каникулы, не праздники) в интервале включительно. */
+    public static int teachingDays(LocalDate from, LocalDate to) {
+        int days = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (isWorkDay(d) && !isVacation(d)) days++;
+        }
+        return days;
     }
 
     public static String getAcademicYearString() {
@@ -64,11 +97,11 @@ public class AcademicYearUtil {
         return semester == 2 ? LocalDate.of(academicYear + 1, 6, 30) : LocalDate.of(academicYear, 12, 30);
     }
 
+    /** Число учебных недель семестра: учебные дни без праздников, делённые на 5 дней недели. */
     public static int getSemesterWeeks(int semester, int academicYear) {
         LocalDate start = semesterStart(semester, academicYear);
         LocalDate end = semesterEnd(semester, academicYear);
-        long days = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
-        return (int) Math.max(1, Math.round(days / 7.0));
+        return (int) Math.max(1, Math.round(teachingDays(start, end) / 5.0));
     }
 
     public static final int WEEKS_PER_SEMESTER = 18;

@@ -20,6 +20,7 @@ import java.util.Map;
 public class PaceAdjustmentController {
 
     private final SchedulePaceService schedulePaceService;
+    private final com.karyakina.schedule.service.HoursRecalculationService hoursRecalculationService;
     private final SettingsService settingsService;
     private final UserRepository userRepository;
 
@@ -35,6 +36,32 @@ public class PaceAdjustmentController {
         int sem = semester != null ? semester : AcademicYearUtil.getCurrentSemester();
         List<PaceAdjustmentSuggestion> created = schedulePaceService.checkPace(year, sem);
         return ResponseEntity.ok(Map.of("created", created.size()));
+    }
+
+    /** Динамический пересчёт по вычитанным часам: apply=false — только предпросмотр, ничего не меняет. */
+    @PostMapping("/recalculate")
+    public ResponseEntity<?> recalculate(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Integer semester,
+            @RequestParam(defaultValue = "false") boolean apply,
+            Authentication authentication) {
+        User user = requireAdmin(authentication);
+        if (user == null) return ResponseEntity.status(403).build();
+        int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
+        int sem = semester != null ? semester : AcademicYearUtil.getCurrentSemester();
+        return ResponseEntity.ok(hoursRecalculationService.recalculate(year, sem, null, !apply));
+    }
+
+    /** Сверка «вычитано» с журналом занятий: apply=false — предпросмотр. */
+    @PostMapping("/rebuild-read-hours")
+    public ResponseEntity<?> rebuildReadHours(
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(defaultValue = "false") boolean apply,
+            Authentication authentication) {
+        User user = requireAdmin(authentication);
+        if (user == null) return ResponseEntity.status(403).build();
+        int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
+        return ResponseEntity.ok(hoursRecalculationService.rebuildReadHoursFromJournal(year, apply));
     }
 
     @PostMapping("/{id}/accept")

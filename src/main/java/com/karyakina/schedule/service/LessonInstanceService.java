@@ -46,9 +46,7 @@ public class LessonInstanceService {
         int currentWeek = computeAcademicWeek(date, academicYear);
 
         for (Schedule schedule : schedules) {
-            if (schedule.getDayOfWeek() != date.getDayOfWeek()) continue;
-            if (schedule.getAcademicWeek() != null && !schedule.getAcademicWeek().equals(currentWeek)) continue;
-            if (schedule.getSemester() != null && !schedule.getSemester().equals(dateSemester)) continue;
+            if (!com.karyakina.schedule.util.ScheduleOccurrence.occursOn(schedule, date, currentWeek, dateSemester)) continue;
 
             instanceRepository.findByScheduleIdAndLessonDate(schedule.getId(), date)
                     .orElseGet(() -> {
@@ -220,14 +218,6 @@ public class LessonInstanceService {
     }
 
     public int computeAcademicWeek(LocalDate date, Integer academicYear) {
-        LocalDate start = LocalDate.of(academicYear, 9, 1);
-        if (date.isBefore(start)) {
-            start = LocalDate.of(academicYear - 1, 9, 1);
-        }
-        WeekFields iso = WeekFields.ISO;
-        long weeks = ChronoUnit.WEEKS.between(
-                start.with(iso.getFirstDayOfWeek()),
-                date.with(iso.getFirstDayOfWeek()));
-        return (int) weeks + 1;
+        return com.karyakina.schedule.util.AcademicYearUtil.academicWeek(date, academicYear);
     }
 }

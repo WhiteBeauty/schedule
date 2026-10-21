@@ -36,6 +36,7 @@ public class GenerationSessionStore {
         private final Map<Long, Integer> approvedHours = new HashMap<>();
         private final Map<Long, Long> assignedTeachers = new HashMap<>();
         private final Set<Long> skippedLoads = new HashSet<>();
+        private final Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> eventsByGroup = new HashMap<>();
         private final Map<Long, Integer> groupWeekLimitOverrides = new HashMap<>();
         private final Set<Long> dismissedCapacityWarnings = new HashSet<>();
 
@@ -79,6 +80,10 @@ public class GenerationSessionStore {
 
         public Map<Long, Long> getAssignedTeachers() {
             return assignedTeachers;
+        }
+
+        public Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> getEventsByGroup() {
+            return eventsByGroup;
         }
 
         public Set<Long> getSkippedLoads() {

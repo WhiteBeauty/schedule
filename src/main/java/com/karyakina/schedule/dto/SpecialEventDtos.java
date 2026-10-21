@@ -50,5 +50,6 @@ public class SpecialEventDtos {
         private LocalDate endDate;
         private List<MovedPair> moved;
         private List<UnresolvedConflict> unresolved;
+        private List<String> warnings;
     }
 }

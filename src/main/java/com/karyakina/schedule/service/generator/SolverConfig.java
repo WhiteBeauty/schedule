@@ -25,7 +25,7 @@ public record SolverConfig(
             double adjacencyBonus
     ) {
         public static Weights defaults() {
-            return new Weights(38, 16, 60, 10, 20, 8, 1.5, 2, 6, 4);
+            return new Weights(38, 16, 60, 10, 20, 8, 1.5, 2, 12, 4);
         }
     }
 

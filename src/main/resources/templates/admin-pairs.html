@@ -96,8 +96,8 @@
                 <input type="text" id="editClassroom" required>
             </div>
             <div style="margin-bottom:1rem">
-                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (1-18, пустое = каждая)</label>
-                <input type="number" id="editAcademicWeek" min="1" max="18">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (от 1 сентября: осень 1–18, весна ~20–44; пустое = каждая)</label>
+                <input type="number" id="editAcademicWeek" min="1" max="44">
             </div>
         </div>
         <div class="modal-footer">
@@ -155,8 +155,16 @@
                 <input type="text" id="classroom" required>
             </div>
             <div style="margin-bottom:1rem">
-                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (1-18, пустое = каждая)</label>
-                <input type="number" id="academicWeek" min="1" max="18">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Неделя (от 1 сентября: осень 1–18, весна ~20–44; пустое = каждая)</label>
+                <input type="number" id="academicWeek" min="1" max="44">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label style="display:block;margin-bottom:0.5rem;font-weight:600">Семестр</label>
+                <select id="pairSemester">
+                    <option value="">Текущий / по номеру недели</option>
+                    <option value="1">1 (осень)</option>
+                    <option value="2">2 (весна)</option>
+                </select>
             </div>
         </div>
         <div class="modal-footer">
@@ -503,7 +511,9 @@ function savePair() {
         endTime,
         classroom,
         academicWeek: academicWeek ? parseInt(academicWeek) : null,
-        academicYear: parseInt(year)
+        academicYear: parseInt(year),
+        semester: document.getElementById('pairSemester') && document.getElementById('pairSemester').value
+            ? parseInt(document.getElementById('pairSemester').value) : null
     };
 
     fetch('/api/pairs', {

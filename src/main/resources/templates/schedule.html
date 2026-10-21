@@ -196,17 +196,25 @@
         return pair.classroom === entityValue;
     }
 
+    // Неделя 1 — та, в которую попадает 1 сентября (с понедельника), как на сервере.
+    // Раньше отсчёт шёл от самого 1 сентября, и разовые переносы показывались на неделю раньше/позже.
     function weekNumberOf(monday) {
         const academicYear = Number(document.getElementById('yearSelect').value);
-        const yearStart = new Date(academicYear, 8, 1);
-        const diffDays = Math.round((monday - yearStart) / 86400000);
+        const sep1 = new Date(academicYear, 8, 1);
+        const startMonday = new Date(sep1);
+        startMonday.setDate(sep1.getDate() - ((sep1.getDay() + 6) % 7));
+        const diffDays = Math.round((monday - startMonday) / 86400000);
         return Math.max(1, Math.floor(diffDays / 7) + 1);
     }
 
     function semesterOfWeek(monday) {
-        const m = monday.getMonth();
+        const thursday = new Date(monday);
+        thursday.setDate(monday.getDate() + 3);
+        const m = thursday.getMonth();
         return m >= 8 ? 1 : 2;
     }
+
+    const STANDARD_SLOTS = ['08:00-09:35', '09:40-11:25', '11:40-13:25', '13:35-15:10', '15:15-16:50'];
 
     function renderGrid() {
         updateWeekLabel();
@@ -229,7 +237,12 @@
             (p.activeUntilWeek == null || week <= p.activeUntilWeek) &&
             matchesSelection(p, entityValue));
 
-        const slots = Array.from(new Set(relevant.map(p => p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5))))
+        // Показываем стандартные пары с 1-й по последнюю занятую: пустая 1-я пара видна как пустая,
+        // а номер строки совпадает с номером пары (раньше строки нумеровались подряд по занятым слотам).
+        const used = Array.from(new Set(relevant.map(p => p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5))));
+        const lastStandard = used.reduce((max, s) => Math.max(max, STANDARD_SLOTS.indexOf(s)), -1);
+        const slots = STANDARD_SLOTS.slice(0, lastStandard + 1)
+            .concat(used.filter(s => STANDARD_SLOTS.indexOf(s) < 0))
             .sort();
 
         if (!slots.length) {
@@ -240,7 +253,8 @@
         slots.forEach((slot, rowIdx) => {
             const timeCell = document.createElement('div');
             timeCell.className = 'week-time-cell';
-            timeCell.innerHTML = '<div>' + (rowIdx + 1) + ' пара</div><div>' + slot + '</div>';
+            const pairNo = STANDARD_SLOTS.indexOf(slot);
+            timeCell.innerHTML = '<div>' + (pairNo >= 0 ? (pairNo + 1) + ' пара' : 'вне сетки') + '</div><div>' + slot + '</div>';
             body.appendChild(timeCell);
 
             DAY_KEYS.forEach((day, dayIdx) => {

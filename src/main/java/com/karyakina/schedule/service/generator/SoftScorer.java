@@ -156,6 +156,16 @@ public final class SoftScorer {
         return first < 0 ? 0 : (last - first + 1) - busy;
     }
 
+    /** Сколько пустых пар в начале дня у группы (день начинается не с 1-й пары — «окно» с утра). */
+    public int lateStart(boolean[] line, int dayIdx) {
+        for (int p = 0; p < pairsPerDay; p++) {
+            if (line[GenerationGrid.flat(dayIdx, p)]) {
+                return p;
+            }
+        }
+        return 0;
+    }
+
     private int patternRepeats(long[] disciplines, int dayIdx, int pairIdx, long disciplineId) {
         int repeats = 0;
         for (int d = 0; d < days; d++) {
@@ -204,6 +214,7 @@ public final class SoftScorer {
         }
 
         int groupGaps = 0;
+        int groupLateStarts = 0;
         int teacherGaps = 0;
         int adjacentSameSubject = 0;
         int duplicateDayPatterns = 0;
@@ -212,6 +223,7 @@ public final class SoftScorer {
         for (Map.Entry<Long, boolean[]> entry : groupLines.entrySet()) {
             for (int d = 0; d < days; d++) {
                 groupGaps += gapsInDay(entry.getValue(), d);
+                groupLateStarts += lateStart(entry.getValue(), d);
             }
             int[] perDay = groupPerDay.getOrDefault(entry.getKey(), new int[days]);
             int total = 0;
@@ -233,6 +245,7 @@ public final class SoftScorer {
         }
 
         double score = weights.groupGap() * groupGaps
+                + weights.dayStartGap() * groupLateStarts
                 + weights.teacherGap() * teacherGaps
                 + weights.sameSubjectAdjacent() * adjacentSameSubject
                 + weights.patternRepeat() * duplicateDayPatterns
@@ -241,6 +254,7 @@ public final class SoftScorer {
         Map<String, Integer> metrics = new HashMap<>();
         metrics.put("placedPairs", placed.size());
         metrics.put("groupGaps", groupGaps);
+        metrics.put("groupLateStarts", groupLateStarts);
         metrics.put("teacherGaps", teacherGaps);
         metrics.put("adjacentSameSubject", adjacentSameSubject);
         metrics.put("duplicateDayPatterns", duplicateDayPatterns);

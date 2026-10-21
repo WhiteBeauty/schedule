@@ -1503,6 +1503,8 @@ public class ApiController {
             Integer academicWeek = body.containsKey("academicWeek") && body.get("academicWeek") != null ?
                 Integer.valueOf(body.get("academicWeek").toString()) : null;
             Integer academicYear = Integer.valueOf(academicYearObj.toString());
+            Integer semester = body.get("semester") != null && !body.get("semester").toString().isBlank()
+                    ? Integer.valueOf(body.get("semester").toString()) : null;
 
             Schedule created = scheduleService.createSchedule(
                 teacherLoadId,
@@ -1511,7 +1513,8 @@ public class ApiController {
                 LocalTime.parse(endTime),
                 classroom,
                 academicWeek,
-                academicYear
+                academicYear,
+                semester
             );
             try {
                 scheduleChangeNotifier.pairCreated(created, adminDisplayName(user));
@@ -1665,7 +1668,9 @@ public class ApiController {
             LocalDate startDate = LocalDate.parse(body.get("startDate").toString());
             LocalDate endDate = LocalDate.parse(body.get("endDate").toString());
             String reason = body.get("reason") != null ? body.get("reason").toString() : "";
-            Integer academicYear = Integer.valueOf(body.get("academicYear").toString());
+            Integer academicYear = body.get("academicYear") != null && !body.get("academicYear").toString().isBlank()
+                    ? Integer.valueOf(body.get("academicYear").toString())
+                    : AcademicYearUtil.academicYearOf(startDate);
 
             SickLeave sickLeave = SickLeave.builder()
                     .teacher(teacher)
@@ -1677,29 +1682,25 @@ public class ApiController {
 
             SickLeave saved = sickLeaveRepository.save(sickLeave);
 
-            try {
-                substitutionService.handleNewSickLeave(saved);
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                try {
-                    notificationService.notifyAdmins(
-                            Notification.Type.SUBSTITUTION_UNRESOLVED,
-                            "Ошибка поиска замены: " + saved.getTeacher().getFullName(),
-                            "При обработке отсутствия (" + saved.getStartDate() + " — " + saved.getEndDate()
-                                    + ") произошла техническая ошибка, поиск замены не был завершён: "
-                                    + ex.getClass().getSimpleName() + (ex.getMessage() != null ? ": " + ex.getMessage() : "")
-                                    + ". Требуется ручная проверка расписания и замены.",
-                            null);
-                } catch (Exception notifyEx) {
-                    notifyEx.printStackTrace();
-                }
-            }
-
+            // Один конвейер на отсутствие: замена → перенос в свободный слот до конца семестра → «облако».
+            // Раньше параллельно запускался ещё SubstitutionService.handleNewSickLeave, и пары обрабатывались дважды.
             try {
                 sickLeaveReschedulingService.handleTeacherSickLeave(
                         saved.getTeacher().getId(), saved.getStartDate(), saved.getEndDate());
             } catch (Exception ex) {
                 ex.printStackTrace();
+                try {
+                    notificationService.notifyAdmins(
+                            Notification.Type.SUBSTITUTION_UNRESOLVED,
+                            "Ошибка обработки отсутствия: " + saved.getTeacher().getFullName(),
+                            "При обработке отсутствия (" + saved.getStartDate() + " — " + saved.getEndDate()
+                                    + ") произошла техническая ошибка: " + ex.getClass().getSimpleName()
+                                    + (ex.getMessage() != null ? ": " + ex.getMessage() : "")
+                                    + ". Требуется ручная проверка расписания и замены.",
+                            null);
+                } catch (Exception notifyEx) {
+                    notifyEx.printStackTrace();
+                }
             }
 
             return ResponseEntity.ok(saved);

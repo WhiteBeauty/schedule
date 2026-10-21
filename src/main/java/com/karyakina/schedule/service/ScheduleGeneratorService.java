@@ -64,6 +64,7 @@ public class ScheduleGeneratorService {
     private final GenerationSessionStore sessionStore;
     private final TarificationRepository tarificationRepository;
     private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
+    private final com.karyakina.schedule.repository.SpecialEventRepository specialEventRepository;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
@@ -119,6 +120,14 @@ public class ScheduleGeneratorService {
             }
             Map<Long, TeacherLoad> loadsById = loadsByIds(draft.stream().map(SolverResult.PlacedPair::loadId).toList());
             List<Schedule> created = new ArrayList<>();
+            int commitSemester = resolveSemester(session);
+            java.time.LocalDate semStart = AcademicYearUtil.semesterStart(commitSemester, session.getAcademicYear());
+            java.time.LocalDate today = java.time.LocalDate.now();
+            // Если семестр уже идёт, часы считались от сегодняшнего дня — значит и пары действуют с текущей недели,
+            // а не задним числом с начала семестра.
+            Integer activeFromWeek = today.isAfter(semStart)
+                    && !today.isAfter(AcademicYearUtil.semesterEnd(commitSemester, session.getAcademicYear()))
+                    ? AcademicYearUtil.academicWeek(today, session.getAcademicYear()) : null;
 
             for (SolverResult.PlacedPair pair : draft) {
                 TeacherLoad load = loadsById.get(pair.loadId());
@@ -138,6 +147,7 @@ public class ScheduleGeneratorService {
                         .academicWeek(null)
                         .academicYear(load.getAcademicYear())
                         .semester(resolveSemester(session))
+                        .activeFromWeek(activeFromWeek)
                         .build());
             }
             scheduleRepository.saveAll(created);
@@ -168,6 +178,17 @@ public class ScheduleGeneratorService {
             return;
         }
         SolverConfig hoursConfig = SolverConfig.defaults();
+        // Раньше при каждом сохранении те же «не вставшие» пары добавлялись в облако заново (дубли).
+        Set<Long> loadIds = new HashSet<>();
+        unplacedIssues.forEach(issue -> {
+            Long id = asLong(issue.context().get("loadId"));
+            if (id != null) loadIds.add(id);
+        });
+        unresolvedRescheduleRepository.findByAcademicYearOrderByOriginalDateAsc(session.getAcademicYear()).stream()
+                .filter(u -> u.getSpecialEventId() == null && u.getTeacherLoadId() != null
+                        && loadIds.contains(u.getTeacherLoadId())
+                        && u.getReason() != null && u.getReason().startsWith("Автосоставление"))
+                .forEach(unresolvedRescheduleRepository::delete);
         List<UnresolvedReschedule> rows = new ArrayList<>();
         for (MissingResourceRequest issue : unplacedIssues) {
             Long loadId = asLong(issue.context().get("loadId"));
@@ -256,7 +277,11 @@ public class ScheduleGeneratorService {
                     .toList();
             Set<Long> loadsWithSchedule = new HashSet<>();
             existing.forEach(s -> {
-                if (s.getTeacherLoad() != null && s.getTeacherLoad().getId() != null) {
+                // Разовые переносы (экзамен, больничный, доп. пары пересчёта) не делают нагрузку «уже расставленной».
+                // Раньше из-за одного такого переноса без семестра нагрузка выпадала из автосоставления весны.
+                if (s.getTeacherLoad() != null && s.getTeacherLoad().getId() != null
+                        && s.getAcademicWeek() == null && s.getSpecialEventId() == null
+                        && s.getRescheduledFromDate() == null) {
                     loadsWithSchedule.add(s.getTeacherLoad().getId());
                 }
             });
@@ -285,6 +310,16 @@ public class ScheduleGeneratorService {
             }
 
             SolverConfig config = buildConfig(session);
+            Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> eventsByGroup = new HashMap<>();
+            if (specialEventRepository != null) {
+                specialEventRepository.findByAcademicYear(year).forEach(e -> {
+                    if (e.getGroup() != null) {
+                        eventsByGroup.computeIfAbsent(e.getGroup().getId(), k -> new ArrayList<>()).add(e);
+                    }
+                });
+            }
+            session.getEventsByGroup().clear();
+            session.getEventsByGroup().putAll(eventsByGroup);
 
             detectDuplicates(candidates, session, issues);
             Map<Long, ResolvedHours> hoursByLoad = reconcileHours(candidates, session, config, issues);
@@ -300,10 +335,8 @@ public class ScheduleGeneratorService {
                 loadById.put(load.getId(), load);
                 ResolvedHours hours = hoursByLoad.getOrDefault(load.getId(),
                         new ResolvedHours(plannedHours(load), false));
-                int weeksBasis = hours.overridden() ? APPROX_WEEKS_PER_YEAR
-                        : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
-                int hoursForPeriod = hours.overridden() ? hours.annualHours() : semesterHours(load, semester);
-                int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, hours.overridden());
+                PeriodBasis basis = periodBasis(load, semester, session.getAcademicYear(), hours, eventsByGroup);
+                int pairs = weeklyPairs(load, basis, config);
                 if (pairs <= 0) {
                     if (plannedHours(load) == 0) {
                         warnings.add("Нагрузка «" + describe(load) + "» пропущена: в ней 0 часов.");
@@ -432,10 +465,8 @@ public class ScheduleGeneratorService {
             int hours = overridden ? manualHours : fileHours;
             result.put(load.getId(), new ResolvedHours(hours, overridden));
 
-            int weeksBasis = overridden ? APPROX_WEEKS_PER_YEAR
-                    : AcademicYearUtil.getSemesterWeeks(semester, session.getAcademicYear());
-            int hoursForPeriod = overridden ? hours : semesterHours(load, semester);
-            int pairs = weeklyPairs(load, hoursForPeriod, weeksBasis, config, overridden);
+            int pairs = weeklyPairs(load, periodBasis(load, semester, session.getAcademicYear(),
+                    new ResolvedHours(hours, overridden), session.getEventsByGroup()), config);
             int maxPairs = GenerationGrid.slotCount();
             if (pairs > maxPairs) {
                 int fitHours = config.pairsToHours(maxPairs) * APPROX_WEEKS_PER_YEAR;
@@ -560,7 +591,7 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    private boolean isPracticeOrDriving(String disciplineName) {
+    public static boolean isPracticeOrDriving(String disciplineName) {
         if (disciplineName == null) return false;
         String normalized = disciplineName.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
         if (normalized.contains("вождение")) return true;
@@ -1009,21 +1040,67 @@ public class ScheduleGeneratorService {
         return h == null ? 0 : Math.max(0, h);
     }
 
-    private double exactWeeklyHours(TeacherLoad load, int hoursForPeriod, int weeksBasis, boolean overridden) {
-        if (!overridden && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
-            return load.getHoursPerWeek();
-        }
-        return hoursForPeriod / (double) weeksBasis;
+    /**
+     * Сколько часов осталось поставить и на сколько учебных недель их разложить.
+     * Недели считаются по реальным учебным дням группы: без праздников, каникул и дней её экзаменов/практик.
+     * Если семестр уже идёт — берётся остаток от сегодняшнего дня и уже вычитанные часы (readHours),
+     * а весной цель — годовой план, чтобы добрать недочитанное осенью.
+     */
+    record PeriodBasis(int hours, double weeks, boolean overridden, boolean inProgress) {
     }
 
-    private int weeklyPairs(TeacherLoad load, int hoursForPeriod, int weeksBasis, SolverConfig config,
-                             boolean overridden) {
-        double hoursPerWeek = exactWeeklyHours(load, hoursForPeriod, weeksBasis, overridden);
+    PeriodBasis periodBasis(TeacherLoad load, int semester, int academicYear, ResolvedHours hours,
+                            Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> eventsByGroup) {
+        if (hours.overridden()) {
+            return new PeriodBasis(hours.annualHours(), APPROX_WEEKS_PER_YEAR, true, false);
+        }
+        java.time.LocalDate start = AcademicYearUtil.semesterStart(semester, academicYear);
+        java.time.LocalDate end = AcademicYearUtil.semesterEnd(semester, academicYear);
+        java.time.LocalDate today = java.time.LocalDate.now();
+        boolean inProgress = !today.isBefore(start) && !today.isAfter(end);
+        java.time.LocalDate from = inProgress ? today : start;
+
+        List<com.karyakina.schedule.domain.SpecialEvent> events = load.getGroup() == null || eventsByGroup == null
+                ? List.of() : eventsByGroup.getOrDefault(load.getGroup().getId(), List.of());
+        int days = 0;
+        for (java.time.LocalDate d = from; !d.isAfter(end); d = d.plusDays(1)) {
+            if (!AcademicYearUtil.isWorkDay(d) || AcademicYearUtil.isVacation(d)) continue;
+            final java.time.LocalDate day = d;
+            if (events.stream().anyMatch(e -> !day.isBefore(e.getStartDate()) && !day.isAfter(e.getEndDate()))) continue;
+            days++;
+        }
+        double weeks = Math.max(1.0, days / (double) GenerationGrid.days());
+
+        int semesterHours = semesterHours(load, semester);
+        int remaining = semesterHours;
+        if (inProgress && semesterHours > 0) {
+            int target = semester == 2
+                    ? nz(load.getFirstSemesterHours()) + semesterHours
+                    : semesterHours;
+            remaining = Math.max(0, target - nz(load.getReadHours()));
+        }
+        return new PeriodBasis(remaining, weeks, false, inProgress);
+    }
+
+    private int weeklyPairs(TeacherLoad load, PeriodBasis basis, SolverConfig config) {
+        if (basis.hours() <= 0) {
+            return 0;
+        }
+        double hoursPerWeek;
+        if (!basis.overridden() && !basis.inProgress() && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
+            hoursPerWeek = load.getHoursPerWeek();
+        } else {
+            hoursPerWeek = basis.hours() / basis.weeks();
+        }
         int pairs = (int) Math.round(hoursPerWeek / config.academicHoursPerPair());
         if (pairs <= 0) {
-            return hoursForPeriod > 0 ? 1 : 0;
+            return 1;
         }
         return Math.min(pairs, GenerationGrid.slotCount());
+    }
+
+    private static int nz(Integer v) {
+        return v == null ? 0 : Math.max(0, v);
     }
 
     private boolean matchesDiscipline(Teacher teacher, TeacherLoad load) {

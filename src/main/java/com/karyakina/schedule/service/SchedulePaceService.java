@@ -36,6 +36,7 @@ public class SchedulePaceService {
     private final NotificationRepository notificationRepository;
     private final SettingsService settingsService;
     private final LessonInstanceService lessonInstanceService;
+    private final HoursRecalculationService hoursRecalculationService;
 
     private static final int MIN_PAIR_DEVIATION = 1;
 
@@ -48,8 +49,22 @@ public class SchedulePaceService {
         try {
             int academicYear = AcademicYearUtil.getCurrentAcademicYearStart();
             int semester = AcademicYearUtil.getCurrentSemester();
-            List<PaceAdjustmentSuggestion> created = checkPace(academicYear, semester);
-            log.info("Pace check completed: {} suggestion(s) created", created.size());
+            HoursRecalculationService.Result result = hoursRecalculationService.recalculate(
+                    academicYear, semester, null, false);
+            log.info("Weekly hours recalculation: {} loads checked, +{} pairs, -{} pairs, {} unresolved",
+                    result.loadsChecked(), result.added().size(), result.cancelled().size(), result.unresolved().size());
+            if (!result.added().isEmpty() || !result.cancelled().isEmpty() || !result.unresolved().isEmpty()) {
+                notificationRepository.save(Notification.builder()
+                        .forAdmins(true)
+                        .type(Notification.Type.INFO)
+                        .title("Еженедельный пересчёт расписания по часам")
+                        .message("Проверено нагрузок: " + result.loadsChecked() + ". Добавлено пар: "
+                                + result.added().size() + ", снято лишних: " + result.cancelled().size()
+                                + ", не удалось разместить: " + result.unresolved().size()
+                                + (result.unresolved().isEmpty() ? "." : " (см. «облако» не вставших пар)."))
+                        .linkUrl("/admin/schedule")
+                        .build());
+            }
         } catch (Exception e) {
             log.error("Error during scheduled pace check: {}", e.getMessage(), e);
         }
@@ -120,8 +135,8 @@ public class SchedulePaceService {
                     currentWeeklyPairs, remainingWeeks,
                     isIncrease ? "меньше" : "больше",
                     suggestedWeeklyPairs, effectiveFromWeek,
-                    isIncrease ? " Увеличение пар система не расставляет автоматически — "
-                            + "после подтверждения добавьте их вручную в «Расписании пар»." : "");
+                    isIncrease ? " После подтверждения недостающие пары будут добавлены в свободные слоты "
+                            + "календаря автоматически." : "");
 
             PaceAdjustmentSuggestion suggestion = suggestionRepository.save(PaceAdjustmentSuggestion.builder()
                     .teacherLoad(load)
@@ -170,6 +185,11 @@ public class SchedulePaceService {
                     .toList();
             candidates.forEach(s -> s.setActiveUntilWeek(lastActiveWeek));
             scheduleRepository.saveAll(candidates);
+        } else if (delta > 0) {
+            // Раньше увеличение темпа нужно было расставлять вручную — теперь недостающие часы
+            // добавляются в свободные слоты календаря тем же пересчётом, что и еженедельная проверка.
+            hoursRecalculationService.recalculate(suggestion.getAcademicYear(), suggestion.getSemester(),
+                    List.of(suggestion.getTeacherLoad().getId()), false);
         }
 
         suggestion.setStatus(PaceAdjustmentSuggestion.Status.ACCEPTED);

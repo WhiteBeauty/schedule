@@ -89,9 +89,7 @@ public class HourAccountingService {
 
             for (Map.Entry<Long, List<Schedule>> entry : schedulesByLoad.entrySet()) {
                 for (Schedule s : entry.getValue()) {
-                    if (s.getDayOfWeek() != d.getDayOfWeek()) continue;
-                    if (s.getSemester() != null && !s.getSemester().equals(dateSemester)) continue;
-                    if (s.getAcademicWeek() != null && !s.getAcademicWeek().equals(week)) continue;
+                    if (!com.karyakina.schedule.util.ScheduleOccurrence.occursOn(s, d, week, dateSemester)) continue;
                     plannedByLoad.merge(entry.getKey(), 2, Integer::sum);
                 }
             }

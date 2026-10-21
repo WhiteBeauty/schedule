@@ -243,6 +243,12 @@
                     html += '</ul>';
                 }
 
+                if (result.warnings && result.warnings.length) {
+                    html += '<ul style="font-size:0.85rem; color:var(--warning, #b7791f); margin-top:0.75rem;">';
+                    result.warnings.forEach(w => { html += '<li>' + w + '</li>'; });
+                    html += '</ul>';
+                }
+
                 if ((!result.moved || !result.moved.length) && (!result.unresolved || !result.unresolved.length)) {
                     html += '<p class="text-muted">В этот период у группы других пар не было — переносить нечего.</p>';
                 }

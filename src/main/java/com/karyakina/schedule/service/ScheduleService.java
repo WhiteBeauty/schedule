@@ -49,7 +49,7 @@ public class ScheduleService {
     }
 
     public List<Schedule> findByTeacherId(Long teacherId) {
-        Integer currentYear = java.time.Year.now().getValue();
+        Integer currentYear = com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart();
         List<Schedule> result = new java.util.ArrayList<>();
         loadRepository.findByTeacherIdAndAcademicYear(teacherId, currentYear).forEach(load -> {
             result.addAll(scheduleRepository.findByTeacherLoadId(load.getId()));
@@ -59,14 +59,23 @@ public class ScheduleService {
 
     private static final int GROUP_MAX_WEEKLY_PAIRS = 18;
 
+    private static boolean sameSemester(Schedule s, Integer semester) {
+        return semester == null || s.getSemester() == null || s.getSemester().equals(semester);
+    }
+
     private void validateGroupWeeklyLimit(Long groupId, Integer academicWeek, Integer academicYear,
-                                          Long excludeScheduleId) {
+                                          Integer semester, Long excludeScheduleId) {
+        // Раньше считались пары обоих семестров сразу — при готовых осени и весне (по 18 пар)
+        // добавить пару вручную было невозможно: «уже 36 пар».
         long count = scheduleRepository.findByAcademicYear(academicYear).stream()
                 .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
                         && s.getTeacherLoad().getGroup().getId().equals(groupId))
                 .filter(s -> excludeScheduleId == null || !excludeScheduleId.equals(s.getId()))
-                .filter(s -> s.getAcademicWeek() == null || academicWeek == null
-                        || academicWeek.equals(s.getAcademicWeek()))
+                .filter(s -> sameSemester(s, semester))
+                .filter(s -> academicWeek == null ? s.getAcademicWeek() == null
+                        : (s.getAcademicWeek() == null || academicWeek.equals(s.getAcademicWeek())))
+                .filter(s -> academicWeek == null || ((s.getActiveFromWeek() == null || s.getActiveFromWeek() <= academicWeek)
+                        && (s.getActiveUntilWeek() == null || s.getActiveUntilWeek() >= academicWeek)))
                 .count();
         if (count >= GROUP_MAX_WEEKLY_PAIRS) {
             throw new IllegalStateException("У группы уже " + GROUP_MAX_WEEKLY_PAIRS
@@ -76,7 +85,7 @@ public class ScheduleService {
 
     private void validateNoConflict(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
                                     String classroom, Integer academicWeek, Integer academicYear,
-                                    Long excludeScheduleId) {
+                                    Integer semester, Long excludeScheduleId) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
         Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
@@ -85,6 +94,7 @@ public class ScheduleService {
         List<Schedule> sameSlot = scheduleRepository.findByAcademicYear(academicYear).stream()
                 .filter(s -> excludeScheduleId == null || !excludeScheduleId.equals(s.getId()))
                 .filter(s -> s.getDayOfWeek() == dayOfWeek && s.getStartTime().equals(startTime))
+                .filter(s -> sameSemester(s, semester))
                 .filter(s -> s.getAcademicWeek() == null || academicWeek == null
                         || academicWeek.equals(s.getAcademicWeek()))
                 .toList();
@@ -118,11 +128,33 @@ public class ScheduleService {
     @Transactional
     public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
                                    LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear) {
+        return createSchedule(teacherLoadId, dayOfWeek, startTime, endTime, classroom, academicWeek, academicYear, null);
+    }
+
+    /** Семестр по номеру учебной недели (неделя 1 — неделя 1 сентября). */
+    public static int semesterOfWeek(int academicWeek, int academicYear) {
+        LocalDate monday = LocalDate.of(academicYear, 9, 1).with(DayOfWeek.MONDAY).plusWeeks(academicWeek - 1L);
+        int sem = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(monday.plusDays(4));
+        if (sem == 0) sem = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(monday.plusDays(14));
+        return sem == 0 ? 2 : sem;
+    }
+
+    @Transactional
+    public Schedule createSchedule(Long teacherLoadId, DayOfWeek dayOfWeek, LocalTime startTime,
+                                   LocalTime endTime, String classroom, Integer academicWeek, Integer academicYear,
+                                   Integer semester) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
 
-        validateGroupWeeklyLimit(load.getGroup().getId(), academicWeek, academicYear, null);
-        validateNoConflict(teacherLoadId, dayOfWeek, startTime, classroom, academicWeek, academicYear, null);
+        // Пара без семестра раньше появлялась и осенью, и весной. Теперь семестр определяется явно:
+        // из запроса, по номеру недели для разовой пары или текущий/ближайший семестр.
+        if (semester == null) {
+            semester = academicWeek != null ? semesterOfWeek(academicWeek, academicYear)
+                    : com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
+        }
+
+        validateGroupWeeklyLimit(load.getGroup().getId(), academicWeek, academicYear, semester, null);
+        validateNoConflict(teacherLoadId, dayOfWeek, startTime, classroom, academicWeek, academicYear, semester, null);
 
         if (load.getHoursPerWeek() == null || load.getHoursPerWeek() <= 0) {
             int planned = load.getPlannedHours() != null ? load.getPlannedHours() : 0;
@@ -141,6 +173,7 @@ public class ScheduleService {
                 .classroom(classroom)
                 .academicWeek(academicWeek)
                 .academicYear(academicYear)
+                .semester(semester)
                 .build();
 
         return scheduleRepository.save(schedule);
@@ -158,9 +191,9 @@ public class ScheduleService {
                 .orElseThrow(() -> new RuntimeException("Schedule not found: " + id));
 
         validateGroupWeeklyLimit(schedule.getTeacherLoad().getGroup().getId(), academicWeek,
-                schedule.getAcademicYear(), schedule.getId());
+                schedule.getAcademicYear(), schedule.getSemester(), schedule.getId());
         validateNoConflict(schedule.getTeacherLoad().getId(), dayOfWeek, startTime, classroom,
-                academicWeek, schedule.getAcademicYear(), schedule.getId());
+                academicWeek, schedule.getAcademicYear(), schedule.getSemester(), schedule.getId());
 
         schedule.setDayOfWeek(dayOfWeek);
         schedule.setStartTime(startTime);
@@ -215,9 +248,7 @@ public class ScheduleService {
     public void scheduledAutoDeduct() {
         log.info("Running scheduled auto-deduct hours...");
         try {
-            Integer currentYear = LocalDate.now().getYear();
-            int academicYear = LocalDate.now().getMonthValue() >= 9 ? currentYear : currentYear - 1;
-            autoDeductHours(academicYear);
+            autoDeductHours(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
             log.info("Auto-deduct completed successfully");
         } catch (Exception e) {
             log.error("Error during auto-deduct: {}", e.getMessage(), e);

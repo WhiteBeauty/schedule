@@ -21,6 +21,8 @@ public class LessonInstanceAdminController {
     private final LessonInstanceService lessonInstanceService;
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
+    private final com.karyakina.schedule.service.HoursRecalculationService hoursRecalculationService;
+    private final com.karyakina.schedule.service.SettingsService settingsService;
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<LessonInstance> cancel(@PathVariable Long id,
@@ -31,6 +33,19 @@ public class LessonInstanceAdminController {
         try {
             String note = body != null ? body.get("note") : null;
             LessonInstance updated = lessonInstanceService.cancelInstance(id, note, "admin:" + admin.getEmail());
+            // Отменённую пару нужно восполнить: при включённом автопересчёте сразу ищем ей место до конца семестра.
+            if (settingsService.isPaceRecalculationEnabled() && updated.getSchedule() != null
+                    && updated.getSchedule().getTeacherLoad() != null) {
+                int semester = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(updated.getLessonDate());
+                if (semester > 0) {
+                    try {
+                        hoursRecalculationService.recalculate(updated.getAcademicYear(), semester,
+                                java.util.List.of(updated.getSchedule().getTeacherLoad().getId()), false);
+                    } catch (Exception recalcEx) {
+                        recalcEx.printStackTrace();
+                    }
+                }
+            }
             return ResponseEntity.ok(updated);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();

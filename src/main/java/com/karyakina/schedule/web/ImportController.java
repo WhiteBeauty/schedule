@@ -19,11 +19,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
+@lombok.extern.slf4j.Slf4j
 @RequestMapping("/api/import")
 @RequiredArgsConstructor
 public class ImportController {
 
     private final ImportService importService;
+    private final com.karyakina.schedule.service.TarificationImportService tarificationImportService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
@@ -57,7 +59,27 @@ public class ImportController {
         }
 
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
-        return ResponseEntity.ok(importService.previewImport(file, year));
+        ImportPreviewDto preview = importService.previewImport(file, year);
+        if (!preview.isSuccess()) {
+            // Частая ошибка: файл тарификации («Часовка») загружают во вкладку «Нагрузка» — её формат другой,
+            // заголовки не распознаются, и ничего не импортируется. Подсказываем, куда его загружать.
+            try {
+                var tarif = tarificationImportService.parse(file);
+                if (tarif.fatalError == null && !tarif.rows.isEmpty()) {
+                    log.info("Импорт нагрузки: файл {} похож на тарификацию ({} строк) — подсказываем вкладку «Тарификация»",
+                            file.getOriginalFilename(), tarif.rows.size());
+                    preview.setSummary("Это файл тарификации (лист «" + tarif.sheetName + "», " + tarif.rows.size()
+                            + " записей), а не файл нагрузки. Загрузите его во вкладке «Тарификация».");
+                    preview.setLooksLikeTarification(true);
+                }
+            } catch (Exception e) {
+                log.debug("Проверка файла как тарификации не удалась: {}", e.getMessage());
+            }
+            log.warn("Импорт нагрузки: предпросмотр файла {} не удался: {}", file.getOriginalFilename(), preview.getSummary());
+        } else {
+            log.info("Импорт нагрузки: предпросмотр файла {} — {}", file.getOriginalFilename(), preview.getSummary());
+        }
+        return ResponseEntity.ok(preview);
     }
 
     @PostMapping("/confirm")

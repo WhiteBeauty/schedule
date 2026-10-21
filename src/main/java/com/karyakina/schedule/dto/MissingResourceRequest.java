@@ -95,6 +95,18 @@ public record MissingResourceRequest(
         options = options == null ? List.of() : List.copyOf(options);
     }
 
+    /** Ключ «о чём вопрос» — одинаковый у одного и того же конфликта между пересборками (id каждый раз новый). */
+    public String subjectKey() {
+        Object load = context.get("loadId");
+        Object group = context.get("groupId");
+        return code + "|" + (load != null ? "load:" + load : "") + (group != null ? "|group:" + group : "");
+    }
+
+    public MissingResourceRequest asWarning(String note) {
+        return new MissingResourceRequest(id, code, Severity.WARNING, title,
+                note == null ? message : message + " " + note, context, options);
+    }
+
     public static Builder builder(Code code, String title) {
         return new Builder(code, title);
     }

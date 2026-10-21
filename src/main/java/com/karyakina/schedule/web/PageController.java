@@ -119,7 +119,7 @@ public class PageController {
     @GetMapping("/import")
     public String importPage(Model model, Authentication authentication,
                              @RequestParam(name = "year", required = false) Integer yearParam,
-                             @RequestParam(name = "type", required = false, defaultValue = "load") String type) {
+                             @RequestParam(name = "type", required = false, defaultValue = "tarification") String type) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         if (user.getRole() != User.Role.ADMIN) {
@@ -130,7 +130,7 @@ public class PageController {
 
         addUserChrome(model, user, "import");
         model.addAttribute("year", year);
-        model.addAttribute("importType", "tarification".equals(type) ? "tarification" : "load");
+        model.addAttribute("importType", "load".equals(type) ? "load" : "tarification");
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
         return "import";
     }

@@ -23,8 +23,8 @@
     </style>
 
     <div class="segmented" id="importTypeSegmented" style="width:fit-content;">
-        <button type="button" data-type="load" th:classappend="${importType == 'load'} ? 'active' : ''">Нагрузка</button>
         <button type="button" data-type="tarification" th:classappend="${importType == 'tarification'} ? 'active' : ''">Тарификация</button>
+        <button type="button" data-type="load" th:classappend="${importType == 'load'} ? 'active' : ''">Нагрузка</button>
     </div>
 
     <div id="panelLoad" th:style="${importType == 'load'} ? '' : 'display:none;'">
@@ -356,6 +356,22 @@
             });
             if (!res.ok) { showToast('Ошибка анализа файла: сервер вернул ' + res.status, 'danger'); return; }
             previewData = await res.json();
+            if (!previewData.success) {
+                // Раньше ошибка разбора молча превращалась в пустую проверку «Найдено 0 строк».
+                showToast(previewData.summary || 'Файл не удалось разобрать', 'danger');
+                if (previewData.looksLikeTarification) {
+                    const tarifInput = document.getElementById('tarifFileInput');
+                    try {
+                        const dt = new DataTransfer();
+                        dt.items.add(selectedFile);
+                        tarifInput.files = dt.files;
+                        tarifInput.dispatchEvent(new Event('change', {bubbles: true}));
+                    } catch (ignored) { }
+                    const tarifTab = document.querySelector('#importTypeSegmented button[data-type="tarification"]');
+                    if (tarifTab) tarifTab.click();
+                }
+                return;
+            }
             renderPreview();
             showStep('review');
         } catch (e) {

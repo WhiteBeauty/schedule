@@ -44,6 +44,7 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
     List<LessonInstance> findByOriginalTeacherIdOrActualTeacherId(Long originalTeacherId, Long actualTeacherId);
 
     List<LessonInstance> findByCancelledBySpecialEventId(Long specialEventId);
+    List<LessonInstance> findByCancelledBySickLeaveId(Long sickLeaveId);
 
     @EntityGraph(attributePaths = {"schedule", "teacherLoad", "teacherLoad.teacher", "teacherLoad.group",
             "teacherLoad.discipline", "originalTeacher", "actualTeacher"})

@@ -216,6 +216,12 @@ public class SpecialEventService {
             }
         }
 
+        log.info("Событие {} «{}» для группы {} ({} — {}): перенесено {}, в «облако» {}, предупреждений {}",
+                savedEvent.getId(), typeLabel(type), group.getName(), startDate, endDate, moved.size(),
+                unresolved.size(), warnings.size());
+        unresolved.forEach(u -> log.info("Событие {}: не перенесена «{}» от {} {} — {}", savedEvent.getId(),
+                u.getDisciplineName(), u.getOriginalDate(), u.getOriginalStartTime(), u.getReason()));
+        warnings.forEach(w -> log.info("Событие {}: {}", savedEvent.getId(), w));
         return SpecialEventDtos.Result.builder()
                 .eventId(savedEvent.getId())
                 .type(type.name())

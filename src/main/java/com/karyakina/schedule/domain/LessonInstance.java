@@ -60,6 +60,8 @@ public class LessonInstance {
 
     private Long cancelledBySpecialEventId;
 
+    private Long cancelledBySickLeaveId;
+
     public enum Status {
         PLANNED, CONFIRMED, CANCELLED, REPLACED, INDEPENDENT_WORK
     }

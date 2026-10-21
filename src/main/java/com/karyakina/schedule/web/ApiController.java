@@ -1721,6 +1721,9 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
+        // Откатываем всё, что поменялось из-за отсутствия: замены, переносы и сдвиги внутри дня.
+        sickLeaveReschedulingService.revertSickLeave(id);
+
         List<SubstitutionRequest> related = substitutionRequestRepository.findBySickLeaveId(id);
         for (SubstitutionRequest req : related) {
             if (req.getId() != null) {

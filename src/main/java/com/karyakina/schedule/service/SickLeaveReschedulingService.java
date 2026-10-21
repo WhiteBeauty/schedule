@@ -51,10 +51,10 @@ public class SickLeaveReschedulingService {
     private final LessonInstanceService lessonInstanceService;
     private final NotificationService notificationService;
     private final CalendarSlotFinder slotFinder;
+    private final GroupWindowService groupWindowService;
     private final HoursRecalculationService hoursRecalculationService;
     private final SettingsService settingsService;
 
-    private static final int DEFAULT_TEACHER_MAX_PAIRS_PER_DAY = 4;
 
     @Transactional
     public RescheduleResultDTO handleTeacherSickLeave(Long teacherId, LocalDate startDate, LocalDate endDate) {
@@ -105,6 +105,9 @@ public class SickLeaveReschedulingService {
                     RescheduleResultDTO.Moved move = tryMoveToFreeSlot(instance, sickLeave, calendar, failure);
                     if (move != null) {
                         moved.add(move);
+                        if (failure[0] != null) {
+                            warnings.add(failure[0]);
+                        }
                         TeacherLoad movedLoad = instance.getSchedule().getTeacherLoad();
                         if (movedLoad != null && movedLoad.getGroup() != null) {
                             holes.computeIfAbsent(movedLoad.getGroup().getId(), k -> new java.util.TreeSet<>())
@@ -123,12 +126,20 @@ public class SickLeaveReschedulingService {
                 }
             }
 
-            int shifted = closeWindows(holes, sickLeave.getAcademicYear());
-            if (shifted > 0) {
-                warnings.add("Чтобы у групп не осталось окон в дни отсутствия, сдвинуто пар внутри дня: " + shifted + ".");
+            GroupWindowService.Outcome windows = groupWindowService.closeWindows(holes, sickLeave.getAcademicYear(),
+                    sickLeave.getId());
+            if (windows.shiftedInDay() > 0) {
+                warnings.add("Чтобы у групп не было окон в дни отсутствия, сдвинуто пар внутри дня: "
+                        + windows.shiftedInDay() + ".");
             }
+            warnings.addAll(windows.warnings());
 
             notifySummary(teacher, sickLeave, affected.size(), substitutions.size(), moved.size(), unresolved.size());
+            log.info("Отсутствие {} ({} — {}): затронуто {}, замен {}, переносов {}, не решено {}, предупреждений {}",
+                    teacher.getFullName(), startDate, endDate, affected.size(), substitutions.size(), moved.size(),
+                    unresolved.size(), warnings.size());
+            unresolved.forEach(u -> log.info("Отсутствие {}: не решена пара {}", teacher.getFullName(), u));
+            warnings.forEach(w -> log.info("Отсутствие {}: {}", teacher.getFullName(), w));
 
             // Пары, которые не удалось ни заменить, ни перенести, восполняются динамическим пересчётом часов
             // (если он включён): недостающие часы ставятся в свободные слоты до конца семестра.
@@ -166,6 +177,39 @@ public class SickLeaveReschedulingService {
                             + (e.getMessage() == null ? "" : ": " + e.getMessage())
                             + ". Расписание не изменено, требуется ручная проверка."));
         }
+    }
+
+    /**
+     * Удаление больничного: вернуть всё, что из-за него поменялось — замены, переносы, сдвиги внутри дня.
+     */
+    @Transactional
+    public int revertSickLeave(Long sickLeaveId) {
+        int reverted = 0;
+        for (SubstitutionRequest request : substitutionRequestRepository.findBySickLeaveId(sickLeaveId)) {
+            LessonInstance li = request.getLessonInstance();
+            if (li != null && li.getStatus() == LessonInstance.Status.REPLACED) {
+                lessonInstanceService.revertReplacement(li.getId(), "Отмена замены: отсутствие удалено");
+                reverted++;
+            }
+        }
+        for (Schedule row : scheduleRepository.findBySickLeaveId(sickLeaveId)) {
+            for (LessonInstance li : lessonInstanceRepository.findByScheduleIdIn(List.of(row.getId()))) {
+                lessonInstanceService.revertHoursBeforeDelete(li, "Отмена переноса: отсутствие удалено");
+                substitutionRequestRepository.deleteByLessonInstanceIdIn(List.of(li.getId()));
+                lessonInstanceRepository.delete(li);
+            }
+            scheduleRepository.delete(row);
+            reverted++;
+        }
+        for (LessonInstance li : lessonInstanceRepository.findByCancelledBySickLeaveId(sickLeaveId)) {
+            li.setStatus(LessonInstance.Status.PLANNED);
+            li.setCancelledAt(null);
+            li.setNote(null);
+            li.setCancelledBySickLeaveId(null);
+            lessonInstanceRepository.save(li);
+            reverted++;
+        }
+        return reverted;
     }
 
     private record Candidate(Teacher teacher, int priorityRank, String reason, boolean overload, int remainingHours) {
@@ -234,11 +278,7 @@ public class SickLeaveReschedulingService {
                 return false;
             }
         }
-        int maxPerDay = candidate.getMaxPairsPerDay() != null && candidate.getMaxPairsPerDay() > 0
-                ? candidate.getMaxPairsPerDay() : DEFAULT_TEACHER_MAX_PAIRS_PER_DAY;
-        if (busyToday.size() >= maxPerDay) {
-            return false;
-        }
+        // Перегрузка преподавателя допустима: число пар в день у заменяющего не ограничиваем, только пересечения.
 
         for (Schedule schedule : scheduleRepository.findByTeacherLoadTeacherIdAndAcademicYear(
                 candidate.getId(), instance.getAcademicYear())) {
@@ -319,6 +359,11 @@ public class SickLeaveReschedulingService {
         CalendarSlotFinder.Slot slot = outcome.slot();
         LocalDate date = slot.date();
         LocalTime start = GenerationGrid.start(slot.pairIdx());
+        if (slot.createsWindow()) {
+            failure[0] = "Внимание: " + (load.getDiscipline() != null ? load.getDiscipline().getName() : "пара")
+                    + " (группа " + load.getGroup().getName() + ") перенесена на " + date + ", "
+                    + (slot.pairIdx() + 1) + "-я пара — у группы в этот день будет окно, без окна места не нашлось.";
+        }
         LocalTime end = GenerationGrid.end(slot.pairIdx());
         String room = slot.room();
 
@@ -333,12 +378,15 @@ public class SickLeaveReschedulingService {
                 .semester(semester)
                 .rescheduledFromDate(instance.getLessonDate())
                 .rescheduledReason("Отсутствие преподавателя (" + reasonLabel(sickLeave) + ")")
+                .sickLeaveId(sickLeave.getId())
                 .build());
         calendar.occupy(slot, load, teacher.getId(), makeup.getId());
-        lessonInstanceService.cancelInstance(instance.getId(),
+        LessonInstance cancelledInstance = lessonInstanceService.cancelInstance(instance.getId(),
                 "Перенесено на " + date + " " + start + " в связи с отсутствием преподавателя ("
                         + reasonLabel(sickLeave) + ")",
                 "system:auto-reschedule");
+        cancelledInstance.setCancelledBySickLeaveId(sickLeave.getId());
+        lessonInstanceRepository.save(cancelledInstance);
 
         String groupName = load.getGroup().getName();
         String disciplineName = load.getDiscipline() == null ? "—" : load.getDiscipline().getName();
@@ -359,109 +407,6 @@ public class SickLeaveReschedulingService {
                 instance.getLessonDate(), original.getStartTime(), date, start, room);
     }
 
-
-    /**
-     * После переноса пары заболевшего преподавателя в дне группы остаётся дыра. Закрываем её: последняя пара
-     * группы в этот день сдвигается в окно (разовой записью), если её преподаватель и аудитория свободны.
-     */
-    private int closeWindows(Map<Long, Set<LocalDate>> holes, Integer academicYear) {
-        if (holes.isEmpty()) return 0;
-        LocalDate today = LocalDate.now();
-        LocalDate min = null;
-        LocalDate max = null;
-        for (Set<LocalDate> dates : holes.values()) {
-            for (LocalDate d : dates) {
-                if (min == null || d.isBefore(min)) min = d;
-                if (max == null || d.isAfter(max)) max = d;
-            }
-        }
-        CalendarSlotFinder.Calendar cal = slotFinder.open(academicYear, min, max);
-        int shifted = 0;
-        for (Map.Entry<Long, Set<LocalDate>> entry : holes.entrySet()) {
-            Long groupId = entry.getKey();
-            for (LocalDate date : entry.getValue()) {
-                if (date.isBefore(today)) continue;
-                for (int guard = 0; guard < GenerationGrid.pairsPerDay(); guard++) {
-                    java.util.TreeSet<Integer> pairs = cal.pairsOfGroup(groupId, date);
-                    if (pairs.size() < 2) break;
-                    int gap = -1;
-                    for (int p = pairs.first() + 1; p < pairs.last(); p++) {
-                        if (!pairs.contains(p)) { gap = p; break; }
-                    }
-                    if (gap < 0) break;
-                    // Кандидаты: последняя пара дня, пара сразу после окна (окно сдвигается и закрывается на следующей
-                    // итерации), пара перед окном и первая пара (окно превращается в более поздний старт дня).
-                    Integer chosenIdx = null;
-                    CalendarSlotFinder.Occ lastOcc = null;
-                    Schedule source = null;
-                    String room = null;
-                    LessonInstance li = null;
-                    for (int candidateIdx : new java.util.LinkedHashSet<>(List.of(pairs.last(), pairs.ceiling(gap), pairs.floor(gap), pairs.first()))) {
-                        final int idx = candidateIdx;
-                        CalendarSlotFinder.Occ occ = cal.groupOccurrences(groupId, date).stream()
-                                .filter(o -> o.pairIdx == idx && o.scheduleId != null).findFirst().orElse(null);
-                        if (occ == null) continue;
-                        Schedule src = scheduleRepository.findById(occ.scheduleId).orElse(null);
-                        if (src == null || src.getTeacherLoad() == null) continue;
-                        if (cal.isTeacherBusy(occ.teacherId, date, gap) || cal.isTeacherAbsent(occ.teacherId, date)) continue;
-                        TeacherLoad srcLoad = src.getTeacherLoad();
-                        int students = srcLoad.getGroup().getStudentCount() == null ? 0 : srcLoad.getGroup().getStudentCount();
-                        String r = cal.freeRoom(src.getClassroom(), date, gap, students,
-                                srcLoad.getDiscipline() != null ? srcLoad.getDiscipline().getName() : null);
-                        if (r == null) continue;
-                        lessonInstanceService.generateInstancesForDate(date, academicYear);
-                        LessonInstance inst = lessonInstanceRepository.findByScheduleIdAndLessonDate(src.getId(), date).orElse(null);
-                        if (inst == null || inst.getStatus() != LessonInstance.Status.PLANNED) continue;
-                        chosenIdx = idx;
-                        lastOcc = occ;
-                        source = src;
-                        room = r;
-                        li = inst;
-                        break;
-                    }
-                    if (chosenIdx == null) {
-                        log.info("Окно у группы {} {} (пара {}) закрыть сдвигом не удалось", groupId, date, gap + 1);
-                        break;
-                    }
-                    final int lastIdx = chosenIdx;
-                    TeacherLoad load = source.getTeacherLoad();
-
-                    String note = "Сдвинута на " + (gap + 1) + "-ю пару, чтобы у группы не было окна";
-                    lessonInstanceService.cancelInstance(li.getId(), note, "system:auto-reschedule");
-                    int week = AcademicYearUtil.academicWeek(date, academicYear);
-                    Schedule row = scheduleRepository.save(Schedule.builder()
-                            .teacherLoad(load)
-                            .dayOfWeek(date.getDayOfWeek())
-                            .startTime(GenerationGrid.start(gap))
-                            .endTime(GenerationGrid.end(gap))
-                            .classroom(room)
-                            .academicWeek(week)
-                            .academicYear(academicYear)
-                            .semester(AcademicYearUtil.semesterOfDate(date))
-                            .rescheduledFromDate(date)
-                            .rescheduledReason("Сдвиг внутри дня: закрытие окна после переноса")
-                            .build());
-                    cal.release(source.getId(), date);
-                    cal.occupy(new CalendarSlotFinder.Slot(date, gap, room, week, false), load, lastOcc.teacherId, row.getId());
-                    lessonInstanceService.generateInstancesForDate(date, academicYear);
-                    shifted++;
-                    if (load.getTeacher() != null) {
-                        try {
-                            notificationService.notifyTeacher(load.getTeacher(), Notification.Type.SCHEDULE_CHANGED,
-                                    "Пара " + date + " сдвинута",
-                                    (load.getDiscipline() != null ? load.getDiscipline().getName() : "Пара") + ", группа "
-                                            + load.getGroup().getName() + ": " + date + " вместо " + (lastIdx + 1)
-                                            + "-й пары будет " + (gap + 1) + "-я (" + GenerationGrid.start(gap)
-                                            + "), ауд. " + room + ".", null);
-                        } catch (Exception e) {
-                            log.warn("Не удалось уведомить о сдвиге пары: {}", e.getMessage());
-                        }
-                    }
-                }
-            }
-        }
-        return shifted;
-    }
 
     private RescheduleResultDTO.Unresolved describeUnresolved(LessonInstance instance, String moveFailure) {
         TeacherLoad load = instance.getSchedule() == null ? null : instance.getSchedule().getTeacherLoad();

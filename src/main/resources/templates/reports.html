@@ -15,8 +15,8 @@
 </div>
 
 <div th:fragment="pageContent" class="app-content"
-     th:with="totalPlanned=${#aggregates.sum(departmentHours.![plannedHours])},
-               totalConducted=${#aggregates.sum(departmentHours.![conductedHours])},
+     th:with="totalPlanned=${#lists.isEmpty(departmentHours) ? 0 : #aggregates.sum(departmentHours.![plannedHours])},
+               totalConducted=${#lists.isEmpty(departmentHours) ? 0 : #aggregates.sum(departmentHours.![conductedHours])},
                avgProductivity=${#lists.isEmpty(productivity) ? 0 : #aggregates.avg(productivity.![productivityIndex])},
                totalCuratorship=${#lists.isEmpty(productivity) ? 0 : #aggregates.sum(productivity.![curatorshipDoneHours])}">
     <div class="control-bar">

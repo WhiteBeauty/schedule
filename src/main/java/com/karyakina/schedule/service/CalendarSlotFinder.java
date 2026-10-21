@@ -34,7 +34,7 @@ import java.util.TreeSet;
  *
  * Учитывает: семестр и активные недели строк расписания, отменённые занятия (их слот считается свободным),
  * фактического преподавателя при замене, праздники и каникулы, экзамены/практики группы, больничные преподавателя,
- * обед, лимиты группы на день и неделю, вместимость и профиль аудиторий. По умолчанию не допускает окон у группы:
+ * обед, лимиты группы на день и неделю, вместимость и профиль аудиторий. В первую очередь избегает окон у группы:
  * пара ставится либо в существующее окно, либо вплотную к парам группы этого дня, либо в пустой день.
  */
 @Service
@@ -295,6 +295,10 @@ public class CalendarSlotFinder {
             return globalLunch;
         }
 
+        /**
+         * Сначала ищется слот без окна у группы. Только если такого нет до конца периода и запрос это разрешает,
+         * берётся слот с окном — он помечается createsWindow, и вызывающий код показывает предупреждение.
+         */
         public Outcome find(Request req) {
             Outcome strict = search(req, false);
             if (strict.found() || !req.allowWindows()) {
@@ -329,11 +333,7 @@ public class CalendarSlotFinder {
                 if (groupWeekCount(groupId, d) >= weekCap) { diag.weekCap++; continue; }
                 TreeSet<Integer> pairs = groupPairs(groupId, d);
                 if (pairs.size() >= DEFAULT_GROUP_DAY_CAP) { diag.dayCap++; continue; }
-                if (teacher != null && teacher.getMaxPairsPerDay() != null && teacher.getMaxPairsPerDay() > 0
-                        && teacherDayCount(teacherId, d) >= teacher.getMaxPairsPerDay()) {
-                    diag.teacherBusy++;
-                    continue;
-                }
+                // Перегрузка преподавателя допустима: дневной потолок пар у преподавателя не ограничивает перенос.
 
                 Slot best = null;
                 double bestScore = Double.MAX_VALUE;

@@ -18,4 +18,5 @@ public class ImportPreviewDto {
     private List<ImportRowErrorDto> splitNotices;
     private List<String> detectedColumns;
     private String summary;
+    private boolean looksLikeTarification;
 }

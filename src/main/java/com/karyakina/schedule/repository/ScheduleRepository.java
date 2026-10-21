@@ -30,4 +30,5 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
     List<Schedule> findByAcademicYearAndAcademicWeek(Integer academicYear, Integer academicWeek);
 
     List<Schedule> findBySpecialEventId(Long specialEventId);
+    List<Schedule> findBySickLeaveId(Long sickLeaveId);
 }

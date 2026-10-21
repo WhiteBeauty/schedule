@@ -23,6 +23,7 @@ public class LessonInstanceAdminController {
     private final UserRepository userRepository;
     private final com.karyakina.schedule.service.HoursRecalculationService hoursRecalculationService;
     private final com.karyakina.schedule.service.SettingsService settingsService;
+    private final com.karyakina.schedule.service.GroupWindowService groupWindowService;
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<LessonInstance> cancel(@PathVariable Long id,
@@ -33,6 +34,17 @@ public class LessonInstanceAdminController {
         try {
             String note = body != null ? body.get("note") : null;
             LessonInstance updated = lessonInstanceService.cancelInstance(id, note, "admin:" + admin.getEmail());
+            // Отменённая пара могла стоять в середине дня группы — окно у группы недопустимо, закрываем его.
+            if (updated.getSchedule() != null && updated.getSchedule().getTeacherLoad() != null
+                    && updated.getSchedule().getTeacherLoad().getGroup() != null) {
+                try {
+                    groupWindowService.closeWindows(java.util.Map.of(
+                            updated.getSchedule().getTeacherLoad().getGroup().getId(),
+                            java.util.Set.of(updated.getLessonDate())), updated.getAcademicYear(), null);
+                } catch (Exception windowEx) {
+                    windowEx.printStackTrace();
+                }
+            }
             // Отменённую пару нужно восполнить: при включённом автопересчёте сразу ищем ей место до конца семестра.
             if (settingsService.isPaceRecalculationEnabled() && updated.getSchedule() != null
                     && updated.getSchedule().getTeacherLoad() != null) {

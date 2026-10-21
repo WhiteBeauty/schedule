@@ -171,6 +171,33 @@ public class LessonInstanceService {
                 });
     }
 
+    /** Откатить часы проведённого/заменённого занятия перед его удалением, чтобы «вычитано» не расходилось с журналом. */
+    @Transactional
+    public void revertHoursBeforeDelete(LessonInstance instance, String reason) {
+        if (instance.getTeacherLoad() == null || instance.getDurationHours() == null) return;
+        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
+                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+            subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
+                    reason, "system:delete");
+        }
+    }
+
+    /** Вернуть заменённое занятие исходному преподавателю (например, больничный удалён). */
+    @Transactional
+    public LessonInstance revertReplacement(Long instanceId, String note) {
+        LessonInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
+        if (instance.getStatus() != LessonInstance.Status.REPLACED) return instance;
+        subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
+                note, "system:revert");
+        instance.setTeacherLoad(instance.getSchedule().getTeacherLoad());
+        instance.setActualTeacher(instance.getOriginalTeacher());
+        instance.setStatus(LessonInstance.Status.PLANNED);
+        instance.setConfirmedAt(null);
+        instance.setNote(null);
+        return instanceRepository.save(instance);
+    }
+
     public boolean isTeacherSickOnDate(Long teacherId, LocalDate date) {
         return !sickLeaveRepository.findByTeacherIdAndDateRange(teacherId, date).isEmpty();
     }

@@ -36,6 +36,11 @@ public class AdminDeletionService {
     private final AuditLogRepository auditLogRepository;
     private final ControlPointRepository controlPointRepository;
     private final MonthlyRecordRepository monthlyRecordRepository;
+    private final com.karyakina.schedule.repository.PaceAdjustmentSuggestionRepository paceAdjustmentSuggestionRepository;
+    private final com.karyakina.schedule.repository.SpecialEventRepository specialEventRepository;
+    private final com.karyakina.schedule.repository.UnresolvedRescheduleRepository unresolvedRescheduleRepository;
+    private final com.karyakina.schedule.repository.TarificationRepository tarificationRepository;
+    private final LessonInstanceService lessonInstanceService;
 
     @Transactional
     public void deleteTeacherCompletely(Long teacherId) {
@@ -98,6 +103,8 @@ public class AdminDeletionService {
 
         curatorshipRepository.deleteAll(curatorshipRepository.findByGroupId(groupId));
 
+        specialEventRepository.deleteAll(specialEventRepository.findAll().stream()
+                .filter(e -> e.getGroup() != null && groupId.equals(e.getGroup().getId())).toList());
         groupRepository.delete(group);
         log.info("Группа полностью удалена: {} (id={}), затронуто нагрузок: {}",
                 group.getName(), groupId, loads.size());
@@ -143,7 +150,7 @@ public class AdminDeletionService {
             }
         }
 
-        deleteSchedulesCascade(schedules);
+        deleteSchedulesCascade(schedules, true);
 
         log.info("Снос расписания: {} ({} пар удалено)", scope, count);
         return WipeScheduleResultDto.builder().deletedPairs(count).scope(scope).build();
@@ -153,7 +160,7 @@ public class AdminDeletionService {
     public void deleteScheduleEntryCompletely(Long scheduleId) {
         Schedule schedule = scheduleRepository.findById(scheduleId)
                 .orElseThrow(() -> new RuntimeException("Запись расписания не найдена: " + scheduleId));
-        deleteSchedulesCascade(List.of(schedule));
+        deleteSchedulesCascade(List.of(schedule), true);
     }
 
     @Transactional
@@ -272,13 +279,36 @@ public class AdminDeletionService {
         List<LessonInstance> directInstances = lessonInstanceRepository.findByTeacherLoadId(load.getId());
         deleteInstancesWithSubstitutions(directInstances);
 
+        // Ссылки на нагрузку из предложений темпа, экзаменов и «облака» раньше не чистились — удаление падало.
+        paceAdjustmentSuggestionRepository.deleteAll(paceAdjustmentSuggestionRepository.findByTeacherLoadId(load.getId()));
+        specialEventRepository.findAll().stream()
+                .filter(e -> e.getTeacherLoad() != null && load.getId().equals(e.getTeacherLoad().getId()))
+                .forEach(e -> {
+                    e.setTeacherLoad(null);
+                    specialEventRepository.save(e);
+                });
+        unresolvedRescheduleRepository.deleteAll(unresolvedRescheduleRepository.findAll().stream()
+                .filter(u -> load.getId().equals(u.getTeacherLoadId())).toList());
+
         loadRepository.delete(load);
     }
 
     private void deleteSchedulesCascade(List<Schedule> schedules) {
+        deleteSchedulesCascade(schedules, false);
+    }
+
+    /**
+     * revertHours=true: вместе с занятиями откатываются и вычитанные по ним часы. Раньше после сноса расписания
+     * часы оставались, и нагрузка выглядела выполненной на сотни процентов.
+     */
+    private void deleteSchedulesCascade(List<Schedule> schedules, boolean revertHours) {
         if (schedules.isEmpty()) return;
         List<Long> scheduleIds = schedules.stream().map(Schedule::getId).collect(Collectors.toList());
         List<LessonInstance> instances = lessonInstanceRepository.findByScheduleIdIn(scheduleIds);
+        if (revertHours) {
+            instances.forEach(li -> lessonInstanceService.revertHoursBeforeDelete(li,
+                    "Удаление пары из расписания (" + li.getLessonDate() + ")"));
+        }
         deleteInstancesWithSubstitutions(instances);
         scheduleRepository.deleteAll(schedules);
     }
@@ -315,6 +345,12 @@ public class AdminDeletionService {
         int schedules = (int) scheduleRepository.count();
         scheduleRepository.deleteAllInBatch();
 
+        // Раньше эти таблицы не чистились: экзамены/практики ссылаются на группы, предложения темпа — на нагрузки,
+        // поэтому полная очистка падала, как только хоть один экзамен был назначен.
+        paceAdjustmentSuggestionRepository.deleteAllInBatch();
+        specialEventRepository.deleteAllInBatch();
+        unresolvedRescheduleRepository.deleteAllInBatch();
+
         int controlPoints = (int) controlPointRepository.count();
         controlPointRepository.deleteAllInBatch();
 
@@ -323,6 +359,8 @@ public class AdminDeletionService {
 
         int teacherLoads = (int) loadRepository.count();
         loadRepository.deleteAllInBatch();
+
+        tarificationRepository.deleteAllInBatch();
 
         int sickLeaves = (int) sickLeaveRepository.count();
         sickLeaveRepository.deleteAllInBatch();

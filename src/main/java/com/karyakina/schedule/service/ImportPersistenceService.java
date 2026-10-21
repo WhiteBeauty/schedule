@@ -27,6 +27,8 @@ public class ImportPersistenceService {
     private final TeacherLoadRepository loadRepository;
     private final ClassroomRepository classroomRepository;
     private final MonthlyRecordService monthlyRecordService;
+    private final com.karyakina.schedule.repository.ScheduleRepository scheduleRepository;
+    private final org.springframework.beans.factory.ObjectProvider<AdminDeletionService> adminDeletionServiceProvider;
 
     public static class ImportResult {
         public int processedLoads;
@@ -35,6 +37,7 @@ public class ImportPersistenceService {
         public int createdGroups;
         public int createdLoads;
         public int updatedLoads;
+        public int removedLoads;
     }
 
     @Transactional
@@ -313,6 +316,17 @@ public class ImportPersistenceService {
         ImportResult result = new ImportResult();
         Integer academicYear = tarification.getAcademicYear();
 
+        // Повторный импорт той же тарификации обновляет её нагрузки, а не создаёт дубли.
+        // Одинаковые строки (преподаватель + группа + дисциплина) внутри файла суммируются в одну нагрузку.
+        java.util.Map<String, TeacherLoad> existingByKey = new java.util.HashMap<>();
+        if (tarification.getId() != null) {
+            for (TeacherLoad l : loadRepository.findByTarificationId(tarification.getId())) {
+                existingByKey.put(loadKey(l.getTeacher() != null ? l.getTeacher().getId() : null,
+                        l.getGroup().getId(), l.getDiscipline().getId()), l);
+            }
+        }
+        java.util.Map<String, TeacherLoad> touched = new java.util.LinkedHashMap<>();
+
         for (TarificationImportService.TarificationRow row : rows) {
             List<Teacher> existingTeachers = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
             Teacher teacher;
@@ -342,13 +356,36 @@ public class ImportPersistenceService {
 
             int hours1 = nz(row.hours1);
             int hours2 = nz(row.hours2);
-            int totalHours = hours1 + hours2;
+            String key = loadKey(teacher.getId(), group.getId(), discipline.getId());
+
+            TeacherLoad seenInFile = touched.get(key);
+            if (seenInFile != null) {
+                seenInFile.setFirstSemesterHours(nz(seenInFile.getFirstSemesterHours()) + hours1);
+                seenInFile.setSecondSemesterHours(nz(seenInFile.getSecondSemesterHours()) + hours2);
+                seenInFile.setPlannedHours(seenInFile.getFirstSemesterHours() + seenInFile.getSecondSemesterHours());
+                loadRepository.save(seenInFile);
+                result.processedLoads++;
+                continue;
+            }
+
+            TeacherLoad existing = existingByKey.remove(key);
+            if (existing != null) {
+                existing.setFirstSemesterHours(hours1);
+                existing.setSecondSemesterHours(hours2);
+                existing.setPlannedHours(hours1 + hours2);
+                existing.setControlPointType1(row.control1);
+                existing.setControlPointType2(row.control2);
+                touched.put(key, loadRepository.save(existing));
+                result.updatedLoads++;
+                result.processedLoads++;
+                continue;
+            }
 
             TeacherLoad load = TeacherLoad.builder()
                     .teacher(teacher)
                     .group(group)
                     .discipline(discipline)
-                    .plannedHours(totalHours)
+                    .plannedHours(hours1 + hours2)
                     .firstSemesterHours(hours1)
                     .secondSemesterHours(hours2)
                     .controlPointType1(row.control1)
@@ -359,11 +396,30 @@ public class ImportPersistenceService {
                     .overload(false)
                     .build();
             TeacherLoad savedLoad = loadRepository.save(load);
+            touched.put(key, savedLoad);
             result.createdLoads++;
             monthlyRecordService.createMonthlyRecordsForLoad(savedLoad);
             result.processedLoads++;
         }
+
+        // Записи, которых в новом файле больше нет: без пар и проведённых часов — удаляем, иначе обнуляем часы.
+        for (TeacherLoad stale : existingByKey.values()) {
+            boolean used = nz(stale.getReadHours()) > 0 || !scheduleRepository.findByTeacherLoadId(stale.getId()).isEmpty();
+            if (used) {
+                stale.setFirstSemesterHours(0);
+                stale.setSecondSemesterHours(0);
+                stale.setPlannedHours(0);
+                loadRepository.save(stale);
+            } else {
+                adminDeletionServiceProvider.getObject().deleteTeacherLoadCompletely(stale.getId());
+            }
+            result.removedLoads++;
+        }
         return result;
+    }
+
+    private static String loadKey(Long teacherId, Long groupId, Long disciplineId) {
+        return teacherId + "|" + groupId + "|" + disciplineId;
     }
 
     private TeacherLoad findExistingLoad(Long teacherId, Long groupId, Long disciplineId, Integer year) {

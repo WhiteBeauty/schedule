@@ -19,4 +19,5 @@ public interface PaceAdjustmentSuggestionRepository extends JpaRepository<PaceAd
 
     @EntityGraph(attributePaths = {"teacherLoad", "teacherLoad.teacher", "teacherLoad.group", "teacherLoad.discipline"})
     List<PaceAdjustmentSuggestion> findByStatusOrderByCreatedAtDesc(PaceAdjustmentSuggestion.Status status);
+    List<PaceAdjustmentSuggestion> findByTeacherLoadId(Long teacherLoadId);
 }

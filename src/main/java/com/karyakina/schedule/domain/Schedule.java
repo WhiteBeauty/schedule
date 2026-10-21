@@ -41,6 +41,9 @@ public class Schedule {
 
     private Long specialEventId;
 
+    /** Больничный/отсутствие, из-за которого создана эта разовая строка (для отката при удалении больничного). */
+    private Long sickLeaveId;
+
     private Integer semester;
 
     private Integer activeFromWeek;

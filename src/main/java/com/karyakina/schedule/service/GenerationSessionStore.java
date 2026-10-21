@@ -39,6 +39,7 @@ public class GenerationSessionStore {
         private final Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> eventsByGroup = new HashMap<>();
         private final Map<Long, Integer> groupWeekLimitOverrides = new HashMap<>();
         private final Set<Long> dismissedCapacityWarnings = new HashSet<>();
+        private final Set<String> answeredIssueKeys = new HashSet<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
@@ -92,6 +93,10 @@ public class GenerationSessionStore {
 
         public Map<Long, Integer> getGroupWeekLimitOverrides() {
             return groupWeekLimitOverrides;
+        }
+
+        public Set<String> getAnsweredIssueKeys() {
+            return answeredIssueKeys;
         }
 
         public Set<Long> getDismissedCapacityWarnings() {

@@ -53,6 +53,11 @@ public class TarificationImportService {
     public ImportReportDto importFile(MultipartFile file, Integer academicYear, String tarificationName,
                                       String importedBy) {
         ParseResult parsed = parse(file);
+        log.info("Импорт тарификации: файл {}, год {}, лист «{}», строк {}, предупреждений {}{}",
+                file.getOriginalFilename(), academicYear, parsed.sheetName, parsed.rows.size(), parsed.warnings.size(),
+                parsed.fatalError != null ? ", ОШИБКА: " + parsed.fatalError : "");
+        parsed.warnings.stream().limit(20).forEach(w -> log.info("Импорт тарификации: строка {} — {}",
+                w.getRowNumber(), w.getMessage()));
         if (parsed.fatalError != null) {
             return ImportReportDto.builder()
                     .success(false)
@@ -69,21 +74,39 @@ public class TarificationImportService {
         String name = tarificationName != null && !tarificationName.isBlank()
                 ? tarificationName.trim()
                 : (originalFileName != null ? originalFileName : "Тарификация " + academicYear);
-        Tarification tarification = tarificationRepository.save(Tarification.builder()
-                .name(name)
-                .academicYear(academicYear)
-                .sourceFileName(originalFileName)
-                .importedBy(importedBy)
-                .build());
+        // Тот же файл (или то же название) за тот же учебный год — обновляем существующую тарификацию,
+        // раньше каждый повторный импорт создавал новую тарификацию с полным набором дублей нагрузки.
+        Tarification tarification = tarificationRepository.findByAcademicYearOrderByImportedAtDesc(academicYear).stream()
+                .filter(t -> name.equalsIgnoreCase(t.getName())
+                        || (originalFileName != null && originalFileName.equalsIgnoreCase(t.getSourceFileName())))
+                .findFirst()
+                .orElse(null);
+        boolean reimport = tarification != null;
+        if (reimport) {
+            tarification.setImportedBy(importedBy);
+            tarification = tarificationRepository.save(tarification);
+        } else {
+            tarification = tarificationRepository.save(Tarification.builder()
+                    .name(name)
+                    .academicYear(academicYear)
+                    .sourceFileName(originalFileName)
+                    .importedBy(importedBy)
+                    .build());
+        }
 
         ImportPersistenceService.ImportResult result =
                 persistenceService.applyTarificationRows(parsed.rows, tarification);
 
+        log.info("Импорт тарификации «{}» (id {}): {} — создано нагрузок {}, обновлено {}, убрано {}, "
+                        + "новых преподавателей {}, групп {}, дисциплин {}", tarification.getName(), tarification.getId(),
+                reimport ? "повторный импорт" : "новый", result.createdLoads, result.updatedLoads, result.removedLoads,
+                result.createdTeachers, result.createdGroups, result.createdDisciplines);
         String summary = String.format(Locale.ROOT,
-                "Создана тарификация «%s». Обработано записей: %d. Создано: преподавателей — %d, дисциплин — %d, "
-                        + "групп — %d, нагрузок — %d.%s",
+                (reimport ? "Тарификация «%s» обновлена. " : "Создана тарификация «%s». ")
+                        + "Обработано записей: %d. Создано: преподавателей — %d, дисциплин — %d, "
+                        + "групп — %d, нагрузок — %d, обновлено нагрузок — %d, убрано отсутствующих в файле — %d.%s",
                 tarification.getName(), parsed.rows.size(), result.createdTeachers, result.createdDisciplines,
-                result.createdGroups, result.createdLoads,
+                result.createdGroups, result.createdLoads, result.updatedLoads, result.removedLoads,
                 parsed.warnings.isEmpty() ? "" : " Предупреждений: " + parsed.warnings.size() + ".");
 
         return ImportReportDto.builder()

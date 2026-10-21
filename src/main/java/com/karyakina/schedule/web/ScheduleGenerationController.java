@@ -36,6 +36,7 @@ public class ScheduleGenerationController {
     private final ScheduleGeneratorService generatorService;
     private final SickLeaveReschedulingService sickLeaveService;
     private final UserRepository userRepository;
+    private final com.karyakina.schedule.service.ScheduleService scheduleService;
 
     @PostMapping("/run")
     public ResponseEntity<GenerationResultDTO> run(@RequestBody(required = false) GenerationRequestDTO request,
@@ -68,7 +69,19 @@ public class ScheduleGenerationController {
         if (admin == null) {
             return forbidden();
         }
-        return ResponseEntity.ok(generatorService.commit(sessionId, adminDisplayName(admin)));
+        GenerationResultDTO result = generatorService.commit(sessionId, adminDisplayName(admin));
+        if (result.persisted()) {
+            // Прошедшие с начала семестра пары сразу считаем вычитанными (как сделало бы автосписание раз в 15 минут),
+            // иначе сразу после составления посреди семестра везде показывается «вычитано 0».
+            try {
+                long started = System.currentTimeMillis();
+                scheduleService.autoDeductHours(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
+                log.info("После сохранения расписания прошедшие пары списаны за {} мс", System.currentTimeMillis() - started);
+            } catch (Exception e) {
+                log.error("Не удалось списать прошедшие пары после сохранения расписания", e);
+            }
+        }
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/sick-leave")

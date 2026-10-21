@@ -41,6 +41,7 @@ public class AdminDeletionService {
     private final com.karyakina.schedule.repository.UnresolvedRescheduleRepository unresolvedRescheduleRepository;
     private final com.karyakina.schedule.repository.TarificationRepository tarificationRepository;
     private final LessonInstanceService lessonInstanceService;
+    private final org.springframework.beans.factory.ObjectProvider<com.karyakina.schedule.component.DataInitializer> dataInitializerProvider;
 
     @Transactional
     public void deleteTeacherCompletely(Long teacherId) {
@@ -394,6 +395,10 @@ public class AdminDeletionService {
 
         int auditLogs = (int) auditLogRepository.count();
         auditLogRepository.deleteAllInBatch();
+
+        // Аудитории по умолчанию раньше создавались только при запуске приложения: после очистки базы
+        // автосоставление шло на запасном встроенном списке из 11 аудиторий, и у групп появлялись окна.
+        dataInitializerProvider.getObject().ensureDefaultClassrooms();
 
         int remainingAdmins = (int) userRepository.count();
 

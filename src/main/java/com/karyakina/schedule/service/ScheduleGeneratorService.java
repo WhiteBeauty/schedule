@@ -350,10 +350,18 @@ public class ScheduleGeneratorService {
             List<SolverInput.GroupRef> groupRefs = buildGroups(candidates, config, session);
             demands = fitIntoGroupWeekCap(demands, groupRefs, exactPairs, warnings);
 
+            List<com.karyakina.schedule.domain.Classroom> dbRooms = classroomRepository.findAll();
+            if (dbRooms.isEmpty()) {
+                log.warn("Автосоставление {}: в базе нет ни одной аудитории — используется запасной встроенный список",
+                        session.getId());
+                warnings.add("Внимание: в базе нет аудиторий — расписание составлено по запасному списку из "
+                        + GenerationGrid.rooms().size() + " аудиторий. Добавьте аудитории на странице «Импорт» "
+                        + "(или перезапустите приложение — создадутся 30 по умолчанию) и составьте расписание заново.");
+            }
             SolverInput input = new SolverInput(
                     groupRefs,
                     buildTeachers(teacherByLoad.values(), config, session),
-                    GenerationGrid.rooms(classroomRepository.findAll()),
+                    GenerationGrid.rooms(dbRooms),
                     demands,
                     config);
 
@@ -952,7 +960,8 @@ public class ScheduleGeneratorService {
         GenerationRequestDTO.GridSettings grid = session.getRequest() == null ? null : session.getRequest().grid();
         Integer maxPairsPerDayGroup = session.getMaxPairsPerDayGroup() != null
                 ? session.getMaxPairsPerDayGroup()
-                : (grid == null ? DEFAULT_GROUP_MAX_PAIRS_PER_DAY : grid.maxPairsPerDayGroup());
+                : (grid == null || grid.maxPairsPerDayGroup() == null
+                        ? Integer.valueOf(DEFAULT_GROUP_MAX_PAIRS_PER_DAY) : grid.maxPairsPerDayGroup());
         return config.with(
                 maxPairsPerDayGroup == null ? DEFAULT_GROUP_MAX_PAIRS_PER_DAY : maxPairsPerDayGroup,
                 grid == null ? null : grid.maxSameSubjectInRow(),

@@ -23,6 +23,8 @@
                 <span th:replace="~{fragments/icons :: grid}"></span>Дашборд</a></li>
             <li><a class="sidebar-link" th:classappend="${activeNav == 'schedule'} ? ' active' : ''" th:href="@{/schedule}">
                 <span th:replace="~{fragments/icons :: calendar}"></span>Расписание</a></li>
+            <li><a class="sidebar-link" th:classappend="${activeNav == 'schedule-month'} ? ' active' : ''" th:href="@{/schedule/month}">
+                <span th:replace="~{fragments/icons :: calendar-month}"></span>Расписание на месяц</a></li>
             <li><a class="sidebar-link" th:classappend="${activeNav == 'teacher-load'} ? ' active' : ''" th:href="@{/teacher-load}">
                 <span th:replace="~{fragments/icons :: users}"></span>Нагрузка</a></li>
             <li><a class="sidebar-link" th:classappend="${activeNav == 'import'} ? ' active' : ''" th:href="@{/import}">

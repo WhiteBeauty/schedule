@@ -187,7 +187,7 @@ public class PageController {
         int calendarYear = yearParam != null ? yearParam : today.getYear();
         int calendarMonth = monthParam != null ? monthParam : today.getMonthValue();
 
-        addUserChrome(model, user, "settings");
+        addUserChrome(model, user, "schedule-month");
         model.addAttribute("calendarYear", calendarYear);
         model.addAttribute("calendarMonth", calendarMonth);
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());

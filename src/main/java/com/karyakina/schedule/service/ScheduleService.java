@@ -217,6 +217,8 @@ public class ScheduleService {
         LocalDate semesterStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, academicYear);
         LocalDate from = semesterStart.isAfter(today) ? today : semesterStart;
 
+        int confirmed = 0;
+        int cancelledSick = 0;
         for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
             List<LessonInstance> instances = lessonInstanceService.generateInstancesForDate(date, academicYear);
             boolean isToday = date.isEqual(today);
@@ -236,10 +238,16 @@ public class ScheduleService {
                     lessonInstanceService.cancelInstance(instance.getId(),
                             "Преподаватель на больничном, замена не была назначена до конца дня",
                             "system:auto-deduct");
+                    cancelledSick++;
                     continue;
                 }
                 lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
+                confirmed++;
             }
+        }
+        if (confirmed > 0 || cancelledSick > 0) {
+            log.info("Автосписание (год {}, семестр {}, с {} по {}): вычитано пар {}, отменено из-за больничного {}",
+                    academicYear, semester, from, today, confirmed, cancelledSick);
         }
     }
 

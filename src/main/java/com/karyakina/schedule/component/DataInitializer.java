@@ -450,7 +450,7 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
-    private void ensureDefaultClassrooms() {
+    public void ensureDefaultClassrooms() {
         if (classroomRepository.count() > 0) {
             return;
         }

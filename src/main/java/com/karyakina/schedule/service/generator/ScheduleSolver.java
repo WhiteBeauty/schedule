@@ -91,6 +91,7 @@ public class ScheduleSolver {
 
         localSearch(index, scorer, input, placed, roomsByDemand, targetPerDay, random, deadline);
         retryUnplaced(index, scorer, input, placed, missing, roomsByDemand, targetPerDay, random, deadline);
+        repairGroupGaps(index, scorer, input, placed, roomsByDemand, targetPerDay);
 
         SoftScorer.Metrics metrics = scorer.evaluate(placed);
         List<SolverResult.Unplaced> unplaced = buildUnplaced(input, missing, blockStats);
@@ -583,6 +584,201 @@ public class ScheduleSolver {
             index.place(p1);
             index.place(p2);
         }
+    }
+
+    /**
+     * Ремонт окон у групп после поиска. Штрафы почти всегда дают 0 окон, но не гарантируют (результат зависит
+     * от порядка и случайности). Для каждого дня с окном: 1) уплотняем день (пары подряд с 1-й или текущей первой);
+     * 2) иначе переносим крайнюю пару (с меньшей стороны окна) в другой день, не создавая там окна.
+     * Пары никогда не снимаются: если починить нельзя, окно остаётся и попадает в предупреждения.
+     */
+    private void repairGroupGaps(OccupancyIndex index,
+                                 SoftScorer scorer,
+                                 SolverInput input,
+                                 List<SolverResult.PlacedPair> placed,
+                                 Map<Long, List<GenerationGrid.Room>> roomsByDemand,
+                                 Map<Long, Double> targetPerDay) {
+        Map<Long, SolverInput.Demand> demandById = new HashMap<>();
+        input.demands().forEach(d -> demandById.put(d.loadId(), d));
+        Map<Long, SolverInput.GroupRef> groups = input.groupsById();
+        Map<Long, SolverInput.TeacherRef> teachers = input.teachersById();
+
+        java.util.Set<String> unfixable = new java.util.HashSet<>();
+        for (int iteration = 0; iteration < 2000; iteration++) {
+            List<SolverResult.PlacedPair> day = findGappyDay(index, placed, unfixable);
+            if (day == null) {
+                return;
+            }
+            long groupId = day.get(0).groupId();
+            int dayIdx = day.get(0).dayIndex();
+            SolverInput.GroupRef group = groups.get(groupId);
+            if (group == null) {
+                return;
+            }
+            double target = targetPerDay.getOrDefault(groupId, 1.0);
+
+            if (compactExactly(index, day, group, demandById, teachers, roomsByDemand, placed)) {
+                continue;
+            }
+
+            // Крайняя пара со стороны, где пар меньше: её уход быстрее всего закрывает окно.
+            boolean[] line = index.groupTimeline(groupId);
+            int first = day.get(0).pairIndex();
+            int last = day.get(day.size() - 1).pairIndex();
+            int gapIdx = first;
+            while (gapIdx <= last && line[GenerationGrid.flat(dayIdx, gapIdx)]) gapIdx++;
+            final int gap = gapIdx;
+            long before = day.stream().filter(p -> p.pairIndex() < gap).count();
+            long after = day.size() - before;
+            SolverResult.PlacedPair edge = after <= before ? day.get(day.size() - 1) : day.get(0);
+
+            SolverInput.Demand demand = demandById.get(edge.loadId());
+            SolverInput.TeacherRef teacher = teachers.get(edge.teacherId());
+            index.remove(edge);
+            Placement alternative = demand == null || teacher == null ? null
+                    : bestNoGapPlacement(index, scorer, demand, group, teacher,
+                    roomsByDemand.getOrDefault(edge.loadId(), List.of()), target, dayIdx);
+            if (alternative != null) {
+                placed.remove(edge);
+                SolverResult.PlacedPair moved = new SolverResult.PlacedPair(edge.loadId(), edge.groupId(),
+                        edge.disciplineId(), edge.teacherId(), alternative.room().name(),
+                        alternative.dayIdx(), alternative.pairIdx());
+                index.place(moved);
+                placed.add(moved);
+            } else {
+                index.place(edge);
+                unfixable.add(groupId + "_" + dayIdx);
+            }
+        }
+    }
+
+    private List<SolverResult.PlacedPair> findGappyDay(OccupancyIndex index, List<SolverResult.PlacedPair> placed,
+                                                       java.util.Set<String> unfixable) {
+        Map<String, List<SolverResult.PlacedPair>> byGroupDay = new HashMap<>();
+        for (SolverResult.PlacedPair p : placed) {
+            byGroupDay.computeIfAbsent(p.groupId() + "_" + p.dayIndex(), k -> new ArrayList<>()).add(p);
+        }
+        for (Map.Entry<String, List<SolverResult.PlacedPair>> e : byGroupDay.entrySet()) {
+            if (unfixable.contains(e.getKey())) continue;
+            List<SolverResult.PlacedPair> day = e.getValue();
+            long groupId = day.get(0).groupId();
+            int dayIdx = day.get(0).dayIndex();
+            boolean[] line = index.groupTimeline(groupId);
+            int first = -1;
+            int last = -1;
+            int busy = 0;
+            for (int p = 0; p < GenerationGrid.pairsPerDay(); p++) {
+                if (line[GenerationGrid.flat(dayIdx, p)]) {
+                    if (first < 0) first = p;
+                    last = p;
+                    busy++;
+                }
+            }
+            if (first >= 0 && last - first + 1 != busy) {
+                day.sort(Comparator.comparingInt(SolverResult.PlacedPair::pairIndex));
+                return day;
+            }
+        }
+        return null;
+    }
+
+    private boolean compactExactly(OccupancyIndex index,
+                                   List<SolverResult.PlacedPair> day,
+                                   SolverInput.GroupRef group,
+                                   Map<Long, SolverInput.Demand> demandById,
+                                   Map<Long, SolverInput.TeacherRef> teachers,
+                                   Map<Long, List<GenerationGrid.Room>> roomsByDemand,
+                                   List<SolverResult.PlacedPair> placed) {
+        int dayIdx = day.get(0).dayIndex();
+        int first = day.get(0).pairIndex();
+        day.forEach(index::remove);
+        int maxStart = GenerationGrid.pairsPerDay() - day.size();
+        for (int start = 0; start <= maxStart; start++) {
+            List<SolverResult.PlacedPair> attempt = new ArrayList<>();
+            boolean ok = true;
+            for (int i = 0; i < day.size() && ok; i++) {
+                SolverResult.PlacedPair original = day.get(i);
+                SolverInput.Demand demand = demandById.get(original.loadId());
+                SolverInput.TeacherRef teacher = teachers.get(original.teacherId());
+                if (demand == null || teacher == null) {
+                    ok = false;
+                    break;
+                }
+                GenerationGrid.Room room = null;
+                List<GenerationGrid.Room> candidates = new ArrayList<>();
+                for (GenerationGrid.Room r : roomsByDemand.getOrDefault(original.loadId(), List.of())) {
+                    if (r.name().equals(original.room())) candidates.add(0, r); else candidates.add(r);
+                }
+                for (GenerationGrid.Room r : candidates) {
+                    if (index.check(demand, group, teacher, r, dayIdx, start + i) == OccupancyIndex.Violation.NONE) {
+                        room = r;
+                        break;
+                    }
+                }
+                if (room == null) {
+                    ok = false;
+                    break;
+                }
+                SolverResult.PlacedPair moved = new SolverResult.PlacedPair(original.loadId(), original.groupId(),
+                        original.disciplineId(), original.teacherId(), room.name(), dayIdx, start + i);
+                index.place(moved);
+                attempt.add(moved);
+            }
+            if (ok && !dayHasGap(index.groupTimeline(group.id()), dayIdx)) {
+                placed.removeAll(day);
+                placed.addAll(attempt);
+                return true;
+            }
+            attempt.forEach(index::remove);
+        }
+        day.forEach(index::place);
+        return false;
+    }
+
+    private Placement bestNoGapPlacement(OccupancyIndex index,
+                                         SoftScorer scorer,
+                                         SolverInput.Demand demand,
+                                         SolverInput.GroupRef group,
+                                         SolverInput.TeacherRef teacher,
+                                         List<GenerationGrid.Room> rooms,
+                                         double targetPerDay,
+                                         int sourceDay) {
+        boolean[] line = index.groupTimeline(group.id());
+        Placement best = null;
+        for (int day = 0; day < GenerationGrid.days(); day++) {
+            for (int pair = 0; pair < GenerationGrid.pairsPerDay(); pair++) {
+                int flat = GenerationGrid.flat(day, pair);
+                if (line[flat]) continue;
+                line[flat] = true;
+                boolean gap = dayHasGap(line, day);
+                line[flat] = false;
+                if (gap) continue;
+                for (GenerationGrid.Room room : rooms) {
+                    if (index.check(demand, group, teacher, room, day, pair) == OccupancyIndex.Violation.NONE) {
+                        double penalty = scorer.placementPenalty(index, demand, group, teacher, room, day, pair, targetPerDay);
+                        if (best == null || penalty < best.penalty()) {
+                            best = new Placement(day, pair, room, penalty);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    private static boolean dayHasGap(boolean[] line, int dayIdx) {
+        int first = -1;
+        int last = -1;
+        int busy = 0;
+        for (int p = 0; p < GenerationGrid.pairsPerDay(); p++) {
+            if (line[GenerationGrid.flat(dayIdx, p)]) {
+                if (first < 0) first = p;
+                last = p;
+                busy++;
+            }
+        }
+        return first >= 0 && last - first + 1 != busy;
     }
 
     private List<SolverInput.Demand> orderUnits(SolverInput input, Random random) {

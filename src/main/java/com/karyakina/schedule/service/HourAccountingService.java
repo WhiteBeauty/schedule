@@ -1,19 +1,23 @@
 package com.karyakina.schedule.service;
 
 import com.karyakina.schedule.domain.LessonInstance;
+import com.karyakina.schedule.domain.MonthlyRecord;
 import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.repository.LessonInstanceRepository;
+import com.karyakina.schedule.repository.MonthlyRecordRepository;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
 import com.karyakina.schedule.util.AcademicYearUtil;
+import com.karyakina.schedule.util.ScheduleOccurrence;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -23,7 +27,7 @@ public class HourAccountingService {
     private final TeacherLoadRepository loadRepository;
     private final LessonInstanceRepository lessonInstanceRepository;
     private final ScheduleRepository scheduleRepository;
-    private final LessonInstanceService lessonInstanceService;
+    private final MonthlyRecordRepository monthlyRecordRepository;
 
     @Data
     @Builder
@@ -50,6 +54,32 @@ public class HourAccountingService {
         private int remainingHours;
     }
 
+    // вычитано за семестр одна формула для всех вкладок
+    public int conductedInSemester(TeacherLoad load, int semester, LocalDate today) {
+        return conductedInSemester(load, semester, today, monthlyRecordRepository.findByTeacherLoadId(load.getId()));
+    }
+
+    public int conductedInSemester(TeacherLoad load, int semester, LocalDate today, List<MonthlyRecord> records) {
+        int inSemester = 0;
+        int allMonths = 0;
+        for (MonthlyRecord r : records) {
+            if (r.getYear() != null && load.getAcademicYear() != null && !r.getYear().equals(load.getAcademicYear())) {
+                continue;
+            }
+            int hours = r.getConductedHoursOrZero();
+            allMonths += hours;
+            int month = r.getMonth() == null ? 0 : r.getMonth();
+            if (semester == 1 ? month >= 9 && month <= 12 : month >= 1 && month <= 8) inSemester += hours;
+        }
+        // старые ручные правки без месяца считаем в текущий семестр
+        int manualExtra = Math.max(0, nz(load.getReadHours()) - allMonths);
+        if (manualExtra > 0 && AcademicYearUtil.getCurrentSemester() == semester
+                && AcademicYearUtil.academicYearOf(today) == nz(load.getAcademicYear())) {
+            inSemester += manualExtra;
+        }
+        return inSemester;
+    }
+
     public List<PeriodHoursSummary> getWeeklySummary(Integer academicYear, Long teacherId) {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         LocalDate today = LocalDate.now();
@@ -70,40 +100,33 @@ public class HourAccountingService {
         List<TeacherLoad> loads = teacherId != null
                 ? loadRepository.findByTeacherIdAndAcademicYear(teacherId, academicYear)
                 : loadRepository.findByAcademicYear(academicYear);
-        List<Schedule> allSchedules = scheduleRepository.findByAcademicYear(academicYear);
         Map<Long, List<Schedule>> schedulesByLoad = new HashMap<>();
-        for (Schedule s : allSchedules) {
+        for (Schedule s : scheduleRepository.findByAcademicYear(academicYear)) {
             if (s.getTeacherLoad() == null) continue;
             schedulesByLoad.computeIfAbsent(s.getTeacherLoad().getId(), k -> new ArrayList<>()).add(s);
         }
-
-        LocalDate today = LocalDate.now();
-        Map<Long, Integer> plannedByLoad = new HashMap<>();
+        Map<String, LessonInstance> instanceByKey = new HashMap<>();
         Map<Long, Integer> conductedByLoad = new HashMap<>();
+        for (LessonInstance li : lessonInstanceRepository.findByLessonDateBetween(from, to)) {
+            if (li.getSchedule() != null) instanceByKey.put(li.getSchedule().getId() + "_" + li.getLessonDate(), li);
+            if (li.getTeacherLoad() != null && LessonInstanceService.isCredited(li)) {
+                conductedByLoad.merge(li.getTeacherLoad().getId(), nz(li.getDurationHours()), Integer::sum);
+            }
+        }
 
+        Map<Long, Integer> plannedByLoad = new HashMap<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
             if (GenerationGrid.dayIndex(d.getDayOfWeek()) < 0) continue;
             if (AcademicYearUtil.isVacation(d)) continue;
             int dateSemester = AcademicYearUtil.semesterOfDate(d);
-            int week = lessonInstanceService.computeAcademicWeek(d, academicYear);
-
+            int week = AcademicYearUtil.academicWeek(d, academicYear);
             for (Map.Entry<Long, List<Schedule>> entry : schedulesByLoad.entrySet()) {
                 for (Schedule s : entry.getValue()) {
-                    if (!com.karyakina.schedule.util.ScheduleOccurrence.occursOn(s, d, week, dateSemester)) continue;
-                    plannedByLoad.merge(entry.getKey(), 2, Integer::sum);
-                }
-            }
-
-            if (!d.isAfter(today)) {
-                List<LessonInstance> instances = lessonInstanceRepository.findByLessonDateBetween(d, d);
-                for (LessonInstance li : instances) {
-                    if (li.getStatus() != LessonInstance.Status.CONFIRMED
-                            && li.getStatus() != LessonInstance.Status.REPLACED) {
-                        continue;
-                    }
-                    if (li.getTeacherLoad() == null) continue;
-                    int hours = li.getDurationHours() == null ? 0 : li.getDurationHours();
-                    conductedByLoad.merge(li.getTeacherLoad().getId(), hours, Integer::sum);
+                    if (!ScheduleOccurrence.occursOn(s, d, week, dateSemester)) continue;
+                    LessonInstance li = instanceByKey.get(s.getId() + "_" + d);
+                    if (li != null && (li.getStatus() == LessonInstance.Status.CANCELLED
+                            || li.getStatus() == LessonInstance.Status.INDEPENDENT_WORK)) continue;
+                    plannedByLoad.merge(entry.getKey(), pairHours(s), Integer::sum);
                 }
             }
         }
@@ -115,7 +138,7 @@ public class HourAccountingService {
             int conducted = conductedByLoad.getOrDefault(load.getId(), 0);
             result.add(PeriodHoursSummary.builder()
                     .loadId(load.getId())
-                    .teacherName(load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен")
+                    .teacherName(teacherName(load))
                     .disciplineName(load.getDiscipline() != null ? load.getDiscipline().getName() : "")
                     .groupName(load.getGroup() != null ? load.getGroup().getName() : "")
                     .plannedHours(planned)
@@ -131,40 +154,20 @@ public class HourAccountingService {
     public List<LoadHoursSummary> getSummary(Integer academicYear, Integer semester, Long teacherId) {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         int sem = semester != null ? semester : AcademicYearUtil.getCurrentSemester();
-
-        LocalDate semesterStart = AcademicYearUtil.semesterStart(sem, year);
         LocalDate today = LocalDate.now();
-        LocalDate countTo = today.isBefore(semesterStart) ? semesterStart.minusDays(1)
-                : today.isAfter(AcademicYearUtil.semesterEnd(sem, year)) ? AcademicYearUtil.semesterEnd(sem, year)
-                : today;
 
         List<TeacherLoad> loads = teacherId != null
                 ? loadRepository.findByTeacherIdAndAcademicYear(teacherId, year)
                 : loadRepository.findByAcademicYear(year);
 
-        Map<Long, Integer> conductedByLoad = new HashMap<>();
-        if (!countTo.isBefore(semesterStart)) {
-            List<LessonInstance> instances = lessonInstanceRepository.findByLessonDateBetween(semesterStart, countTo);
-            for (LessonInstance li : instances) {
-                if (li.getStatus() != LessonInstance.Status.CONFIRMED
-                        && li.getStatus() != LessonInstance.Status.REPLACED) {
-                    continue;
-                }
-                if (li.getTeacherLoad() == null) continue;
-                int hours = li.getDurationHours() == null ? 0 : li.getDurationHours();
-                conductedByLoad.merge(li.getTeacherLoad().getId(), hours, Integer::sum);
-            }
-        }
-
         List<LoadHoursSummary> result = new ArrayList<>();
         for (TeacherLoad load : loads) {
-            int planned = sem == 2
-                    ? (load.getSecondSemesterHours() == null ? 0 : load.getSecondSemesterHours())
-                    : (load.getFirstSemesterHours() == null ? 0 : load.getFirstSemesterHours());
-            int conducted = conductedByLoad.getOrDefault(load.getId(), 0);
+            int planned = sem == 2 ? nz(load.getSecondSemesterHours()) : nz(load.getFirstSemesterHours());
+            int conducted = conductedInSemester(load, sem, today);
+            if (planned == 0 && conducted == 0) continue;
             result.add(LoadHoursSummary.builder()
                     .loadId(load.getId())
-                    .teacherName(load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен")
+                    .teacherName(teacherName(load))
                     .disciplineName(load.getDiscipline() != null ? load.getDiscipline().getName() : "")
                     .groupName(load.getGroup() != null ? load.getGroup().getName() : "")
                     .semester(sem)
@@ -176,5 +179,18 @@ public class HourAccountingService {
         result.sort(Comparator.comparing(LoadHoursSummary::getTeacherName)
                 .thenComparing(LoadHoursSummary::getDisciplineName));
         return result;
+    }
+
+    static int pairHours(Schedule s) {
+        long minutes = ChronoUnit.MINUTES.between(s.getStartTime(), s.getEndTime());
+        return (int) Math.max(1, Math.round(minutes / 60.0));
+    }
+
+    private static String teacherName(TeacherLoad load) {
+        return load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен";
+    }
+
+    private static int nz(Integer v) {
+        return v == null ? 0 : v;
     }
 }

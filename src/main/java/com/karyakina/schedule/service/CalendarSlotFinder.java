@@ -29,14 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
-/**
- * Поиск свободного места для пары в реальном календаре (конкретная дата + номер пары), а не в недельном шаблоне.
- *
- * Учитывает: семестр и активные недели строк расписания, отменённые занятия (их слот считается свободным),
- * фактического преподавателя при замене, праздники и каникулы, экзамены/практики группы, больничные преподавателя,
- * обед, лимиты группы на день и неделю, вместимость и профиль аудиторий. В первую очередь избегает окон у группы:
- * пара ставится либо в существующее окно, либо вплотную к парам группы этого дня, либо в пустой день.
- */
 @Service
 @RequiredArgsConstructor
 public class CalendarSlotFinder {
@@ -59,7 +51,6 @@ public class CalendarSlotFinder {
         try {
             globalLunch = settingsService.getGlobalLunchWindow();
         } catch (Exception ignored) {
-            // обед не настроен — ограничений нет
         }
         return new Calendar(academicYear, start, end,
                 scheduleRepository.findByAcademicYear(academicYear),
@@ -76,10 +67,16 @@ public class CalendarSlotFinder {
     }
 
     public record Request(TeacherLoad load, Long teacherId, LocalDate from, LocalDate to, int semester,
-                          String preferredRoom, int preferredPair, boolean allowWindows, boolean onlyFillGaps) {
+                          String preferredRoom, int preferredPair, boolean allowWindows, boolean onlyFillGaps,
+                          boolean fromEnd, int maxLoadPerDay) {
         public Request(TeacherLoad load, Long teacherId, LocalDate from, LocalDate to, int semester,
                        String preferredRoom, int preferredPair, boolean allowWindows) {
-            this(load, teacherId, from, to, semester, preferredRoom, preferredPair, allowWindows, false);
+            this(load, teacherId, from, to, semester, preferredRoom, preferredPair, allowWindows, false, false, 0);
+        }
+
+        public Request(TeacherLoad load, Long teacherId, LocalDate from, LocalDate to, int semester,
+                       String preferredRoom, int preferredPair, boolean allowWindows, boolean onlyFillGaps) {
+            this(load, teacherId, from, to, semester, preferredRoom, preferredPair, allowWindows, onlyFillGaps, false, 0);
         }
     }
 
@@ -220,7 +217,6 @@ public class CalendarSlotFinder {
             return academicYear;
         }
 
-        /** Освободить слот отменённого занятия (например, при экзамене в этот день). */
         public void release(Long scheduleId, LocalDate date) {
             List<Occ> day = byDate.get(date);
             if (day != null) {
@@ -274,6 +270,15 @@ public class CalendarSlotFinder {
                     .anyMatch(o -> room.equals(o.room) && o.pairIdx == pairIdx);
         }
 
+        public int teacherPairsOn(Long teacherId, LocalDate date) {
+            return teacherDayCount(teacherId, date);
+        }
+
+        private int loadDayCount(Long loadId, LocalDate date) {
+            return (int) byDate.getOrDefault(date, List.of()).stream()
+                    .filter(o -> loadId.equals(o.loadId)).count();
+        }
+
         private int teacherDayCount(Long teacherId, LocalDate date) {
             if (teacherId == null) return 0;
             return (int) byDate.getOrDefault(date, List.of()).stream()
@@ -295,10 +300,6 @@ public class CalendarSlotFinder {
             return globalLunch;
         }
 
-        /**
-         * Сначала ищется слот без окна у группы. Только если такого нет до конца периода и запрос это разрешает,
-         * берётся слот с окном — он помечается createsWindow, и вызывающий код показывает предупреждение.
-         */
         public Outcome find(Request req) {
             Outcome strict = search(req, false);
             if (strict.found() || !req.allowWindows()) {
@@ -323,7 +324,10 @@ public class CalendarSlotFinder {
 
             LocalDate start = req.from().isBefore(from) ? from : req.from();
             LocalDate end = req.to().isAfter(to) ? to : req.to();
-            for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+            List<LocalDate> dates = new ArrayList<>();
+            for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) dates.add(d);
+            if (req.fromEnd()) java.util.Collections.reverse(dates);
+            for (LocalDate d : dates) {
                 if (!byDate.containsKey(d)) continue;
                 if (AcademicYearUtil.semesterOfDate(d) != req.semester()) continue;
                 if (d.isBefore(now.toLocalDate())) continue;
@@ -333,7 +337,10 @@ public class CalendarSlotFinder {
                 if (groupWeekCount(groupId, d) >= weekCap) { diag.weekCap++; continue; }
                 TreeSet<Integer> pairs = groupPairs(groupId, d);
                 if (pairs.size() >= DEFAULT_GROUP_DAY_CAP) { diag.dayCap++; continue; }
-                // Перегрузка преподавателя допустима: дневной потолок пар у преподавателя не ограничивает перенос.
+                if (req.maxLoadPerDay() > 0 && loadDayCount(load.getId(), d) >= req.maxLoadPerDay()) {
+                    diag.dayCap++;
+                    continue;
+                }
 
                 Slot best = null;
                 double bestScore = Double.MAX_VALUE;
@@ -379,7 +386,6 @@ public class CalendarSlotFinder {
             return null;
         }
 
-        /** Занятия группы на дату (для уплотнения дня). */
         List<Occ> groupOccurrences(Long groupId, LocalDate date) {
             List<Occ> result = new ArrayList<>();
             for (Occ o : byDate.getOrDefault(date, List.of())) {
@@ -392,7 +398,6 @@ public class CalendarSlotFinder {
             return pickRoom(preferred, date, pairIdx, students, discipline);
         }
 
-        /** Все пары группы на дату (для проверки окон и выбора, какую пару снимать при излишке часов). */
         public TreeSet<Integer> pairsOfGroup(Long groupId, LocalDate date) {
             return groupPairs(groupId, date);
         }

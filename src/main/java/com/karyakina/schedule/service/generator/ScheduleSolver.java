@@ -586,12 +586,6 @@ public class ScheduleSolver {
         }
     }
 
-    /**
-     * Ремонт окон у групп после поиска. Штрафы почти всегда дают 0 окон, но не гарантируют (результат зависит
-     * от порядка и случайности). Для каждого дня с окном: 1) уплотняем день (пары подряд с 1-й или текущей первой);
-     * 2) иначе переносим крайнюю пару (с меньшей стороны окна) в другой день, не создавая там окна.
-     * Пары никогда не снимаются: если починить нельзя, окно остаётся и попадает в предупреждения.
-     */
     private void repairGroupGaps(OccupancyIndex index,
                                  SoftScorer scorer,
                                  SolverInput input,
@@ -621,7 +615,6 @@ public class ScheduleSolver {
                 continue;
             }
 
-            // Крайняя пара со стороны, где пар меньше: её уход быстрее всего закрывает окно.
             boolean[] line = index.groupTimeline(groupId);
             int first = day.get(0).pairIndex();
             int last = day.get(day.size() - 1).pairIndex();

@@ -26,6 +26,7 @@ public class TeacherLoadService {
     private final TeacherLoadRepository loadRepository;
     private final TeacherRepository teacherRepository;
     private final CuratorshipRepository curatorshipRepository;
+    private final LessonInstanceService lessonInstanceService;
 
     public List<TeacherLoad> findByYear(Integer year) {
         return loadRepository.findByAcademicYear(year);
@@ -37,10 +38,15 @@ public class TeacherLoadService {
 
     @Transactional
     public TeacherLoad updateReadHours(Long loadId, Integer newReadHours) {
+        return updateReadHours(loadId, newReadHours, "admin");
+    }
+
+    @Transactional
+    public TeacherLoad updateReadHours(Long loadId, Integer newReadHours, String changedBy) {
         TeacherLoad load = loadRepository.findById(loadId)
                 .orElseThrow(() -> new NoSuchElementException("Load not found: " + loadId));
-        load.setReadHours(newReadHours);
-        return loadRepository.save(load);
+        lessonInstanceService.correctReadHours(load, newReadHours == null ? 0 : newReadHours, changedBy);
+        return load;
     }
 
     public List<ProductivityDto> calculateProductivity(Integer year) {
@@ -61,7 +67,7 @@ public class TeacherLoadService {
             List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
             double curatorshipPlan = curatorships.stream()
                     .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
-            double curatorshipDone = curatorshipDoneHours(curatorships);
+            double curatorshipDone = curatorshipDoneHours(curatorships, year);
 
             long totalCp = teacherLoads.stream()
                     .mapToLong(l -> l.getControlPoints().size()).sum();
@@ -72,7 +78,7 @@ public class TeacherLoadService {
 
             long totalAdjustments = teacherLoads.stream()
                     .mapToLong(l -> l.getMonthlyRecords().stream()
-                            .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
+                            .filter(r -> r.getAdjustedHours() != null)
                             .count())
                     .sum();
             long totalRecords = teacherLoads.stream()
@@ -124,15 +130,8 @@ public class TeacherLoadService {
         return result;
     }
 
-    private double curatorshipDoneHours(List<Curatorship> curatorships) {
-        double total = 0;
-        for (Curatorship c : curatorships) {
-            if (c.getEvents() == null) continue;
-            for (CuratorEvent event : c.getEvents()) {
-                total += event.getHours() != null ? event.getHours() : 0;
-            }
-        }
-        return total;
+    private double curatorshipDoneHours(List<Curatorship> curatorships, int year) {
+        return curatorships.stream().mapToDouble(c -> CuratorshipService.doneHours(c, year)).sum();
     }
 
     private double computePlanCompletion(List<TeacherLoad> teacherLoads, double totalPlan, double totalRead,
@@ -190,10 +189,10 @@ public class TeacherLoadService {
             return 100;
         }
 
-        long totalDays = startDate.until(endDate).getDays();
-        long elapsedDays = startDate.until(today).getDays();
+        long totalDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate);
+        long elapsedDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, today);
 
-        return (int) ((double) elapsedDays / totalDays * 100);
+        return totalDays <= 0 ? 0 : (int) ((double) elapsedDays / totalDays * 100);
     }
 
     public TeacherProfileDto buildProfile(Long teacherId, Integer year) {
@@ -228,7 +227,7 @@ public class TeacherLoadService {
                 .flatMap(l -> l.getMonthlyRecords().stream())
                 .forEach(mr -> {
                     String name = Month.of(mr.getMonth()).getDisplayName(TextStyle.FULL, Locale.forLanguageTag("ru"));
-                    monthMap.merge(name, mr.getEffectiveHours(), Integer::sum);
+                    monthMap.merge(name, mr.getConductedHoursOrZero(), Integer::sum);
                 });
 
         List<TeacherProfileDto.MonthlyHoursDto> dynamics = monthMap.entrySet().stream()
@@ -282,7 +281,7 @@ public class TeacherLoadService {
 
         long totalAdjustments = loads.stream()
                 .mapToLong(l -> l.getMonthlyRecords().stream()
-                        .filter(r -> r.getAdjustedHours() != null && !r.getAdjustedHours().equals(r.getHours()))
+                        .filter(r -> r.getAdjustedHours() != null)
                         .count())
                 .sum();
         long totalRecords = loads.stream()
@@ -296,7 +295,7 @@ public class TeacherLoadService {
         List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
         double curatorshipPlan = curatorships.stream()
                 .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
-        double curatorshipDone = curatorshipDoneHours(curatorships);
+        double curatorshipDone = curatorshipDoneHours(curatorships, year);
 
         double planCompletion = computePlanCompletion(
                 loads, totalPlan, totalRead, curatorshipPlan, curatorshipDone, academicYearProgress);

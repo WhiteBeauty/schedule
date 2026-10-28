@@ -1,8 +1,8 @@
 <div xmlns:th="http://www.thymeleaf.org">
 
     <div th:fragment="modal">
-        <button class="btn btn-secondary" onclick="openSpecialEventModal()">Экзамен / практика / вождение</button>
-        <button class="btn btn-secondary" onclick="openUnresolvedCloudModal()">Не вставшие пары</button>
+        <button type="button" class="btn btn-secondary" onclick="openSpecialEventModal()">Поставить экзамен / практику / вождение</button>
+        <button type="button" class="btn btn-secondary" onclick="openUnresolvedCloudModal()">Не вставшие пары</button>
 
         <div class="modal-overlay" id="specialEventModal">
             <div class="modal" style="max-width:640px;">
@@ -12,11 +12,10 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
-                        В указанный период у группы блокируются обычные пары — система сама
-                        попробует перенести их на ближайшие свободные слоты до конца текущего
-                        семестра (с учётом занятости преподавателей/аудиторий и лимита пар/нед
-                        у группы). То, что перенести не удалось, попадёт в «облако не вставших
-                        пар» — посмотреть его можно кнопкой ниже.
+                        В эти дни у группы не будет ни одной пары, в расписании крупно будет написано
+                        экзамен, практика или вождение. Все пары с этих дней переносятся на свободные места
+                        до конца семестра. Что не встало сразу, система поставит ближе к концу семестра,
+                        когда у преподавателей освободятся часы.
                     </p>
                     <label style="display:block; margin-bottom:0.75rem;">
                         Тип
@@ -165,6 +164,7 @@
             function refreshAfterSpecialEvent() {
                 if (typeof loadSchedule === 'function') loadSchedule();
                 if (typeof loadMonth === 'function') loadMonth();
+                if (typeof window.onSpecialEventChanged === 'function') window.onSpecialEventChanged();
             }
 
             async function submitSpecialEvent() {

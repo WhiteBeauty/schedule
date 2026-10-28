@@ -26,7 +26,6 @@ class CalendarRulesTest {
 
     @Test
     void academicWeekStartsOnMondayOfSeptemberFirstWeek() {
-        // 1 сентября 2026 — вторник; понедельник 31 августа — тоже 1-я неделя.
         assertEquals(1, AcademicYearUtil.academicWeek(LocalDate.of(2026, 8, 31), 2026));
         assertEquals(1, AcademicYearUtil.academicWeek(LocalDate.of(2026, 9, 6), 2026));
         assertEquals(2, AcademicYearUtil.academicWeek(LocalDate.of(2026, 9, 7), 2026));
@@ -43,7 +42,6 @@ class CalendarRulesTest {
     void weekNumberMapsToSemester() {
         assertEquals(1, ScheduleService.semesterOfWeek(5, 2026));
         assertEquals(2, ScheduleService.semesterOfWeek(30, 2026));
-        // неделя новогодних каникул относится к весне (ближайший семестр)
         assertEquals(2, ScheduleService.semesterOfWeek(19, 2026));
     }
 

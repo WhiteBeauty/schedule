@@ -95,7 +95,6 @@ public record MissingResourceRequest(
         options = options == null ? List.of() : List.copyOf(options);
     }
 
-    /** Ключ «о чём вопрос» — одинаковый у одного и того же конфликта между пересборками (id каждый раз новый). */
     public String subjectKey() {
         Object load = context.get("loadId");
         Object group = context.get("groupId");

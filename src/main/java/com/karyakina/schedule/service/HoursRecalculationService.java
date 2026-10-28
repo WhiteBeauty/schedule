@@ -4,12 +4,14 @@ import com.karyakina.schedule.domain.LessonInstance;
 import com.karyakina.schedule.domain.MonthlyRecord;
 import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.SickLeave;
+import com.karyakina.schedule.domain.SpecialEvent;
 import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.domain.UnresolvedReschedule;
 import com.karyakina.schedule.repository.LessonInstanceRepository;
 import com.karyakina.schedule.repository.MonthlyRecordRepository;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.SickLeaveRepository;
+import com.karyakina.schedule.repository.SpecialEventRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.UnresolvedRescheduleRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
@@ -26,38 +28,33 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
-/**
- * Динамический пересчёт расписания по фактически вычитанным часам.
- *
- * Для каждой нагрузки семестра считается баланс:
- *   цель семестра − вычитано (readHours + пары, отданные на замену, + прошедшие, ещё не списанные пары)
- *   − часы будущих пар до конца семестра (с учётом всех отмен, переносов экзаменов и больничных).
- * Если часов не хватает — в свободные слоты календаря (без окон у группы) добавляются разовые пары,
- * равномерно до конца семестра. Если будущих пар больше, чем нужно, — снимаются последние пары семестра,
- * причём в первую очередь крайние в дне группы, чтобы не появлялись окна.
- *
- * Цель — план своего семестра: недочитанное осенью восполняется только осенью, весна считается отдельно.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class HoursRecalculationService {
 
-    private static final String ADDED_REASON = "Доп. пара: динамический пересчёт часов";
+    private static final String ADDED_REASON = "Доп. пара: пересчёт часов";
     private static final String UNRESOLVED_PREFIX = "Пересчёт часов: ";
+    private static final int MAX_SAME_LOAD_PER_DAY = 2;
 
     private final TeacherLoadRepository loadRepository;
     private final ScheduleRepository scheduleRepository;
     private final LessonInstanceRepository instanceRepository;
     private final SickLeaveRepository sickLeaveRepository;
+    private final SpecialEventRepository specialEventRepository;
     private final UnresolvedRescheduleRepository unresolvedRepository;
     private final LessonInstanceService lessonInstanceService;
     private final CalendarSlotFinder slotFinder;
     private final MonthlyRecordRepository monthlyRecordRepository;
+    private final HourAccountingService hourAccountingService;
+    private final GroupWindowService groupWindowService;
+    private final MonthlyRecordService monthlyRecordService;
 
     public record Change(Long loadId, String groupName, String disciplineName, String teacherName,
                          LocalDate date, int pairNumber, String classroom, String note) {
@@ -69,10 +66,13 @@ public class HoursRecalculationService {
 
     public record Result(int academicYear, int semester, boolean dryRun, int loadsChecked,
                          List<LoadBalance> imbalances, List<Change> added, List<Change> cancelled,
-                         List<String> unresolved, java.util.Set<Long> uncoveredLoadIds) {
+                         List<String> unresolved, Set<Long> uncoveredLoadIds) {
     }
 
     private record Plan(TeacherLoad load, Long teacherId, int balance, List<Occurrence> future) {
+    }
+
+    private record Occurrence(Schedule schedule, LocalDate date, int hours) {
     }
 
     @Transactional
@@ -81,8 +81,6 @@ public class HoursRecalculationService {
         if (dryRun || (first.added().isEmpty() && first.cancelled().isEmpty())) {
             return first;
         }
-        // Снятие лишних пар у одних нагрузок освобождает место для других, а после снятия последней пары дня
-        // последней становится следующая — поэтому повторяем, пока расписание не перестанет меняться.
         List<Change> added = new ArrayList<>(first.added());
         List<Change> cancelled = new ArrayList<>(first.cancelled());
         Result last = first;
@@ -93,6 +91,10 @@ public class HoursRecalculationService {
             last = next;
             if (next.added().isEmpty() && next.cancelled().isEmpty()) break;
         }
+        Set<Long> touched = new HashSet<>();
+        added.forEach(c -> touched.add(c.loadId()));
+        cancelled.forEach(c -> touched.add(c.loadId()));
+        touched.forEach(monthlyRecordService::recalculateHoursForLoad);
         log.info("Пересчёт по часам (год {}, семестр {}, нагрузок {}): добавлено пар {}, снято {}, требует внимания {}",
                 academicYear, semester, onlyLoadIds == null || onlyLoadIds.isEmpty() ? "все" : onlyLoadIds.size(),
                 added.size(), cancelled.size(), last.unresolved().size());
@@ -112,44 +114,51 @@ public class HoursRecalculationService {
         List<Change> cancelled = new ArrayList<>();
         List<String> unresolved = new ArrayList<>();
         if (today.isAfter(semEnd)) {
-            unresolved.add("Семестр " + semester + " уже закончился — пересчитывать нечего.");
-            return new Result(academicYear, semester, dryRun, 0, imbalances, added, cancelled, unresolved,
-                    new java.util.HashSet<>());
+            unresolved.add("Семестр " + semester + " уже закончился, пересчитывать нечего.");
+            return new Result(academicYear, semester, dryRun, 0, imbalances, added, cancelled, unresolved, new HashSet<>());
         }
 
-        List<Schedule> all = scheduleRepository.findByAcademicYear(academicYear);
         Map<Long, List<Schedule>> byLoad = new HashMap<>();
-        for (Schedule s : all) {
+        for (Schedule s : scheduleRepository.findByAcademicYear(academicYear)) {
             if (s.getTeacherLoad() == null) continue;
             if (s.getSemester() != null && s.getSemester() != semester) continue;
             byLoad.computeIfAbsent(s.getTeacherLoad().getId(), k -> new ArrayList<>()).add(s);
         }
         Map<String, LessonInstance> instances = new HashMap<>();
+        Map<Long, Integer> foreignCredited = new HashMap<>();
         for (LessonInstance li : instanceRepository.findByLessonDateBetween(semStart, semEnd)) {
-            if (li.getSchedule() != null) instances.put(li.getSchedule().getId() + "_" + li.getLessonDate(), li);
+            if (li.getSchedule() == null) continue;
+            instances.put(li.getSchedule().getId() + "_" + li.getLessonDate(), li);
+            TeacherLoad slotLoad = li.getSchedule().getTeacherLoad();
+            if (li.getTeacherLoad() != null && slotLoad != null && !li.getTeacherLoad().getId().equals(slotLoad.getId())
+                    && LessonInstanceService.isCredited(li)) {
+                foreignCredited.merge(li.getTeacherLoad().getId(), nz(li.getDurationHours()), Integer::sum);
+            }
         }
         List<SickLeave> sickLeaves = sickLeaveRepository.findAll();
+        Map<Long, List<SpecialEvent>> eventsByGroup = new HashMap<>();
+        for (SpecialEvent e : specialEventRepository.findByAcademicYear(academicYear)) {
+            if (e.getGroup() != null) eventsByGroup.computeIfAbsent(e.getGroup().getId(), k -> new ArrayList<>()).add(e);
+        }
         CalendarSlotFinder.Calendar calendar = slotFinder.open(academicYear, today.isAfter(semStart) ? today : semStart, semEnd);
 
         int checked = 0;
         List<Plan> plans = new ArrayList<>();
-        java.util.Set<Long> uncovered = new java.util.HashSet<>();
-        java.util.Set<Long> balanced = new java.util.HashSet<>();
+        Set<Long> uncovered = new HashSet<>();
+        Set<Long> balanced = new HashSet<>();
         for (Map.Entry<Long, List<Schedule>> entry : byLoad.entrySet()) {
             if (onlyLoadIds != null && !onlyLoadIds.isEmpty() && !onlyLoadIds.contains(entry.getKey())) continue;
             TeacherLoad load = entry.getValue().get(0).getTeacherLoad();
             if (Boolean.TRUE.equals(load.getOverload()) || load.getGroup() == null || load.getDiscipline() == null) continue;
             if (ScheduleGeneratorService.isPracticeOrDriving(load.getDiscipline().getName())) continue;
-            boolean started = !today.isBefore(semStart);
-            // Каждый семестр закрывается своими часами: недочитанное осенью добирается осенью,
-            // на весну (другой семестр, другие пары) ничего не переносится.
             int target = semester == 2 ? nz(load.getSecondSemesterHours()) : nz(load.getFirstSemesterHours());
             if (target <= 0) continue;
             checked++;
 
             Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
+            List<SpecialEvent> groupEvents = eventsByGroup.getOrDefault(load.getGroup().getId(), List.of());
             int pendingPast = 0;
-            int replaced = 0;
+            int covered = 0;
             int future = 0;
             int pastScheduled = 0;
             List<Occurrence> futureOccurrences = new ArrayList<>();
@@ -160,12 +169,12 @@ public class HoursRecalculationService {
                     if (!ScheduleOccurrence.occursOn(s, d, week, semester)) continue;
                     LessonInstance li = instances.get(s.getId() + "_" + d);
                     LessonInstance.Status status = li == null ? LessonInstance.Status.PLANNED : li.getStatus();
-                    int hours = li != null && li.getDurationHours() != null ? li.getDurationHours() : durationHours(s);
-                    // Замена: часы отдал другой преподаватель. Самостоятельная работа: администратор решил
-                    // не восполнять пару. В обоих случаях группа этот объём закрыла — доставлять не нужно.
+                    int hours = li != null && li.getDurationHours() != null ? li.getDurationHours() : pairHours(s);
                     boolean past = d.isBefore(today) || (d.equals(today) && !s.getEndTime().isAfter(now.toLocalTime()));
                     if (status == LessonInstance.Status.REPLACED || status == LessonInstance.Status.INDEPENDENT_WORK) {
-                        replaced += hours;
+                        boolean ownCredit = li.getTeacherLoad() != null && li.getTeacherLoad().getId().equals(load.getId())
+                                && LessonInstanceService.isCredited(li);
+                        if (!ownCredit) covered += hours;
                         if (past) pastScheduled += hours;
                         continue;
                     }
@@ -174,29 +183,27 @@ public class HoursRecalculationService {
                         continue;
                     }
                     if (status != LessonInstance.Status.PLANNED) continue;
-                    boolean absent = isAbsent(sickLeaves, teacherId, d);
+                    if (blockedByEvent(groupEvents, load, d) || isAbsent(sickLeaves, teacherId, d)) continue;
                     if (past) {
-                        if (!absent) {
-                            pendingPast += hours;
-                            pastScheduled += hours;
-                        }
-                    } else if (!absent) {
+                        pendingPast += hours;
+                        pastScheduled += hours;
+                    } else {
                         future += hours;
                         futureOccurrences.add(new Occurrence(s, d, hours));
                     }
                 }
             }
 
-            int read = started ? deliveredInSemester(load, semester, today) : 0;
-            int delivered = read + replaced + pendingPast;
-            // Защита от испорченных данных: «вычитано» не может превышать то, что вообще стояло в расписании
-            // (весной — плюс осенний план). Такое бывает после сноса расписания: занятия удалены, часы остались.
-            // В этом случае ничего не снимаем и не добавляем, а просим сверить часы с журналом.
+            int read = hourAccountingService.conductedInSemester(load, semester, today,
+                    monthlyRecordRepository.findByTeacherLoadId(load.getId()))
+                    - foreignCredited.getOrDefault(load.getId(), 0);
+            read = Math.max(0, read);
+            int delivered = read + covered + pendingPast;
             int possible = pastScheduled + 2;
-            if (read > 0 && delivered > possible) {
+            if (read > 0 && delivered > possible && read > pastScheduled) {
                 unresolved.add(load.getDiscipline().getName() + ", " + load.getGroup().getName() + ": вычитано "
-                        + read + " ч, а по расписанию к сегодняшнему дню могло пройти не больше " + (possible - 2)
-                        + " ч — пересчёт пропущен, сверьте «вычитано» с журналом.");
+                        + read + " ч, а по расписанию к сегодняшнему дню могло пройти не больше " + pastScheduled
+                        + " ч, пересчёт пропущен, сверьте вычитанное с журналом.");
                 uncovered.add(load.getId());
                 continue;
             }
@@ -210,29 +217,30 @@ public class HoursRecalculationService {
             plans.add(new Plan(load, teacherId, balance, futureOccurrences));
         }
 
-        // Сначала снимаем лишнее (это освобождает недельный лимит групп), потом добавляем недостающее.
+        // сначала снимаем лишнее у тех кто отчитал потом ставим недостающее
+        Map<Long, Set<LocalDate>> holes = new HashMap<>();
+        Set<LocalDate> materialized = new HashSet<>();
         for (Plan plan : plans) {
             if (plan.balance() < 0) {
-                int notRemoved = removePairs(plan.load(), (-plan.balance()) / 2, plan.future(), calendar, dryRun, cancelled);
-                if (notRemoved > 0) {
-                    unresolved.add(plan.load().getDiscipline().getName() + ", " + plan.load().getGroup().getName()
-                            + ": лишние " + (notRemoved * 2) + " ч не сняты — эти пары стоят не последними в дне, "
-                            + "снятие дало бы окно.");
-                }
+                removePairs(plan.load(), (-plan.balance()) / 2, plan.future(), calendar, dryRun, cancelled, holes,
+                        materialized);
                 balanced.add(plan.load().getId());
             }
         }
+        plans.sort((a, b) -> Integer.compare(b.balance(), a.balance()));
         for (Plan plan : plans) {
             if (plan.balance() > 0) {
-                boolean covered = addPairs(plan.load(), plan.teacherId(), (plan.balance() + 1) / 2, today, semEnd,
+                boolean ok = addPairs(plan.load(), plan.teacherId(), (plan.balance() + 1) / 2, today, semEnd,
                         semester, academicYear, calendar, dryRun, added, unresolved);
-                if (covered) balanced.add(plan.load().getId());
+                if (ok) balanced.add(plan.load().getId());
                 else uncovered.add(plan.load().getId());
             }
         }
+        if (!dryRun && !holes.isEmpty()) {
+            GroupWindowService.Outcome windows = groupWindowService.closeWindows(holes, academicYear, null);
+            unresolved.addAll(windows.warnings());
+        }
 
-        // Нагрузки, у которых часы теперь сходятся с планом, убираем из «облака» не вставших пар:
-        // их часы покрыты (переносом, доп. парами или запасом расписания).
         if (!dryRun && !balanced.isEmpty()) {
             unresolvedRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear).stream()
                     .filter(u -> u.getTeacherLoadId() != null && balanced.contains(u.getTeacherLoadId()))
@@ -242,29 +250,13 @@ public class HoursRecalculationService {
         return new Result(academicYear, semester, dryRun, checked, imbalances, added, cancelled, unresolved, uncovered);
     }
 
-    private record Occurrence(Schedule schedule, LocalDate date, int hours) {
-    }
-
-    /**
-     * Часы, вычитанные по нагрузке именно в этом семестре: проведённые часы по месяцам семестра
-     * (сентябрь–декабрь или январь–июнь). Ручная правка «вычитано», не привязанная к месяцам,
-     * относится к семестру, который идёт сейчас.
-     */
-    public int deliveredInSemester(TeacherLoad load, int semester, LocalDate today) {
-        int inSemester = 0;
-        int allMonths = 0;
-        for (MonthlyRecord r : monthlyRecordRepository.findByTeacherLoadId(load.getId())) {
-            int hours = r.getConductedHoursOrZero();
-            allMonths += hours;
-            int month = r.getMonth() == null ? 0 : r.getMonth();
-            boolean monthInSemester = semester == 1 ? month >= 9 && month <= 12 : month >= 1 && month <= 6;
-            if (monthInSemester) inSemester += hours;
+    private static boolean blockedByEvent(List<SpecialEvent> events, TeacherLoad load, LocalDate date) {
+        for (SpecialEvent e : events) {
+            if (date.isBefore(e.getStartDate()) || date.isAfter(e.getEndDate())) continue;
+            if (e.getTeacherLoad() != null && e.getTeacherLoad().getId().equals(load.getId())) continue;
+            return true;
         }
-        int manualExtra = Math.max(0, nz(load.getReadHours()) - allMonths);
-        if (manualExtra > 0 && AcademicYearUtil.semesterOfDate(today) == semester) {
-            inSemester += manualExtra;
-        }
-        return inSemester;
+        return false;
     }
 
     public record ReadHoursFix(Long loadId, String groupName, String disciplineName, String teacherName,
@@ -275,20 +267,13 @@ public class HoursRecalculationService {
                                 List<ReadHoursFix> changes) {
     }
 
-    /**
-     * Восстановить «вычитано» (readHours и проведённые часы по месяцам) по журналу занятий.
-     * Нужно, когда расписание сносили/пересоздавали: занятия удалялись, а вычитанные по ним часы оставались,
-     * из-за чего нагрузка выглядела выполненной на сотни процентов. Ручные правки readHours при этом теряются,
-     * поэтому сначала показывается предпросмотр.
-     */
     @Transactional
     public RebuildResult rebuildReadHoursFromJournal(int academicYear, boolean apply) {
         Map<Long, Integer> total = new HashMap<>();
         Map<Long, Map<Integer, Integer>> perMonth = new HashMap<>();
         for (LessonInstance li : instanceRepository.findByAcademicYear(academicYear)) {
-            if (li.getTeacherLoad() == null) continue;
-            if (li.getStatus() != LessonInstance.Status.CONFIRMED && li.getStatus() != LessonInstance.Status.REPLACED) continue;
-            int hours = li.getDurationHours() == null ? 0 : li.getDurationHours();
+            if (li.getTeacherLoad() == null || !LessonInstanceService.isCredited(li)) continue;
+            int hours = nz(li.getDurationHours());
             total.merge(li.getTeacherLoad().getId(), hours, Integer::sum);
             perMonth.computeIfAbsent(li.getTeacherLoad().getId(), k -> new HashMap<>())
                     .merge(li.getLessonDate().getMonthValue(), hours, Integer::sum);
@@ -313,6 +298,7 @@ public class HoursRecalculationService {
                 for (MonthlyRecord record : monthlyRecordRepository.findByTeacherLoadId(load.getId())) {
                     if (record.getYear() != null && !record.getYear().equals(load.getAcademicYear())) continue;
                     record.setConductedHours(months.getOrDefault(record.getMonth(), 0));
+                    record.setAdjustedHours(null);
                     record.setChangedBy("system:rebuild-from-journal");
                     monthlyRecordRepository.save(record);
                 }
@@ -322,39 +308,32 @@ public class HoursRecalculationService {
     }
 
     private boolean addPairs(TeacherLoad load, Long teacherId, int pairs, LocalDate from, LocalDate semEnd,
-                          int semester, int academicYear, CalendarSlotFinder.Calendar calendar, boolean dryRun,
-                          List<Change> added, List<String> unresolved) {
-        long span = Math.max(1, ChronoUnit.DAYS.between(from, semEnd));
+                             int semester, int academicYear, CalendarSlotFinder.Calendar calendar, boolean dryRun,
+                             List<Change> added, List<String> unresolved) {
         int placed = 0;
         String lastFailure = null;
         String preferredRoom = scheduleRepository.findByTeacherLoadId(load.getId()).stream()
                 .map(Schedule::getClassroom).filter(r -> r != null && !r.isBlank()).findFirst().orElse(null);
         for (int i = 0; i < pairs; i++) {
-            LocalDate spreadFrom = from.plusDays(span * i / pairs);
-            // В первую очередь недостающая пара закрывает существующее окно группы (после переносов/отмен).
+            // ставим ближе к концу семестра
             CalendarSlotFinder.Outcome outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId,
-                    from, semEnd, semester, preferredRoom, -1, false, true));
+                    from, semEnd, semester, preferredRoom, -1, false, true, true, MAX_SAME_LOAD_PER_DAY));
             if (!outcome.found()) {
                 outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId,
-                        spreadFrom, semEnd, semester, preferredRoom, -1, false));
-            }
-            if (!outcome.found() && spreadFrom.isAfter(from)) {
-                outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId, from, semEnd, semester,
-                        preferredRoom, -1, false));
+                        from, semEnd, semester, preferredRoom, -1, false, false, true, MAX_SAME_LOAD_PER_DAY));
             }
             if (!outcome.found()) {
-                // Без окна места нет — ставим с окном у группы, но с предупреждением, чтобы часы не потерялись.
-                outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId, from, semEnd, semester,
-                        preferredRoom, -1, true));
+                outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId,
+                        from, semEnd, semester, preferredRoom, -1, true, false, true, MAX_SAME_LOAD_PER_DAY));
                 if (outcome.found()) {
                     unresolved.add("Внимание: " + load.getDiscipline().getName() + ", " + load.getGroup().getName()
-                            + " — доп. пара " + outcome.slot().date() + ", " + (outcome.slot().pairIdx() + 1)
-                            + "-я пара: у группы в этот день будет окно (без окна места не нашлось).");
+                            + " доп. пара " + outcome.slot().date() + ", " + (outcome.slot().pairIdx() + 1)
+                            + "-я пара, у группы в этот день будет окно (без окна места не нашлось).");
                 }
             }
             if (!outcome.found()) {
                 lastFailure = outcome.diagnostics().describe(CalendarSlotFinder.weekCap(load.getGroup()));
-                continue;
+                break;
             }
             CalendarSlotFinder.Slot slot = outcome.slot();
             Long scheduleId = null;
@@ -381,7 +360,8 @@ public class HoursRecalculationService {
         if (!dryRun) {
             unresolvedRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear).stream()
                     .filter(u -> u.getSpecialEventId() == null && load.getId().equals(u.getTeacherLoadId())
-                            && u.getReason() != null && u.getReason().startsWith(UNRESOLVED_PREFIX))
+                            && u.getReason() != null
+                            && (u.getReason().startsWith(UNRESOLVED_PREFIX) || u.getReason().startsWith("Автосоставление")))
                     .forEach(unresolvedRepository::delete);
         }
         int missing = pairs - placed;
@@ -406,16 +386,15 @@ public class HoursRecalculationService {
         return missing <= 0;
     }
 
-    private int removePairs(TeacherLoad load, int pairs, List<Occurrence> future,
-                             CalendarSlotFinder.Calendar calendar, boolean dryRun, List<Change> cancelled) {
+    private void removePairs(TeacherLoad load, int pairs, List<Occurrence> future, CalendarSlotFinder.Calendar calendar,
+                             boolean dryRun, List<Change> cancelled, Map<Long, Set<LocalDate>> holes,
+                             Set<LocalDate> materialized) {
         List<Occurrence> candidates = new ArrayList<>(future);
         candidates.sort((a, b) -> {
             int c = b.date().compareTo(a.date());
             return c != 0 ? c : b.schedule().getStartTime().compareTo(a.schedule().getStartTime());
         });
         int removed = 0;
-        // Снимаем только последнюю пару дня группы: из середины — будет окно, первую — день начнётся позже.
-        // После снятия предыдущая пара того же дня становится последней, поэтому повторяем, пока есть прогресс.
         boolean progress = true;
         while (removed < pairs && progress) {
             progress = false;
@@ -424,22 +403,35 @@ public class HoursRecalculationService {
                 int pairIdx = GenerationGrid.pairIndex(o.schedule().getStartTime());
                 TreeSet<Integer> groupPairs = calendar.pairsOfGroup(load.getGroup().getId(), o.date());
                 if (!groupPairs.isEmpty() && pairIdx != groupPairs.last()) continue;
-                String note = "Снято динамическим пересчётом: часы по плану семестра уже покрыты";
-                if (!dryRun) {
-                    lessonInstanceService.generateInstancesForDate(o.date(), o.schedule().getAcademicYear());
-                    instanceRepository.findByScheduleIdAndLessonDate(o.schedule().getId(), o.date())
-                            .ifPresent(li -> lessonInstanceService.cancelInstance(li.getId(), note,
-                                    "system:recalculation"));
-                }
-                calendar.release(o.schedule().getId(), o.date());
+                cancelOccurrence(load, o, calendar, dryRun, cancelled, materialized);
                 candidates.remove(o);
                 removed++;
                 progress = true;
-                cancelled.add(new Change(load.getId(), load.getGroup().getName(), load.getDiscipline().getName(),
-                        teacherName(load), o.date(), pairIdx + 1, o.schedule().getClassroom(), note));
             }
         }
-        return pairs - removed;
+        // часы кончились снимаем и из середины дня а окно потом закроем
+        for (Occurrence o : new ArrayList<>(candidates)) {
+            if (removed >= pairs) break;
+            cancelOccurrence(load, o, calendar, dryRun, cancelled, materialized);
+            holes.computeIfAbsent(load.getGroup().getId(), k -> new TreeSet<>()).add(o.date());
+            removed++;
+        }
+    }
+
+    private void cancelOccurrence(TeacherLoad load, Occurrence o, CalendarSlotFinder.Calendar calendar, boolean dryRun,
+                                  List<Change> cancelled, Set<LocalDate> materialized) {
+        String note = "Снято пересчётом: часы по плану семестра уже вычитаны";
+        if (!dryRun) {
+            if (materialized.add(o.date())) {
+                lessonInstanceService.generateInstancesForDate(o.date(), o.schedule().getAcademicYear());
+            }
+            instanceRepository.findByScheduleIdAndLessonDate(o.schedule().getId(), o.date())
+                    .ifPresent(li -> lessonInstanceService.cancelInstance(li.getId(), note, "system:recalculation"));
+        }
+        calendar.release(o.schedule().getId(), o.date());
+        cancelled.add(new Change(load.getId(), load.getGroup().getName(), load.getDiscipline().getName(),
+                teacherName(load), o.date(), GenerationGrid.pairIndex(o.schedule().getStartTime()) + 1,
+                o.schedule().getClassroom(), note));
     }
 
     private static boolean isAbsent(List<SickLeave> leaves, Long teacherId, LocalDate date) {
@@ -448,7 +440,7 @@ public class HoursRecalculationService {
                 && !date.isBefore(s.getStartDate()) && !date.isAfter(s.getEndDate()));
     }
 
-    private static int durationHours(Schedule s) {
+    private static int pairHours(Schedule s) {
         long minutes = ChronoUnit.MINUTES.between(s.getStartTime(), s.getEndTime());
         return (int) Math.max(1, Math.round(minutes / 60.0));
     }

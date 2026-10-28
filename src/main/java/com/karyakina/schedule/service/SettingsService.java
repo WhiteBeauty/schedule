@@ -52,7 +52,7 @@ public class SettingsService {
     public boolean isPaceRecalculationEnabled() {
         return settingRepository.findBySettingKey(PACE_RECALC_ENABLED_KEY)
                 .map(s -> Boolean.parseBoolean(s.getSettingValue()))
-                .orElse(false);
+                .orElse(true);
     }
 
     @Transactional

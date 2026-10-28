@@ -30,9 +30,7 @@
             <span class="text-muted" style="font-size:0.85rem;" id="sverkaSemesterLabel"></span>
         </div>
         <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
-            Запланировано/проведено/осталось — от начала текущего семестра по сегодняшний день
-            (динамически). "Проведено" — по факту (подтверждённые занятия), а не просто по
-            шаблону расписания.
+            План семестра и сколько уже вычитано. Цифры те же что на дашборде и в нагрузке.
         </p>
         <div class="table-scroll">
         <table id="sverkaTable">
@@ -143,11 +141,12 @@
                 <th>Дисциплина</th>
                 <th>Группа</th>
                 <th>Месяц</th>
-                <th>Часы (факт)</th>
-                <th>Скорректировано</th>
+                <th>По расписанию, ч</th>
+                <th>Проведено, ч</th>
+                <th>Исправлено вручную</th>
                 <th>Примечание</th>
                 <th>Кем изменено</th>
-                <th>Действия</th>
+                <th th:if="${isAdmin}">Действия</th>
             </tr>
             </thead>
             <tbody id="monthlyBody"></tbody>
@@ -163,7 +162,7 @@
             </div>
             <div class="modal-body">
                 <p><strong>Запись:</strong> <span id="adjInfo"></span></p>
-                <div class="field" style="margin-bottom:14px;"><label>Фактические часы</label><input type="number" id="adjHours" min="0" style="width:120px"></div>
+                <div class="field" style="margin-bottom:14px;"><label>Проведено за месяц, ч</label><input type="number" id="adjHours" min="0" style="width:120px"></div>
                 <div class="field"><label>Примечание</label><input type="text" id="adjNote" placeholder="Причина корректировки"></div>
             </div>
             <div class="modal-footer">
@@ -352,7 +351,6 @@ async function loadSverka() {
             body.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:1rem;">Нет данных</td></tr>';
         }
     } catch (e) {
-        // Сверка — дополнительная информация, не должна ронять остальную страницу при ошибке.
         console.error('sverka load failed', e);
     }
 }
@@ -423,7 +421,7 @@ function applyFilters() {
     tbody.innerHTML = '';
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-muted" style="text-align:center;padding:2rem">Нет данных за выбранный период</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="text-muted" style="text-align:center;padding:2rem">Нет данных за выбранный период</td></tr>';
         return;
     }
 
@@ -431,22 +429,24 @@ function applyFilters() {
     filtered.forEach(r => {
         const tr = document.createElement('tr');
         const hasId = r.id != null && r.id !== 0;
-        const hours = r.hours != null ? r.hours : 0;
+        const planned = r.plannedHours != null ? r.plannedHours : (r.hours || 0);
+        const conducted = r.conductedHours != null ? r.conductedHours : 0;
         const adj = r.adjustedHours != null ? r.adjustedHours : '-';
         const adjClass = r.adjustedHours != null ? 'text-success' : '';
         const btn = hasId
-            ? '<button class="btn btn-sm btn-secondary" onclick="openAdjust(' + r.id + ', \'' + escapeJsAttr(r.teacherName) + '\', \'' + escapeJsAttr(r.disciplineName) + '\', ' + hours + ', \'' + escapeJsAttr(r.note) + '\')">Изменить</button>'
+            ? '<button class="btn btn-sm btn-secondary" onclick="openAdjust(' + r.id + ', \'' + escapeJsAttr(r.teacherName) + '\', \'' + escapeJsAttr(r.disciplineName) + '\', ' + conducted + ', \'' + escapeJsAttr(r.note) + '\')">Изменить</button>'
             : '-';
         tr.innerHTML =
             '<td>' + escapeHtml(r.teacherName || '-') + '</td>' +
             '<td>' + escapeHtml(r.disciplineName || '-') + '</td>' +
             '<td>' + escapeHtml(r.groupName || '-') + '</td>' +
             '<td>' + escapeHtml(monthNames[r.month] || r.month) + '</td>' +
-            '<td>' + hours + '</td>' +
+            '<td>' + planned + '</td>' +
+            '<td><strong>' + conducted + '</strong></td>' +
             '<td class="' + adjClass + '">' + escapeHtml(adj) + '</td>' +
             '<td>' + escapeHtml(r.note || '-') + '</td>' +
             '<td>' + escapeHtml(r.changedBy || '-') + '</td>' +
-            '<td>' + btn + '</td>';
+            (isAdmin ? '<td>' + btn + '</td>' : '');
         tbody.appendChild(tr);
     });
 }
@@ -472,10 +472,12 @@ function saveAdjust() {
     fetch('/api/monthly/' + currentRecordId + '/adjust', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({adjustedHours: hours, note: note, changedBy: isAdmin ? 'admin' : 'teacher'})
-    }).then(() => {
+        body: JSON.stringify({adjustedHours: hours, note: note})
+    }).then(r => {
+        if (!r.ok) { showToast('Не удалось сохранить', 'danger'); return; }
         closeAdjust();
         loadData();
+        loadSverka();
     });
 }
 

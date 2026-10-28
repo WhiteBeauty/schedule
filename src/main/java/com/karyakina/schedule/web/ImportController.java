@@ -61,8 +61,6 @@ public class ImportController {
         int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
         ImportPreviewDto preview = importService.previewImport(file, year);
         if (!preview.isSuccess()) {
-            // Частая ошибка: файл тарификации («Часовка») загружают во вкладку «Нагрузка» — её формат другой,
-            // заголовки не распознаются, и ничего не импортируется. Подсказываем, куда его загружать.
             try {
                 var tarif = tarificationImportService.parse(file);
                 if (tarif.fatalError == null && !tarif.rows.isEmpty()) {

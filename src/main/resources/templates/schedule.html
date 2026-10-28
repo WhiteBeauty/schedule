@@ -58,6 +58,10 @@
         </div>
     </div>
 
+    <div th:if="${isAdmin}" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <div th:replace="~{fragments/special-event-modal :: modal}"></div>
+    </div>
+
     <div class="card" style="flex:1; display:flex; flex-direction:column; min-height:0;">
         <div class="week-grid" id="weekGrid">
             <div class="week-grid-head">
@@ -77,65 +81,92 @@
             <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-practice-bg);"></span>Практика</div>
             <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-lab-bg);"></span>Лабораторная</div>
             <div class="legend-item"><span class="legend-swatch" style="background:var(--lesson-conflict-bg); border:1.5px dashed #C1443C;"></span>Конфликт</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--substitute);"></span>Замена</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--color-danger-bg);"></span>Экзамен, практика, вождение</div>
         </div>
     </div>
 
+    <style>
+        .week-event-cell { padding: 6px; border-left: 1px solid var(--color-border-light); border-bottom: 1px solid var(--color-border-light); }
+        .week-event {
+            height: 100%; min-height: 120px; border-radius: var(--radius-mini); background: var(--color-danger-bg);
+            color: var(--color-danger-text); display: flex; flex-direction: column; align-items: center;
+            justify-content: center; text-align: center; padding: 10px;
+        }
+        .week-event.practice { background: var(--color-warning-bg); color: var(--color-warning-text); }
+        .week-event.driving { background: #E1EEF1; color: var(--color-primary); }
+        .week-event-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; overflow-wrap: anywhere; }
+        .week-event-sub { font-size: 12.5px; font-weight: 600; margin-top: 4px; }
+        .lesson-card.is-cancelled { opacity: 0.45; text-decoration: line-through; }
+        .lesson-card.is-substituted { box-shadow: inset 3px 0 0 var(--substitute); }
+    </style>
     <script th:inline="javascript">
 (function () {
     const isAdmin = /*[[${isAdmin}]]*/ false;
+    const myTeacherId = /*[[${teacherId}]]*/ null;
     const DAY_KEYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
     const MONTH_NAMES_RU = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const STANDARD_SLOTS = ['08:00-09:35', '09:40-11:25', '11:40-13:25', '13:35-15:10', '15:15-16:50'];
 
     let mode = 'group';
-    let pairsData = [];
+    let weekData = {lessons: [], events: []};
     let groupsData = [];
     let teachersData = [];
     let roomsData = [];
-    let weekMonday = mondayOfCurrentWeek();
+    let weekMonday = mondayOf(new Date());
+    let requestNo = 0;
 
-    function mondayOfCurrentWeek() {
-        const today = new Date();
-        const monday = new Date(today);
-        monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    function mondayOf(date) {
+        const monday = new Date(date);
+        monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
         monday.setHours(0, 0, 0, 0);
         return monday;
     }
 
-    function fmtDate(d) {
-        return d.getDate() + ' ' + MONTH_NAMES_RU[d.getMonth()];
-    }
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+    function fmtDate(d) { return d.getDate() + ' ' + MONTH_NAMES_RU[d.getMonth()]; }
 
     function updateWeekLabel() {
-        const saturday = new Date(weekMonday);
-        saturday.setDate(weekMonday.getDate() + 5);
-        document.getElementById('weekRange').textContent = fmtDate(weekMonday) + ' – ' + fmtDate(saturday);
+        document.getElementById('weekRange').textContent = fmtDate(weekMonday) + ' – ' + fmtDate(addDays(weekMonday, 5));
     }
 
-    function dateForDayIndex(idx) {
-        const d = new Date(weekMonday);
-        d.setDate(weekMonday.getDate() + idx);
-        return d;
-    }
-
-    function loadAll() {
-        const year = document.getElementById('yearSelect').value;
-        Promise.all([
-            fetch('/api/pairs?year=' + year).then(r => r.json()),
+    function loadRefs() {
+        return Promise.all([
             fetch('/api/groups').then(r => r.json()),
             fetch('/api/teachers').then(r => r.json()),
             fetch('/api/classrooms').then(r => r.json()).catch(() => [])
-        ]).then(([pairs, groups, teachers, rooms]) => {
-            pairsData = Array.isArray(pairs) ? pairs : [];
+        ]).then(([groups, teachers, rooms]) => {
             groupsData = groups || [];
             teachersData = teachers || [];
             roomsData = rooms || [];
+            if (!isAdmin && myTeacherId) {
+                mode = 'teacher';
+                document.querySelectorAll('#modeSegmented button').forEach(b => b.classList.toggle('active', b.dataset.mode === 'teacher'));
+            }
             populateEntitySelect();
+            if (!isAdmin && myTeacherId) document.getElementById('entitySelect').value = myTeacherId;
             applyInitialSearch();
-            renderGrid();
-        }).catch(e => {
-            document.getElementById('weekGridBody').innerHTML =
-                '<div style="grid-column:1/-1; padding:2rem;" class="empty-state">Не удалось загрузить расписание</div>';
         });
+    }
+
+    function loadWeek() {
+        updateWeekLabel();
+        const from = iso(weekMonday);
+        const to = iso(addDays(weekMonday, 5));
+        const no = ++requestNo;
+        return fetch('/api/schedule/range?from=' + from + '&to=' + to)
+            .then(r => r.ok ? r.json() : {lessons: [], events: []})
+            .then(data => {
+                if (no !== requestNo) return;
+                weekData = data || {lessons: [], events: []};
+                renderGrid();
+            })
+            .catch(() => {
+                document.getElementById('weekGridBody').innerHTML =
+                    '<div style="grid-column:1/-1; padding:2rem;" class="empty-state">Не удалось загрузить расписание</div>';
+            });
     }
 
     function applyInitialSearch() {
@@ -143,27 +174,26 @@
         const q = params.get('q');
         if (!q || !q.trim()) return;
         const needle = q.trim().toLowerCase();
-
         const teacherMatch = teachersData.find(t => (t.fullName || '').toLowerCase().includes(needle));
         const groupMatch = groupsData.find(g => (g.name || '').toLowerCase().includes(needle));
-
         if (teacherMatch) {
-            mode = 'teacher';
-            document.querySelectorAll('#modeSegmented button').forEach(b => b.classList.toggle('active', b.dataset.mode === 'teacher'));
-            populateEntitySelect();
+            setMode('teacher');
             document.getElementById('entitySelect').value = teacherMatch.id;
         } else if (groupMatch) {
-            mode = 'group';
-            document.querySelectorAll('#modeSegmented button').forEach(b => b.classList.toggle('active', b.dataset.mode === 'group'));
-            populateEntitySelect();
+            setMode('group');
             document.getElementById('entitySelect').value = groupMatch.id;
         } else {
             showToast('Ничего не найдено по запросу «' + q + '»', 'warning');
         }
-
         const url = new URL(window.location.href);
         url.searchParams.delete('q');
         window.history.replaceState({}, '', url);
+    }
+
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('#modeSegmented button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+        populateEntitySelect();
     }
 
     function populateEntitySelect() {
@@ -176,7 +206,8 @@
         } else if (mode === 'teacher') {
             items = teachersData.map(t => ({ id: t.id, label: t.fullName }));
         } else {
-            const names = Array.from(new Set(roomsData.length ? roomsData.map(r => r.name) : pairsData.map(p => p.classroom))).sort();
+            const names = Array.from(new Set(roomsData.length ? roomsData.map(r => r.name)
+                : (weekData.lessons || []).map(p => p.classroom).filter(Boolean))).sort();
             items = names.map(n => ({ id: n, label: 'Ауд. ' + n }));
         }
         items.forEach(item => select.add(new Option(item.label, item.id)));
@@ -190,36 +221,21 @@
         return 'lesson-lecture';
     }
 
-    function matchesSelection(pair, entityValue) {
-        if (mode === 'group') return pair.teacherLoad.group && String(pair.teacherLoad.group.id) === String(entityValue);
-        if (mode === 'teacher') return pair.teacherLoad.teacher && String(pair.teacherLoad.teacher.id) === String(entityValue);
-        return pair.classroom === entityValue;
+    function matches(l, value) {
+        if (mode === 'group') return String(l.groupId) === String(value);
+        if (mode === 'teacher') return String(l.actualTeacherId) === String(value) || String(l.teacherId) === String(value);
+        return l.classroom === value;
     }
 
-    // Неделя 1 — та, в которую попадает 1 сентября (с понедельника), как на сервере.
-    // Раньше отсчёт шёл от самого 1 сентября, и разовые переносы показывались на неделю раньше/позже.
-    function weekNumberOf(monday) {
-        const academicYear = Number(document.getElementById('yearSelect').value);
-        const sep1 = new Date(academicYear, 8, 1);
-        const startMonday = new Date(sep1);
-        startMonday.setDate(sep1.getDate() - ((sep1.getDay() + 6) % 7));
-        const diffDays = Math.round((monday - startMonday) / 86400000);
-        return Math.max(1, Math.floor(diffDays / 7) + 1);
+    function eventClass(type) {
+        if (type === 'DRIVING') return 'driving';
+        if (type === 'STUDY_PRACTICE' || type === 'PRODUCTION_PRACTICE') return 'practice';
+        return '';
     }
-
-    function semesterOfWeek(monday) {
-        const thursday = new Date(monday);
-        thursday.setDate(monday.getDate() + 3);
-        const m = thursday.getMonth();
-        return m >= 8 ? 1 : 2;
-    }
-
-    const STANDARD_SLOTS = ['08:00-09:35', '09:40-11:25', '11:40-13:25', '13:35-15:10', '15:15-16:50'];
 
     function renderGrid() {
         updateWeekLabel();
-        const entitySelect = document.getElementById('entitySelect');
-        const entityValue = entitySelect.value;
+        const entityValue = document.getElementById('entitySelect').value;
         const body = document.getElementById('weekGridBody');
         body.innerHTML = '';
 
@@ -228,19 +244,20 @@
             return;
         }
 
-        const week = weekNumberOf(weekMonday);
-        const semester = semesterOfWeek(weekMonday);
-        const relevant = pairsData.filter(p =>
-            (p.semester == null || p.semester === semester) &&
-            (p.academicWeek == null || p.academicWeek === week) &&
-            (p.activeFromWeek == null || week >= p.activeFromWeek) &&
-            (p.activeUntilWeek == null || week <= p.activeUntilWeek) &&
-            matchesSelection(p, entityValue));
+        const relevant = (weekData.lessons || []).filter(l => matches(l, entityValue));
+        const eventByDay = {};
+        if (mode === 'group') {
+            DAY_KEYS.forEach((day, idx) => {
+                const date = iso(addDays(weekMonday, idx));
+                const ev = (weekData.events || []).find(e => String(e.groupId) === String(entityValue)
+                    && e.startDate <= date && e.endDate >= date);
+                if (ev) eventByDay[idx] = ev;
+            });
+        }
 
-        // Показываем стандартные пары с 1-й по последнюю занятую: пустая 1-я пара видна как пустая,
-        // а номер строки совпадает с номером пары (раньше строки нумеровались подряд по занятым слотам).
         const used = Array.from(new Set(relevant.map(p => p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5))));
-        const lastStandard = used.reduce((max, s) => Math.max(max, STANDARD_SLOTS.indexOf(s)), -1);
+        let lastStandard = used.reduce((max, s) => Math.max(max, STANDARD_SLOTS.indexOf(s)), -1);
+        if (Object.keys(eventByDay).length) lastStandard = Math.max(lastStandard, 3);
         const slots = STANDARD_SLOTS.slice(0, lastStandard + 1)
             .concat(used.filter(s => STANDARD_SLOTS.indexOf(s) < 0))
             .sort();
@@ -253,27 +270,50 @@
         slots.forEach((slot, rowIdx) => {
             const timeCell = document.createElement('div');
             timeCell.className = 'week-time-cell';
+            timeCell.style.gridColumn = '1';
+            timeCell.style.gridRow = String(rowIdx + 2);
             const pairNo = STANDARD_SLOTS.indexOf(slot);
             timeCell.innerHTML = '<div>' + (pairNo >= 0 ? (pairNo + 1) + ' пара' : 'вне сетки') + '</div><div>' + slot + '</div>';
             body.appendChild(timeCell);
 
             DAY_KEYS.forEach((day, dayIdx) => {
+                const ev = eventByDay[dayIdx];
+                if (ev) {
+                    if (rowIdx !== 0) return;
+                    const cell = document.createElement('div');
+                    cell.className = 'week-event-cell';
+                    cell.style.gridColumn = String(dayIdx + 2);
+                    cell.style.gridRow = '2 / span ' + slots.length;
+                    cell.innerHTML = '<div class="week-event ' + eventClass(ev.type) + '"><div class="week-event-title">'
+                        + escapeHtml(ev.typeLabel) + '</div>'
+                        + (ev.disciplineName ? '<div class="week-event-sub">' + escapeHtml(ev.disciplineName) + '</div>' : '')
+                        + '<div class="week-event-sub" style="font-weight:500;">пар нет</div></div>';
+                    body.appendChild(cell);
+                    return;
+                }
+                const date = iso(addDays(weekMonday, dayIdx));
                 const cell = document.createElement('div');
                 cell.className = 'week-day-cell';
-                const cellPairs = relevant.filter(p => p.dayOfWeek === day &&
+                cell.style.gridColumn = String(dayIdx + 2);
+                cell.style.gridRow = String(rowIdx + 2);
+                const cellPairs = relevant.filter(p => p.date === date &&
                     (p.startTime.substring(0, 5) + '-' + p.endTime.substring(0, 5)) === slot);
-                const conflict = cellPairs.length > 1;
+                const active = cellPairs.filter(p => p.status !== 'CANCELLED' && p.status !== 'INDEPENDENT_WORK');
+                const conflict = active.length > 1;
                 cellPairs.forEach(p => {
+                    const cancelled = p.status === 'CANCELLED' || p.status === 'INDEPENDENT_WORK';
                     const card = document.createElement('div');
-                    card.className = 'lesson-card ' + (conflict ? 'lesson-conflict' : categoryClass(p.lessonType));
+                    card.className = 'lesson-card ' + (conflict && !cancelled ? 'lesson-conflict' : categoryClass(p.lessonType))
+                        + (cancelled ? ' is-cancelled' : '') + (p.substituted ? ' is-substituted' : '');
+                    if (p.note) card.title = p.note;
+                    const who = mode === 'teacher'
+                        ? p.groupName
+                        : (p.substituted ? p.actualTeacherName + ' (замена)' : p.originalTeacherName);
                     card.innerHTML =
-                        '<div class="lesson-card-title">' +
-                        (conflict ? iconWarningSvg() : '') +
-                        escapeHtml(p.teacherLoad.discipline.name) + '</div>' +
-                        '<div class="lesson-card-meta">' + escapeHtml(p.classroom) + ' · ' +
-                        escapeHtml(mode === 'teacher'
-                            ? (p.teacherLoad.group ? p.teacherLoad.group.name : '—')
-                            : (p.teacherLoad.teacher ? p.teacherLoad.teacher.fullName : 'без преподавателя')) + '</div>';
+                        '<div class="lesson-card-title">' + (conflict && !cancelled ? iconWarningSvg() : '') +
+                        escapeHtml(p.disciplineName) + '</div>' +
+                        '<div class="lesson-card-meta">' + escapeHtml(p.classroom || '') + ' · ' + escapeHtml(who || '—') + '</div>' +
+                        (p.movedFrom ? '<div class="lesson-card-meta">перенос с ' + p.movedFrom.split('-').reverse().slice(0, 2).join('.') + '</div>' : '');
                     cell.appendChild(card);
                 });
                 body.appendChild(cell);
@@ -295,21 +335,28 @@
     document.getElementById('modeSegmented').addEventListener('click', function (e) {
         const btn = e.target.closest('button[data-mode]');
         if (!btn) return;
-        mode = btn.dataset.mode;
-        Array.from(this.querySelectorAll('button')).forEach(b => b.classList.toggle('active', b === btn));
-        populateEntitySelect();
+        setMode(btn.dataset.mode);
         renderGrid();
     });
 
     document.getElementById('entitySelect').addEventListener('change', renderGrid);
-    document.getElementById('yearSelect').addEventListener('change', loadAll);
+    document.getElementById('yearSelect').addEventListener('change', function () {
+        const y = Number(this.value);
+        window.DEFAULT_ACADEMIC_YEAR = y;
+        const start = new Date(y, 8, 1);
+        const end = new Date(y + 1, 5, 30);
+        if (weekMonday < mondayOf(start) || weekMonday > end) {
+            weekMonday = mondayOf(start);
+            loadWeek();
+        }
+    });
     document.getElementById('weekPrev').addEventListener('click', function () {
-        weekMonday.setDate(weekMonday.getDate() - 7);
-        renderGrid();
+        weekMonday = addDays(weekMonday, -7);
+        loadWeek();
     });
     document.getElementById('weekNext').addEventListener('click', function () {
-        weekMonday.setDate(weekMonday.getDate() + 7);
-        renderGrid();
+        weekMonday = addDays(weekMonday, 7);
+        loadWeek();
     });
 
     fetch('/api/notifications/unread-count')
@@ -320,7 +367,9 @@
             if (data.unread > 0) { badge.style.display = 'flex'; badge.textContent = data.unread; }
         }).catch(function () {});
 
-    loadAll();
+    window.onSpecialEventChanged = loadWeek;
+    window.DEFAULT_ACADEMIC_YEAR = Number(document.getElementById('yearSelect').value);
+    loadRefs().then(loadWeek);
 })();
 </script>
 </div>

@@ -1,0 +1,96 @@
+<div xmlns:th="http://www.thymeleaf.org">
+
+    <div th:fragment="card" class="cur-card" id="curCard" style="display:none;">
+        <div class="cur-head">
+            <div>
+                <h2 class="cur-title" id="curGroupName">Группа</h2>
+                <div class="cur-chips" id="curChips"></div>
+            </div>
+            <div class="cur-head-actions">
+                <span class="text-muted" id="curTeacherName"></span>
+                <button type="button" class="btn btn-sm" id="curAddEventBtn">Добавить мероприятие</button>
+            </div>
+        </div>
+
+        <div class="metric-grid cur-tiles">
+            <div class="metric-card"><div class="metric-label">План на год, ч</div><div class="metric-value" id="curPlan">0</div></div>
+            <div class="metric-card"><div class="metric-label">Проведено, ч</div><div class="metric-value" id="curDone">0</div>
+                <div class="progress-track cur-progress"><div class="progress-fill" id="curDoneBar" style="width:0%"></div></div></div>
+            <div class="metric-card"><div class="metric-label">Осталось, ч</div><div class="metric-value" id="curLeft">0</div></div>
+            <div class="metric-card"><div class="metric-label">Мероприятий</div><div class="metric-value" id="curEventsCount">0</div></div>
+        </div>
+
+        <div class="cur-grid">
+            <div class="card cur-section">
+                <div class="card-header"><span class="card-title">Ближайшее у группы</span></div>
+                <div id="curUpcoming"><p class="text-muted">Загрузка...</p></div>
+            </div>
+            <div class="card cur-section">
+                <div class="card-header"><span class="card-title">План и факт по месяцам</span></div>
+                <div id="curMonths"></div>
+            </div>
+        </div>
+
+        <div class="card cur-section">
+            <div class="card-header">
+                <span class="card-title">Мероприятия</span>
+                <select id="curTypeFilter" class="cur-filter"><option value="">Все типы</option></select>
+            </div>
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead><tr><th>Дата</th><th>Тип</th><th>Что проведено</th><th>Часы</th><th></th></tr></thead>
+                    <tbody id="curEventsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card cur-section">
+            <div class="card-header"><span class="card-title">Журнал куратора</span></div>
+            <div class="cur-log-add">
+                <input type="text" id="curLogInput" placeholder="Например: беседа с родителями Иванова по пропускам" maxlength="1000">
+                <button type="button" class="btn btn-sm" id="curLogAddBtn">Записать</button>
+            </div>
+            <div id="curLogs"></div>
+        </div>
+    </div>
+
+    <div th:fragment="modals">
+        <div class="modal-overlay" id="curEventModal">
+            <div class="modal" style="max-width:520px;">
+                <div class="modal-header">
+                    <h3 id="curEventModalTitle">Мероприятие</h3>
+                    <button type="button" class="close-btn" data-close="curEventModal" aria-label="Закрыть">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="cur-form-row">
+                        <div class="field"><label for="curEventDate">Дата</label><input type="date" id="curEventDate"></div>
+                        <div class="field"><label for="curEventHours">Часы</label><input type="number" id="curEventHours" min="0" max="24" step="0.5"></div>
+                    </div>
+                    <div class="field" style="margin-top:14px;"><label for="curEventType">Тип</label><select id="curEventType"></select></div>
+                    <div class="field" style="margin-top:14px;"><label for="curEventDescription">Что проведено</label>
+                        <input type="text" id="curEventDescription" maxlength="500" placeholder="Тема, участники, итог"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-close="curEventModal">Отмена</button>
+                    <button type="button" class="btn" id="curEventSaveBtn">Сохранить</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="curLogModal">
+            <div class="modal" style="max-width:520px;">
+                <div class="modal-header">
+                    <h3>Изменить запись</h3>
+                    <button type="button" class="close-btn" data-close="curLogModal" aria-label="Закрыть">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="field"><label for="curLogEdit">Запись</label><input type="text" id="curLogEdit" maxlength="1000"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-close="curLogModal">Отмена</button>
+                    <button type="button" class="btn" id="curLogSaveBtn">Сохранить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

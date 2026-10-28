@@ -33,15 +33,14 @@
     <div class="card" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:14px 16px;">
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer;">
             <input type="checkbox" id="paceRecalcToggle" onchange="togglePaceRecalc(this.checked)">
-            Автоматически пересчитывать расписание по вычитанным часам (каждый понедельник)
+            Живое расписание: само пересчитывается по оставшимся часам (каждое утро, после больничных, экзаменов, отмен и генерации)
         </label>
         <button type="button" class="btn btn-secondary btn-sm" id="recalcPreviewBtn" onclick="runRecalcPreview()">Пересчитать по часам</button>
         <button type="button" class="btn btn-secondary btn-sm" id="paceCheckBtn" onclick="runPaceCheckNow()">Проверить темп (предложения)</button>
         <button type="button" class="btn btn-secondary btn-sm" id="rebuildReadBtn" onclick="runRebuildPreview()">Сверить «вычитано» с журналом</button>
         <span class="text-muted" style="font-size:12.5px;">
-            Пересчёт сравнивает план семестра с вычитанными часами и будущими парами (с учётом экзаменов, больничных
-            и отмен): недостающие пары ставит в свободные слоты без окон, лишние снимает в конце семестра.
-            Сначала показывается предпросмотр.
+            Сравнивает план семестра с вычитанным и будущими парами. У кого часы закончились, лишние пары снимаются,
+            недостающие ставятся в освободившиеся места ближе к концу семестра. Кнопка сначала показывает предпросмотр.
         </span>
     </div>
 
@@ -282,8 +281,9 @@
         </div>
         <div class="modal-body">
             <p class="text-muted" style="margin-bottom:1rem;">
-                Удаляет записи расписания (пары) по выбранному фильтру. Затронутые преподаватели
-                получат уведомление. Действие необратимо.
+                Удаляет пары по выбранному фильтру. Если семестр уже идёт, прошедшие пары остаются в истории
+                (вычитанные часы не пропадают), а новое расписание начнёт действовать со следующей недели.
+                Затронутые преподаватели получат уведомление.
             </p>
             <label style="display:block;margin-bottom:0.5rem;">Учебный год:</label>
             <input type="number" id="wipeYear" th:value="${year}" style="width:100%;margin-bottom:1rem;">
@@ -520,7 +520,7 @@ function togglePaceRecalc(enabled) {
         body: JSON.stringify({enabled: enabled})
     }).then(r => {
         if (r.ok) {
-            showToast(enabled ? 'Еженедельный пересчёт по часам включён' : 'Еженедельный пересчёт по часам выключен', 'success');
+            showToast(enabled ? 'Живое расписание включено' : 'Живое расписание выключено', 'success');
         } else {
             showToast('Не удалось сохранить настройку', 'danger');
         }
@@ -550,7 +550,6 @@ function runPaceCheckNow() {
 }
 
 function loadSelectOptions() {
-    // Load teachers
     fetch('/api/teachers')
         .then(r => r.json())
         .then(data => {
@@ -572,7 +571,6 @@ function loadSelectOptions() {
             });
         });
 
-    // Load disciplines
     fetch('/api/disciplines')
         .then(r => r.json())
         .then(data => {
@@ -585,7 +583,6 @@ function loadSelectOptions() {
             });
         });
 
-    // Load groups
     fetch('/api/groups')
         .then(r => r.json())
         .then(data => {
@@ -673,17 +670,12 @@ async function executeWipe() {
     }
 }
 
-// ---- Экспорт расписания за месяц в Excel ----
+// экспорт за месяц
 let exportMonthDefaulted = false;
 
 function openExportMonthModal() {
     const yearInput = document.getElementById('exportYear');
     const monthSelect = document.getElementById('exportMonth');
-    // Задача 2: по умолчанию — текущий месяц, но только один раз (дальше пользователь
-    // мог сам что-то выбрать, и это не должно сбрасываться при повторном открытии
-    // модалки). Раньше проверялось `!monthSelect.value`, но у <select> без явного
-    // выбора value всегда равно значению первой option ("1" — Январь), а не пусто —
-    // поэтому автоподстановка текущего месяца фактически никогда не срабатывала.
     if (!exportMonthDefaulted) {
         const now = new Date();
         if (!yearInput.value) {
@@ -711,8 +703,6 @@ document.getElementById('exportMonthConfirmBtn').addEventListener('click', () =>
     const params = new URLSearchParams({ year, month });
     if (orgName) params.set('orgName', orgName);
     if (directorName) params.set('directorName', directorName);
-    // Обычная навигация (не fetch): так браузер сам сохраняет файл, а сессионная
-    // авторизация (cookie) уже приложится, как при любом обычном переходе по ссылке.
     window.location.href = '/api/schedule/export/month?' + params.toString();
     closeExportMonthModal();
 });
@@ -790,9 +780,6 @@ function renderGenerationResult(result, wasApplied) {
         conflictsWrap.appendChild(ul);
     }
 
-    // Сам черновик/результат — конкретные пары, а не только сводные цифры. Раньше
-    // администратор не мог посмотреть, ЧТО именно будет создано, до нажатия
-    // "Применить" — теперь это видно сразу после "Автосоставление (черновик)".
     const dayNames = {'MONDAY':'Пн','TUESDAY':'Вт','WEDNESDAY':'Ср','THURSDAY':'Чт','FRIDAY':'Пт'};
     const lessonsBody = document.getElementById('generationLessonsBody');
     lessonsBody.innerHTML = '';
@@ -802,7 +789,6 @@ function renderGenerationResult(result, wasApplied) {
         tr.innerHTML = '<td colspan="6" class="text-muted">Нет пар для отображения</td>';
         lessonsBody.appendChild(tr);
     } else {
-        // Сортируем для удобства просмотра: день -> время -> группа
         const sorted = [...lessons].sort((a, b) => {
             const dayOrder = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY'];
             const da = dayOrder.indexOf(a.dayOfWeek), db = dayOrder.indexOf(b.dayOfWeek);
@@ -907,7 +893,6 @@ function updateSelectedCount() {
     const checkboxes = document.querySelectorAll('.row-checkbox:checked');
     checkboxes.forEach(cb => selectedIds.add(parseInt(cb.value)));
 
-    // Remove unchecked
     document.querySelectorAll('.row-checkbox:not(:checked)').forEach(cb => {
         selectedIds.delete(parseInt(cb.value));
     });
@@ -1073,7 +1058,6 @@ function exportCsv() {
     window.open(`/api/monthly/export/csv?year=${year}`, '_blank');
 }
 
-// Groups management
 function openGroupsModal() {
     document.getElementById('groupsModal').classList.add('active');
     loadGroups();
@@ -1233,7 +1217,6 @@ function deleteGroup(id) {
         });
 }
 
-// Disciplines management
 function openDisciplinesModal() {
     document.getElementById('disciplinesModal').classList.add('active');
     loadDisciplines();
@@ -1344,10 +1327,8 @@ async function runSplitMergedNamesCleanup(btn) {
 }
 
 function loadGenerationYearIfNeeded() {
-    // Обновляем таблицу нагрузок на странице, если она уже загружена — чтобы
-    // сразу увидеть результат очистки без ручной перезагрузки страницы.
     if (typeof loadSchedule === 'function') {
-        try { loadSchedule(); } catch (e) { /* таблицы нагрузок на этой странице может не быть */ }
+        try { loadSchedule(); } catch (e) { }
     }
 }
 

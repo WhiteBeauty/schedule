@@ -32,8 +32,6 @@ public interface TeacherLoadRepository extends JpaRepository<TeacherLoad, Long> 
            "LEFT JOIN FETCH tl.teacher " +
            "LEFT JOIN FETCH tl.group " +
            "LEFT JOIN FETCH tl.discipline " +
-           "LEFT JOIN FETCH tl.controlPoints " +
-           "LEFT JOIN FETCH tl.monthlyRecords " +
            "WHERE tl.teacher.id = :teacherId AND tl.academicYear = :year")
     List<TeacherLoad> findByTeacherIdAndYearWithDetails(Long teacherId, Integer year);
 

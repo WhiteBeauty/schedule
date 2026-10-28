@@ -55,7 +55,6 @@ public class SickLeaveReschedulingService {
     private final HoursRecalculationService hoursRecalculationService;
     private final SettingsService settingsService;
 
-
     @Transactional
     public RescheduleResultDTO handleTeacherSickLeave(Long teacherId, LocalDate startDate, LocalDate endDate) {
         try {
@@ -83,23 +82,22 @@ public class SickLeaveReschedulingService {
             List<MissingResourceRequest> missing = new ArrayList<>();
             List<String> warnings = new ArrayList<>();
 
-            CalendarSlotFinder.Calendar calendar = null;
+            int year = sickLeave.getAcademicYear();
+            CalendarSlotFinder.Calendar calendar = slotFinder.open(year, startDate, AcademicYearUtil.semesterEnd(2, year));
+            Pool pool = new Pool(loadRepository.findByAcademicYear(year), teacherRepository.findAll());
             Map<Long, Set<LocalDate>> holes = new LinkedHashMap<>();
             for (LessonInstance instance : affected) {
                 try {
-                    Candidate substitute = findBestSubstitute(instance, teacher);
+                    Candidate substitute = findBestSubstitute(instance, teacher, calendar, pool);
                     if (substitute != null) {
                         applySubstitution(instance, sickLeave, substitute, substitutions);
+                        occupyForSubstitute(calendar, instance, substitute.teacher());
                         if (substitute.overload()) {
                             warnings.add("Замену на " + instance.getLessonDate() + " ведёт "
                                     + substitute.teacher().getFullName()
-                                    + " сверх плановой нагрузки — часы уйдут в переработку.");
+                                    + " сверх плановой нагрузки, часы уйдут в переработку.");
                         }
                         continue;
-                    }
-                    if (calendar == null) {
-                        calendar = slotFinder.open(instance.getAcademicYear(), endDate.plusDays(1),
-                                AcademicYearUtil.semesterEnd(2, instance.getAcademicYear()));
                     }
                     String[] failure = new String[1];
                     RescheduleResultDTO.Moved move = tryMoveToFreeSlot(instance, sickLeave, calendar, failure);
@@ -141,8 +139,6 @@ public class SickLeaveReschedulingService {
             unresolved.forEach(u -> log.info("Отсутствие {}: не решена пара {}", teacher.getFullName(), u));
             warnings.forEach(w -> log.info("Отсутствие {}: {}", teacher.getFullName(), w));
 
-            // Пары, которые не удалось ни заменить, ни перенести, восполняются динамическим пересчётом часов
-            // (если он включён): недостающие часы ставятся в свободные слоты до конца семестра.
             if (!unresolved.isEmpty() && settingsService.isPaceRecalculationEnabled()) {
                 try {
                     java.util.Set<Long> loadIds = new java.util.HashSet<>();
@@ -179,9 +175,6 @@ public class SickLeaveReschedulingService {
         }
     }
 
-    /**
-     * Удаление больничного: вернуть всё, что из-за него поменялось — замены, переносы, сдвиги внутри дня.
-     */
     @Transactional
     public int revertSickLeave(Long sickLeaveId) {
         int reverted = 0;
@@ -212,88 +205,116 @@ public class SickLeaveReschedulingService {
         return reverted;
     }
 
-    private record Candidate(Teacher teacher, int priorityRank, String reason, boolean overload, int remainingHours) {
+    private record Candidate(Teacher teacher, int priorityRank, String reason, boolean overload, int dayLoad,
+                             int remainingHours) {
     }
 
-    private Candidate findBestSubstitute(LessonInstance instance, Teacher sickTeacher) {
+    private record Pool(List<TeacherLoad> loads, List<Teacher> teachers) {
+    }
+
+    // сначала та же дисциплина потом смежная потом любой свободный
+    private Candidate findBestSubstitute(LessonInstance instance, Teacher sickTeacher,
+                                         CalendarSlotFinder.Calendar calendar, Pool pool) {
         TeacherLoad originalLoad = instance.getSchedule().getTeacherLoad();
         if (originalLoad == null || originalLoad.getDiscipline() == null) {
             return null;
         }
         LocalDate date = instance.getLessonDate();
-        Integer academicYear = instance.getAcademicYear();
+        int pairIdx = GenerationGrid.pairIndex(instance.getSchedule().getStartTime());
+        String discipline = originalLoad.getDiscipline().getName();
+        Long disciplineId = originalLoad.getDiscipline().getId();
+        String specialty = originalLoad.getGroup() != null ? originalLoad.getGroup().getSpecialty() : null;
+        Long groupId = originalLoad.getGroup() != null ? originalLoad.getGroup().getId() : null;
 
-        Set<Long> seen = new LinkedHashSet<>();
-        seen.add(sickTeacher.getId());
-        List<Candidate> candidates = new ArrayList<>();
-
-        for (TeacherLoad load : loadRepository.findByDisciplineIdAndAcademicYear(
-                originalLoad.getDiscipline().getId(), academicYear)) {
-            Teacher candidate = load.getTeacher();
-            if (candidate == null || !seen.add(candidate.getId())) {
-                continue;
+        Map<Long, List<TeacherLoad>> loadsByTeacher = new java.util.HashMap<>();
+        for (TeacherLoad l : pool.loads()) {
+            if (l.getTeacher() != null && !Boolean.TRUE.equals(l.getOverload())) {
+                loadsByTeacher.computeIfAbsent(l.getTeacher().getId(), k -> new ArrayList<>()).add(l);
             }
-            if (!isAvailable(candidate, instance, date)) {
-                continue;
-            }
-            int remaining = safeRemainingHours(load);
-            candidates.add(new Candidate(candidate, 1,
-                    "Ведёт дисциплину «" + originalLoad.getDiscipline().getName() + "» у других групп",
-                    remaining <= 0, remaining));
         }
 
-        if (candidates.isEmpty() && sickTeacher.getDepartment() != null && !sickTeacher.getDepartment().isBlank()) {
-            for (Teacher candidate : teacherRepository.findByDepartment(sickTeacher.getDepartment())) {
-                if (!seen.add(candidate.getId()) || !isAvailable(candidate, instance, date)) {
-                    continue;
-                }
-                candidates.add(new Candidate(candidate, 2,
-                        "Та же кафедра (" + sickTeacher.getDepartment() + "), свободен в это время", true, 0));
+        List<Candidate> candidates = new ArrayList<>();
+        for (Teacher candidate : pool.teachers()) {
+            if (candidate.getId().equals(sickTeacher.getId())) continue;
+            if (!isFree(candidate, instance, date, pairIdx, calendar)) continue;
+            List<TeacherLoad> own = loadsByTeacher.getOrDefault(candidate.getId(), List.of());
+            int remaining = own.stream().mapToInt(this::safeRemainingHours).sum();
+            int dayLoad = calendar.teacherPairsOn(candidate.getId(), date);
+
+            TeacherLoad sameDiscipline = own.stream()
+                    .filter(l -> l.getDiscipline() != null && l.getDiscipline().getId().equals(disciplineId))
+                    .findFirst().orElse(null);
+            if (sameDiscipline != null) {
+                candidates.add(new Candidate(candidate, 1, "Ведёт эту же дисциплину «" + discipline + "»",
+                        safeRemainingHours(sameDiscipline) <= 0, dayLoad, remaining));
+                continue;
             }
+            TeacherLoad related = own.stream()
+                    .filter(l -> l.getDiscipline() != null && relatedDisciplines(discipline, l.getDiscipline().getName()))
+                    .findFirst().orElse(null);
+            if (related != null || TeacherAssignmentService.matchesSpecialization(candidate, discipline)) {
+                String why = related != null
+                        ? "Смежная дисциплина «" + related.getDiscipline().getName() + "»"
+                        : "Специализация подходит под «" + discipline + "»";
+                candidates.add(new Candidate(candidate, 2, why, true, dayLoad, remaining));
+                continue;
+            }
+            boolean sameProfile = own.stream().anyMatch(l -> l.getGroup() != null
+                    && (l.getGroup().getId().equals(groupId)
+                    || (specialty != null && !specialty.isBlank() && specialty.equalsIgnoreCase(l.getGroup().getSpecialty()))));
+            boolean sameDepartment = sickTeacher.getDepartment() != null && !sickTeacher.getDepartment().isBlank()
+                    && sickTeacher.getDepartment().equalsIgnoreCase(candidate.getDepartment());
+            if (sameProfile || sameDepartment) {
+                candidates.add(new Candidate(candidate, 3, sameProfile
+                        ? "Преподаёт у этой группы или специальности, свободен в это время"
+                        : "Та же кафедра, свободен в это время", true, dayLoad, remaining));
+                continue;
+            }
+            candidates.add(new Candidate(candidate, 4, "Свободен в это время", true, dayLoad, remaining));
         }
 
         return candidates.stream()
                 .sorted(Comparator.comparingInt(Candidate::priorityRank)
+                        .thenComparingInt(Candidate::dayLoad)
                         .thenComparing(Comparator.comparingInt(Candidate::remainingHours).reversed()))
                 .findFirst()
                 .orElse(null);
     }
 
-    private boolean isAvailable(Teacher candidate, LessonInstance instance, LocalDate date) {
-        try {
-            if (lessonInstanceService.isTeacherSickOnDate(candidate.getId(), date)) {
-                return false;
-            }
-        } catch (Exception e) {
-            log.debug("Проверка больничного кандидата {} не удалась: {}", candidate.getId(), e.getMessage());
-        }
+    static boolean relatedDisciplines(String a, String b) {
+        if (a == null || b == null) return false;
+        String ma = moduleCode(a);
+        String mb = moduleCode(b);
+        if (ma != null && ma.equals(mb)) return true;
+        return com.karyakina.schedule.util.StringSimilarity.similarity(a, b) >= 0.75;
+    }
 
-        List<LessonInstance> busyToday = lessonInstanceRepository
-                .findActiveByActualTeacherIdAndDate(candidate.getId(), date);
-        for (LessonInstance other : busyToday) {
-            if (other.getSchedule() == null) {
-                continue;
-            }
-            if (overlaps(other.getSchedule(), instance.getSchedule())) {
-                return false;
-            }
-        }
-        // Перегрузка преподавателя допустима: число пар в день у заменяющего не ограничиваем, только пересечения.
+    private static final java.util.regex.Pattern MODULE = java.util.regex.Pattern.compile(
+            "(мдк|пм|оп|оуд|ен|огсэ)\\s*\\.?\\s*0*(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE);
 
-        for (Schedule schedule : scheduleRepository.findByTeacherLoadTeacherIdAndAcademicYear(
-                candidate.getId(), instance.getAcademicYear())) {
-            if (schedule.getDayOfWeek() != date.getDayOfWeek()) {
-                continue;
-            }
-            if (schedule.getAcademicWeek() != null
-                    && !schedule.getAcademicWeek().equals(academicWeekOf(date, instance.getAcademicYear()))) {
-                continue;
-            }
-            if (overlaps(schedule, instance.getSchedule())) {
-                return false;
-            }
+    private static String moduleCode(String name) {
+        java.util.regex.Matcher m = MODULE.matcher(name.toLowerCase(java.util.Locale.ROOT));
+        return m.find() ? m.group(1) + m.group(2) : null;
+    }
+
+    private boolean isFree(Teacher candidate, LessonInstance instance, LocalDate date, int pairIdx,
+                           CalendarSlotFinder.Calendar calendar) {
+        if (calendar.isTeacherAbsent(candidate.getId(), date)) return false;
+        if (pairIdx >= 0) return !calendar.isTeacherBusy(candidate.getId(), date, pairIdx);
+        for (LessonInstance other : lessonInstanceRepository.findActiveByActualTeacherIdAndDate(candidate.getId(), date)) {
+            if (other.getSchedule() != null && overlaps(other.getSchedule(), instance.getSchedule())) return false;
         }
         return true;
+    }
+
+    private void occupyForSubstitute(CalendarSlotFinder.Calendar calendar, LessonInstance instance, Teacher substitute) {
+        int pairIdx = GenerationGrid.pairIndex(instance.getSchedule().getStartTime());
+        if (pairIdx < 0) return;
+        LocalDate date = instance.getLessonDate();
+        calendar.release(instance.getSchedule().getId(), date);
+        calendar.occupy(new CalendarSlotFinder.Slot(date, pairIdx, instance.getSchedule().getClassroom(),
+                        AcademicYearUtil.academicWeek(date, instance.getAcademicYear()), false),
+                instance.getSchedule().getTeacherLoad(), substitute.getId(), instance.getSchedule().getId());
     }
 
     private void applySubstitution(LessonInstance instance, SickLeave sickLeave, Candidate substitute,
@@ -407,7 +428,6 @@ public class SickLeaveReschedulingService {
                 instance.getLessonDate(), original.getStartTime(), date, start, room);
     }
 
-
     private RescheduleResultDTO.Unresolved describeUnresolved(LessonInstance instance, String moveFailure) {
         TeacherLoad load = instance.getSchedule() == null ? null : instance.getSchedule().getTeacherLoad();
         return new RescheduleResultDTO.Unresolved(
@@ -475,10 +495,19 @@ public class SickLeaveReschedulingService {
             }
             try {
                 for (LessonInstance instance : lessonInstanceService.generateInstancesForDate(date, academicYear)) {
+                    if (instance.getSchedule() == null) continue;
+                    boolean wasSubstitute = false;
+                    if (instance.getStatus() == LessonInstance.Status.REPLACED
+                            && instance.getActualTeacher() != null
+                            && instance.getActualTeacher().getId().equals(teacher.getId())
+                            && !LessonInstanceService.isCredited(instance)) {
+                        instance = lessonInstanceService.revertReplacement(instance.getId(),
+                                "Заменяющий тоже отсутствует");
+                        wasSubstitute = true;
+                    }
                     if (instance.getStatus() == LessonInstance.Status.PLANNED
                             && instance.getOriginalTeacher() != null
-                            && instance.getOriginalTeacher().getId().equals(teacher.getId())
-                            && instance.getSchedule() != null) {
+                            && (wasSubstitute || instance.getOriginalTeacher().getId().equals(teacher.getId()))) {
                         affected.put(instance.getId(), instance);
                     }
                 }
@@ -519,14 +548,6 @@ public class SickLeaveReschedulingService {
             return load.getRemainingHours();
         } catch (Exception e) {
             return 0;
-        }
-    }
-
-    private int academicWeekOf(LocalDate date, Integer academicYear) {
-        try {
-            return lessonInstanceService.computeAcademicWeek(date, academicYear);
-        } catch (Exception e) {
-            return 1;
         }
     }
 

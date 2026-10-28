@@ -1,5 +1,6 @@
 package com.karyakina.schedule.domain;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,4 +16,7 @@ public class CuratorEvent {
     private LocalDate date;
     private Double hours;
     private String description;
+
+    @Column(name = "event_type")
+    private String type;
 }

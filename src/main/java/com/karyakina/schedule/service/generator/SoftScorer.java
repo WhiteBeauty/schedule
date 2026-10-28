@@ -156,7 +156,6 @@ public final class SoftScorer {
         return first < 0 ? 0 : (last - first + 1) - busy;
     }
 
-    /** Сколько пустых пар в начале дня у группы (день начинается не с 1-й пары — «окно» с утра). */
     public int lateStart(boolean[] line, int dayIdx) {
         for (int p = 0; p < pairsPerDay; p++) {
             if (line[GenerationGrid.flat(dayIdx, p)]) {

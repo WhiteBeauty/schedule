@@ -65,6 +65,7 @@ public class ScheduleGeneratorService {
     private final TarificationRepository tarificationRepository;
     private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
     private final com.karyakina.schedule.repository.SpecialEventRepository specialEventRepository;
+    private final HourAccountingService hourAccountingService;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
@@ -139,6 +140,7 @@ public class ScheduleGeneratorService {
                         .academicWeek(null)
                         .academicYear(load.getAcademicYear())
                         .semester(resolveSemester(session))
+                        .activeFromWeek(liveStartWeek(session))
                         .build());
             }
             scheduleRepository.saveAll(created);
@@ -150,6 +152,8 @@ public class ScheduleGeneratorService {
             session.setPersisted(true);
             session.getDraft().clear();
 
+            session.getLastMetrics().put("academicYear", session.getAcademicYear());
+            session.getLastMetrics().put("semester", resolveSemester(session));
             int missingPairs = session.getLastMetrics().getOrDefault("missingPairs", 0);
             GenerationResultDTO.Status status = missingPairs > 0
                     ? GenerationResultDTO.Status.PARTIAL
@@ -171,7 +175,6 @@ public class ScheduleGeneratorService {
             return;
         }
         SolverConfig hoursConfig = SolverConfig.defaults();
-        // Раньше при каждом сохранении те же «не вставшие» пары добавлялись в облако заново (дубли).
         Set<Long> loadIds = new HashSet<>();
         unplacedIssues.forEach(issue -> {
             Long id = asLong(issue.context().get("loadId"));
@@ -265,13 +268,13 @@ public class ScheduleGeneratorService {
             warnings.addAll(assignment.conflicts);
 
             int semester = resolveSemester(session);
+            Integer liveWeek = liveStartWeek(session);
             List<Schedule> existing = scheduleRepository.findByAcademicYear(year).stream()
                     .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
+                    .filter(s -> liveWeek == null || s.getActiveUntilWeek() == null || s.getActiveUntilWeek() >= liveWeek)
                     .toList();
             Set<Long> loadsWithSchedule = new HashSet<>();
             existing.forEach(s -> {
-                // Разовые переносы (экзамен, больничный, доп. пары пересчёта) не делают нагрузку «уже расставленной».
-                // Раньше из-за одного такого переноса без семестра нагрузка выпадала из автосоставления весны.
                 if (s.getTeacherLoad() != null && s.getTeacherLoad().getId() != null
                         && s.getAcademicWeek() == null && s.getSpecialEventId() == null
                         && s.getRescheduledFromDate() == null) {
@@ -286,6 +289,7 @@ public class ScheduleGeneratorService {
                     .filter(l -> l.getId() != null && !loadsWithSchedule.contains(l.getId()))
                     .filter(l -> !session.getSkippedLoads().contains(l.getId()))
                     .filter(l -> l.getGroup() != null && l.getDiscipline() != null)
+                    .filter(l -> !Boolean.TRUE.equals(l.getOverload()))
                     .filter(l -> groupFilter.isEmpty() || groupFilter.contains(l.getGroup().getId()))
                     .toList();
             metrics.put("loadsConsidered", candidates.size());
@@ -401,8 +405,6 @@ public class ScheduleGeneratorService {
             metrics.put("unresolvedLoads", solution.unplaced().size());
             metrics.put("missingPairs", solution.missingPairs());
 
-            // Если администратор уже ответил на этот вопрос, а конфликт остался — больше не блокируем и не
-            // открываем модальное окно снова (раньше окно всплывало бесконечно), оставляем предупреждением.
             for (int i = 0; i < issues.size(); i++) {
                 MissingResourceRequest issue = issues.get(i);
                 if (issue.severity() == MissingResourceRequest.Severity.BLOCKING
@@ -770,12 +772,6 @@ public class ScheduleGeneratorService {
                 .toList();
     }
 
-    /**
-     * Пары в неделю округляются по каждой дисциплине отдельно, и сумма у группы могла превысить недельный лимит
-     * (так появлялись «не вставшие» пары с причиной «превышен лимит»). Недельный шаблон всегда укладываем в лимит.
-     * Снимаем по одной паре у дисциплин, которые сильнее всего округлились вверх, пока сумма не уложится.
-     * Недостающие доли часов потом добирает пересчёт по часам разовыми парами.
-     */
     private List<SolverInput.Demand> fitIntoGroupWeekCap(List<SolverInput.Demand> demands,
                                                          List<SolverInput.GroupRef> groups,
                                                          Map<Long, Double> exactPairs,
@@ -788,7 +784,6 @@ public class ScheduleGeneratorService {
         for (Map.Entry<Long, List<SolverInput.Demand>> entry : byGroup.entrySet()) {
             SolverInput.GroupRef group = groupById.get(entry.getKey());
             List<SolverInput.Demand> list = new ArrayList<>(entry.getValue());
-            // Лимит — недельный лимит группы, но не больше реально доступных ей слотов (обед, пар в день).
             int cap = group == null ? Integer.MAX_VALUE : Math.min(group.maxWeeklyPairs(), Math.min(
                     GenerationGrid.slotCount() - group.blockedSlots().size(),
                     group.maxPairsPerDay() * GenerationGrid.days()));
@@ -827,7 +822,6 @@ public class ScheduleGeneratorService {
         return result;
     }
 
-    /** Окна у групп не запрещены жёстко, но о каждом администратор получает предупреждение. */
     private List<String> groupWindowWarnings(SolverResult solution, Map<Long, TeacherLoad> loadById) {
         Map<String, java.util.TreeSet<Integer>> byGroupDay = new java.util.TreeMap<>();
         Map<String, String> label = new HashMap<>();
@@ -927,8 +921,6 @@ public class ScheduleGeneratorService {
             session.getOpenIssues().remove(issue.id());
             session.getAnsweredIssueKeys().add(issue.subjectKey());
             if (issue.code() == MissingResourceRequest.Code.GRID_CAPACITY && groupId != null) {
-                // Даже если поднятый лимит пар в день не помог, повторно этот же вопрос не задаём:
-                // остаток уйдёт в «не вставшие» предупреждением.
                 session.getDismissedCapacityWarnings().add(groupId);
             }
             log.info("Автосоставление {}: решение {} по вопросу {} ({})", session.getId(), decision.actionCode(),
@@ -1167,6 +1159,11 @@ public class ScheduleGeneratorService {
     private record ResolvedHours(int annualHours, boolean overridden) {
     }
 
+    private Integer liveStartWeek(GenerationSessionStore.Session session) {
+        return AcademicYearUtil.liveStartWeek(resolveSemester(session), session.getAcademicYear(),
+                java.time.LocalDate.now());
+    }
+
     private int resolveSemester(GenerationSessionStore.Session session) {
         Integer requested = session.getRequest() == null ? null : session.getRequest().semester();
         if (requested != null && requested == 2) return 2;
@@ -1179,11 +1176,6 @@ public class ScheduleGeneratorService {
         return h == null ? 0 : Math.max(0, h);
     }
 
-    /**
-     * Сколько часов осталось поставить и на сколько учебных недель их разложить.
-     * Недели считаются по реальным учебным дням группы: без праздников, каникул и дней её экзаменов/практик.
-     * Темп — на весь семестр, даже если он уже идёт: прошедшие недели считаются проведёнными по этому шаблону.
-     */
     record PeriodBasis(int hours, double weeks, boolean overridden, boolean inProgress) {
     }
 
@@ -1194,10 +1186,18 @@ public class ScheduleGeneratorService {
         }
         java.time.LocalDate start = AcademicYearUtil.semesterStart(semester, academicYear);
         java.time.LocalDate end = AcademicYearUtil.semesterEnd(semester, academicYear);
-        // Недельный темп всегда считается на весь семестр. Раньше посреди семестра брался остаток недель от
-        // сегодняшнего дня, а на чистой базе вычитанного ещё нет — и весь план осени ложился на 10 недель
-        // (29–35 пар в неделю вместо 18). Отклонения от плана по факту добирает пересчёт по часам.
+        java.time.LocalDate today = java.time.LocalDate.now();
         java.time.LocalDate from = start;
+        int planHours = semesterHours(load, semester);
+        boolean inProgress = false;
+        // семестр идёт значит считаем от оставшихся часов
+        Integer liveWeek = AcademicYearUtil.liveStartWeek(semester, academicYear, today);
+        if (liveWeek != null) {
+            from = AcademicYearUtil.mondayOfWeek(liveWeek, academicYear);
+            int done = hourAccountingService == null ? 0 : hourAccountingService.conductedInSemester(load, semester, today);
+            planHours = Math.max(0, planHours - done);
+            inProgress = true;
+        }
 
         List<com.karyakina.schedule.domain.SpecialEvent> events = load.getGroup() == null || eventsByGroup == null
                 ? List.of() : eventsByGroup.getOrDefault(load.getGroup().getId(), List.of());
@@ -1210,7 +1210,7 @@ public class ScheduleGeneratorService {
         }
         double weeks = Math.max(1.0, days / (double) GenerationGrid.days());
 
-        return new PeriodBasis(semesterHours(load, semester), weeks, false, false);
+        return new PeriodBasis(planHours, weeks, false, inProgress);
     }
 
     private int weeklyPairs(TeacherLoad load, PeriodBasis basis, SolverConfig config) {

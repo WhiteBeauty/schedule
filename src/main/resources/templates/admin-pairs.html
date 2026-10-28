@@ -201,18 +201,12 @@
 <script>
 let pairsData = [];
 let loadsData = [];
-let substitutionsMap = {}; // scheduleId -> [{originalTeacherName, actualTeacherName, lessonDate}, ...]
+let substitutionsMap = {};
 let teachersData = [];
 let groupsData = [];
 let disciplinesData = [];
 let sickLeavesData = [];
 
-/**
- * pairsData — это шаблон расписания БЕЗ конкретной даты (одна и та же пара
- * "среда, 08:30" повторяется каждую неделю), поэтому подсвечивать замену нужно
- * только если она произошла ИМЕННО в текущую календарную неделю — иначе разовая
- * замена подсвечивала бы пару фиолетовым навсегда, независимо от даты.
- */
 const WEEK_DAY_ORDER = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
 function dateForDayInCurrentWeek(dayOfWeek) {
     const today = new Date();
@@ -242,7 +236,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadGroups();
     loadDisciplines();
 
-    // Загружаем нагрузки для текущего года
     const year = document.getElementById('yearSelect').value;
     fetch(`/api/loads?year=${year}`)
         .then(r => r.json())
@@ -310,7 +303,6 @@ function onTeacherChange() {
 
     groupSelect.disabled = false;
 
-    // Фильтруем нагрузки по преподавателю
     const teacherLoads = loadsData.filter(l => l.teacher.id == selectedTeacherId);
     const uniqueGroupIds = [...new Set(teacherLoads.map(l => l.group.id))];
 
@@ -343,7 +335,6 @@ function onGroupChange() {
 
     disciplineSelect.disabled = false;
 
-    // Фильтруем нагрузки по преподавателю и группе
     const teacherLoads = loadsData.filter(l =>
         l.teacher.id == selectedTeacherId && l.group.id == selectedGroupId
     );
@@ -371,7 +362,6 @@ function onDisciplineChange() {
         return;
     }
 
-    // Находим нагрузку по преподавателю, группе и дисциплине
     const load = loadsData.find(l =>
         l.teacher.id == selectedTeacherId &&
         l.group.id == selectedGroupId &&
@@ -551,7 +541,6 @@ function autoDeduct() {
         });
 }
 
-// Edit Pair Modal
 function openEditPairModal(id, teacherName, disciplineName, groupName, dayOfWeek, startTime, endTime, classroom, academicWeek) {
     editingPairId = id;
     document.getElementById('editTeacherName').value = teacherName;
@@ -607,7 +596,6 @@ function saveEditPair() {
     });
 }
 
-// Sick Leaves
 function openSickLeavesModal() {
     document.getElementById('sickLeavesModal').classList.add('active');
     loadSickLeaves();

@@ -136,6 +136,7 @@ public class AdminDeletionService {
 
         Map<Long, List<Schedule>> byTeacher = new HashMap<>();
         for (Schedule s : schedules) {
+            if (s.getTeacherLoad() == null || s.getTeacherLoad().getTeacher() == null) continue;
             byTeacher.computeIfAbsent(s.getTeacherLoad().getTeacher().getId(), k -> new ArrayList<>()).add(s);
         }
         for (Map.Entry<Long, List<Schedule>> entry : byTeacher.entrySet()) {
@@ -151,10 +152,49 @@ public class AdminDeletionService {
             }
         }
 
-        deleteSchedulesCascade(schedules, true);
+        List<Schedule> toDelete = keepHistory(schedules);
+        deleteSchedulesCascade(toDelete, true);
 
-        log.info("Снос расписания: {} ({} пар удалено)", scope, count);
-        return WipeScheduleResultDto.builder().deletedPairs(count).scope(scope).build();
+        log.info("Снос расписания: {} ({} пар удалено, {} оставлено в истории до конца недели)", scope,
+                toDelete.size(), count - toDelete.size());
+        return WipeScheduleResultDto.builder().deletedPairs(toDelete.size()).scope(scope).build();
+    }
+
+    // прошлые пары не трогаем иначе пропадут часы
+    private List<Schedule> keepHistory(List<Schedule> schedules) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        List<Schedule> toDelete = new ArrayList<>();
+        for (Schedule s : schedules) {
+            int semester = s.getSemester() != null ? s.getSemester()
+                    : com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
+            int year = s.getAcademicYear();
+            java.time.LocalDate semStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, year);
+            java.time.LocalDate semEnd = com.karyakina.schedule.util.AcademicYearUtil.semesterEnd(semester, year);
+            if (today.isAfter(semEnd)) continue;
+            Integer liveWeek = com.karyakina.schedule.util.AcademicYearUtil.liveStartWeek(semester, year, today);
+            if (liveWeek == null) {
+                toDelete.add(s);
+                continue;
+            }
+            int firstWeek = s.getAcademicWeek() != null ? s.getAcademicWeek()
+                    : Math.max(s.getActiveFromWeek() == null ? 0 : s.getActiveFromWeek(),
+                    com.karyakina.schedule.util.AcademicYearUtil.academicWeek(semStart, year));
+            if (firstWeek >= liveWeek) {
+                toDelete.add(s);
+                continue;
+            }
+            if (s.getAcademicWeek() != null) continue;
+            if (s.getActiveUntilWeek() == null || s.getActiveUntilWeek() >= liveWeek) {
+                s.setActiveUntilWeek(liveWeek - 1);
+                scheduleRepository.save(s);
+            }
+            java.time.LocalDate cut = com.karyakina.schedule.util.AcademicYearUtil.mondayOfWeek(liveWeek, year);
+            List<LessonInstance> future = lessonInstanceRepository.findByScheduleIdIn(List.of(s.getId())).stream()
+                    .filter(li -> !li.getLessonDate().isBefore(cut)).toList();
+            future.forEach(li -> lessonInstanceService.revertHoursBeforeDelete(li, "Снос расписания"));
+            deleteInstancesWithSubstitutions(future);
+        }
+        return toDelete;
     }
 
     @Transactional
@@ -280,7 +320,6 @@ public class AdminDeletionService {
         List<LessonInstance> directInstances = lessonInstanceRepository.findByTeacherLoadId(load.getId());
         deleteInstancesWithSubstitutions(directInstances);
 
-        // Ссылки на нагрузку из предложений темпа, экзаменов и «облака» раньше не чистились — удаление падало.
         paceAdjustmentSuggestionRepository.deleteAll(paceAdjustmentSuggestionRepository.findByTeacherLoadId(load.getId()));
         specialEventRepository.findAll().stream()
                 .filter(e -> e.getTeacherLoad() != null && load.getId().equals(e.getTeacherLoad().getId()))
@@ -298,10 +337,6 @@ public class AdminDeletionService {
         deleteSchedulesCascade(schedules, false);
     }
 
-    /**
-     * revertHours=true: вместе с занятиями откатываются и вычитанные по ним часы. Раньше после сноса расписания
-     * часы оставались, и нагрузка выглядела выполненной на сотни процентов.
-     */
     private void deleteSchedulesCascade(List<Schedule> schedules, boolean revertHours) {
         if (schedules.isEmpty()) return;
         List<Long> scheduleIds = schedules.stream().map(Schedule::getId).collect(Collectors.toList());
@@ -346,8 +381,6 @@ public class AdminDeletionService {
         int schedules = (int) scheduleRepository.count();
         scheduleRepository.deleteAllInBatch();
 
-        // Раньше эти таблицы не чистились: экзамены/практики ссылаются на группы, предложения темпа — на нагрузки,
-        // поэтому полная очистка падала, как только хоть один экзамен был назначен.
         paceAdjustmentSuggestionRepository.deleteAllInBatch();
         specialEventRepository.deleteAllInBatch();
         unresolvedRescheduleRepository.deleteAllInBatch();
@@ -396,8 +429,6 @@ public class AdminDeletionService {
         int auditLogs = (int) auditLogRepository.count();
         auditLogRepository.deleteAllInBatch();
 
-        // Аудитории по умолчанию раньше создавались только при запуске приложения: после очистки базы
-        // автосоставление шло на запасном встроенном списке из 11 аудиторий, и у групп появлялись окна.
         dataInitializerProvider.getObject().ensureDefaultClassrooms();
 
         int remainingAdmins = (int) userRepository.count();

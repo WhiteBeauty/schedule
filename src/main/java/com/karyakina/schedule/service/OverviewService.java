@@ -52,9 +52,6 @@ public class OverviewService {
         int currentWeek = currentAcademicWeek(academicYearStart);
         List<Schedule> all = scheduleRepository.findByAcademicYear(academicYearStart);
 
-        // Номер недели в строках расписания считается от 1 сентября, а не от начала семестра,
-        // и пары осени/весны нельзя смешивать — иначе на дашборде появлялись «окна» и «конфликты»,
-        // которых в реальной неделе нет.
         java.time.LocalDate today = java.time.LocalDate.now();
         int semester = AcademicYearUtil.getCurrentSemester();
         int scheduleWeek = AcademicYearUtil.academicWeek(today, academicYearStart);
@@ -105,7 +102,6 @@ public class OverviewService {
             if (s.getTeacherLoad() == null || s.getTeacherLoad().getGroup() == null) continue;
             Long groupId = s.getTeacherLoad().getGroup().getId();
             int gridIdx = com.karyakina.schedule.service.generator.GenerationGrid.pairIndex(s.getStartTime());
-            // номер пары по сетке звонков, а не по порядку времён, встретившихся в этот день у всех групп
             int idx = gridIdx >= 0 ? gridIdx : slotsByDay.get(s.getDayOfWeek()).indexOf(s.getStartTime());
             byGroup.computeIfAbsent(groupId, g -> new HashMap<>())
                     .computeIfAbsent(s.getDayOfWeek(), d -> new TreeSet<>())

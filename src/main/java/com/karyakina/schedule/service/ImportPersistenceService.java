@@ -316,8 +316,6 @@ public class ImportPersistenceService {
         ImportResult result = new ImportResult();
         Integer academicYear = tarification.getAcademicYear();
 
-        // Повторный импорт той же тарификации обновляет её нагрузки, а не создаёт дубли.
-        // Одинаковые строки (преподаватель + группа + дисциплина) внутри файла суммируются в одну нагрузку.
         java.util.Map<String, TeacherLoad> existingByKey = new java.util.HashMap<>();
         if (tarification.getId() != null) {
             for (TeacherLoad l : loadRepository.findByTarificationId(tarification.getId())) {
@@ -402,7 +400,6 @@ public class ImportPersistenceService {
             result.processedLoads++;
         }
 
-        // Записи, которых в новом файле больше нет: без пар и проведённых часов — удаляем, иначе обнуляем часы.
         for (TeacherLoad stale : existingByKey.values()) {
             boolean used = nz(stale.getReadHours()) > 0 || !scheduleRepository.findByTeacherLoadId(stale.getId()).isEmpty();
             if (used) {

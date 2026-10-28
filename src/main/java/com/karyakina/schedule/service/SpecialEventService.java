@@ -31,6 +31,7 @@ public class SpecialEventService {
     private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
     private final CalendarSlotFinder slotFinder;
     private final HoursRecalculationService hoursRecalculationService;
+    private final SubstitutionRequestRepository substitutionRequestRepository;
 
     @Transactional
     public SpecialEventDtos.Result assignEvent(SpecialEvent.Type type, Long groupId, Long disciplineId,
@@ -69,15 +70,42 @@ public class SpecialEventService {
                 .note(buildNote(type, discipline))
                 .build();
         final SpecialEvent savedEvent = specialEventRepository.save(event);
-        groupEvents.add(savedEvent);
-
-        Long ownLoadId = ownLoad != null ? ownLoad.getId() : null;
-        Long ownDisciplineId = discipline != null ? discipline.getId() : null;
 
         List<SpecialEventDtos.MovedPair> moved = new ArrayList<>();
         List<SpecialEventDtos.UnresolvedConflict> unresolved = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        displace(savedEvent, startDate, endDate, adminName, moved, unresolved, warnings);
+        coverByRecalculation(academicYear, unresolved, warnings);
 
+        log.info("Событие {} «{}» для группы {} ({} — {}): перенесено {}, в «облако» {}, предупреждений {}",
+                savedEvent.getId(), typeLabel(type), group.getName(), startDate, endDate, moved.size(),
+                unresolved.size(), warnings.size());
+        unresolved.forEach(u -> log.info("Событие {}: не перенесена «{}» от {} {} — {}", savedEvent.getId(),
+                u.getDisciplineName(), u.getOriginalDate(), u.getOriginalStartTime(), u.getReason()));
+        warnings.forEach(w -> log.info("Событие {}: {}", savedEvent.getId(), w));
+        return SpecialEventDtos.Result.builder()
+                .eventId(savedEvent.getId())
+                .type(type.name())
+                .typeLabel(typeLabel(type))
+                .groupName(group.getName())
+                .disciplineName(discipline != null ? discipline.getName() : null)
+                .startDate(startDate)
+                .endDate(endDate)
+                .moved(moved)
+                .unresolved(unresolved)
+                .warnings(warnings)
+                .build();
+    }
+
+    // в дни экзамена или практики у группы пар нет
+    private void displace(SpecialEvent event, LocalDate startDate, LocalDate endDate, String changedBy,
+                          List<SpecialEventDtos.MovedPair> moved, List<SpecialEventDtos.UnresolvedConflict> unresolved,
+                          List<String> warnings) {
+        StudyGroup group = event.getGroup();
+        Long groupId = group.getId();
+        int academicYear = event.getAcademicYear();
+        Long ownLoadId = event.getTeacherLoad() != null ? event.getTeacherLoad().getId() : null;
+        LocalDate today = LocalDate.now();
         CalendarSlotFinder.Calendar calendar = slotFinder.open(academicYear, startDate,
                 AcademicYearUtil.semesterEnd(2, academicYear));
         int weekCap = CalendarSlotFinder.weekCap(group);
@@ -98,24 +126,22 @@ public class SpecialEventService {
                         TeacherLoad l = li.getSchedule().getTeacherLoad();
                         return l.getGroup() != null && l.getGroup().getId().equals(groupId);
                     })
-                    .filter(li -> !(ownLoadId != null && li.getSchedule().getTeacherLoad().getId().equals(ownLoadId)))
-                    .filter(li -> !(ownDisciplineId != null && li.getSchedule().getTeacherLoad().getDiscipline() != null
-                            && li.getSchedule().getTeacherLoad().getDiscipline().getId().equals(ownDisciplineId)))
                     .sorted(java.util.Comparator.comparing(li -> li.getSchedule().getStartTime()))
                     .toList();
 
             for (LessonInstance li : dayConflicts) {
                 Schedule s = li.getSchedule();
                 TeacherLoad load = s.getTeacherLoad();
-                LessonInstance cancelled = lessonInstanceService.cancelInstance(li.getId(), savedEvent.getNote(), adminName);
-                cancelled.setCancelledBySpecialEventId(savedEvent.getId());
+                LessonInstance cancelled = lessonInstanceService.cancelInstance(li.getId(), event.getNote(), changedBy);
+                cancelled.setCancelledBySpecialEventId(event.getId());
                 lessonInstanceRepository.save(cancelled);
                 calendar.release(s.getId(), currentDate);
+                if (ownLoadId != null && ownLoadId.equals(load.getId())) continue;
+                if (currentDate.isBefore(today)) continue;
 
                 Long teacherId = load.getTeacher() != null ? load.getTeacher().getId() : null;
-                LocalDate searchFrom = currentDate.with(DayOfWeek.MONDAY);
                 CalendarSlotFinder.Outcome outcome = calendar.find(new CalendarSlotFinder.Request(load, teacherId,
-                        searchFrom, AcademicYearUtil.semesterEnd(semester, academicYear), semester,
+                        currentDate.with(DayOfWeek.MONDAY), AcademicYearUtil.semesterEnd(semester, academicYear), semester,
                         s.getClassroom(), GenerationGrid.pairIndex(s.getStartTime()), true));
 
                 String teacherName = load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен";
@@ -133,9 +159,9 @@ public class SpecialEventService {
                             .reason(reason)
                             .build());
                     unresolvedRescheduleRepository.save(UnresolvedReschedule.builder()
-                            .specialEventId(savedEvent.getId())
+                            .specialEventId(event.getId())
                             .teacherLoadId(load.getId())
-                            .groupId(group.getId())
+                            .groupId(groupId)
                             .groupName(group.getName())
                             .disciplineName(load.getDiscipline().getName())
                             .teacherName(teacherName)
@@ -159,13 +185,13 @@ public class SpecialEventService {
                         .academicYear(academicYear)
                         .semester(semester)
                         .rescheduledFromDate(currentDate)
-                        .rescheduledReason(savedEvent.getNote())
-                        .specialEventId(savedEvent.getId())
+                        .rescheduledReason(event.getNote())
+                        .specialEventId(event.getId())
                         .build());
                 calendar.occupy(slot, load, teacherId, movedRow.getId());
                 if (slot.createsWindow()) {
                     warnings.add(load.getDiscipline().getName() + " перенесена на " + slot.date() + ", "
-                            + (slot.pairIdx() + 1) + "-я пара: без окна у группы поставить не удалось.");
+                            + (slot.pairIdx() + 1) + "-я пара, без окна у группы поставить не удалось.");
                 }
 
                 moved.add(SpecialEventDtos.MovedPair.builder()
@@ -184,56 +210,54 @@ public class SpecialEventService {
                         .build());
             }
         }
+    }
 
-        // Пары, которым не нашлось слота, пробуем покрыть динамическим пересчётом часов этих же дисциплин:
-        // он учитывает запас расписания до конца семестра (лишние пары снимаются, недостающие — добавляются).
-        if (!unresolved.isEmpty()) {
-            java.util.Map<Integer, java.util.Set<Long>> loadsBySemester = new java.util.HashMap<>();
-            for (SpecialEventDtos.UnresolvedConflict u : unresolved) {
-                int sem = AcademicYearUtil.semesterOfDate(u.getOriginalDate());
-                if (sem > 0) loadsBySemester.computeIfAbsent(sem, k -> new java.util.HashSet<>()).add(u.getTeacherLoadId());
-            }
-            java.util.Set<Long> stillUncovered = new java.util.HashSet<>();
-            for (var e : loadsBySemester.entrySet()) {
-                try {
-                    HoursRecalculationService.Result r = hoursRecalculationService.recalculate(academicYear, e.getKey(),
-                            e.getValue(), false);
-                    stillUncovered.addAll(r.uncoveredLoadIds());
-                    if (!r.added().isEmpty() || !r.cancelled().isEmpty()) {
-                        warnings.add("Пересчёт часов: добавлено пар " + r.added().size() + ", снято лишних "
-                                + r.cancelled().size() + " (по дисциплинам, которые не удалось перенести напрямую).");
-                    }
-                } catch (Exception ex) {
-                    log.warn("Пересчёт часов после события не выполнен: {}", ex.getMessage());
-                    stillUncovered.addAll(e.getValue());
+    private void coverByRecalculation(int academicYear, List<SpecialEventDtos.UnresolvedConflict> unresolved,
+                                      List<String> warnings) {
+        if (unresolved.isEmpty()) return;
+        java.util.Map<Integer, java.util.Set<Long>> loadsBySemester = new java.util.HashMap<>();
+        for (SpecialEventDtos.UnresolvedConflict u : unresolved) {
+            int sem = AcademicYearUtil.semesterOfDate(u.getOriginalDate());
+            if (sem > 0) loadsBySemester.computeIfAbsent(sem, k -> new java.util.HashSet<>()).add(u.getTeacherLoadId());
+        }
+        java.util.Set<Long> stillUncovered = new java.util.HashSet<>();
+        for (var e : loadsBySemester.entrySet()) {
+            try {
+                HoursRecalculationService.Result r = hoursRecalculationService.recalculate(academicYear, e.getKey(),
+                        e.getValue(), false);
+                stillUncovered.addAll(r.uncoveredLoadIds());
+                if (!r.added().isEmpty() || !r.cancelled().isEmpty()) {
+                    warnings.add("Пересчёт часов: добавлено пар " + r.added().size() + ", снято лишних "
+                            + r.cancelled().size() + ".");
                 }
-            }
-            int before = unresolved.size();
-            unresolved.removeIf(u -> !stillUncovered.contains(u.getTeacherLoadId()));
-            if (before > unresolved.size()) {
-                warnings.add("Часы " + (before - unresolved.size()) + " пар(ы) покрыты пересчётом до конца семестра — "
-                        + "в «облако» они не попали.");
+            } catch (Exception ex) {
+                log.warn("Пересчёт часов после события не выполнен: {}", ex.getMessage());
+                stillUncovered.addAll(e.getValue());
             }
         }
+        int before = unresolved.size();
+        unresolved.removeIf(u -> !stillUncovered.contains(u.getTeacherLoadId()));
+        if (before > unresolved.size()) {
+            warnings.add("Часы " + (before - unresolved.size()) + " пар(ы) покрыты пересчётом до конца семестра.");
+        }
+    }
 
-        log.info("Событие {} «{}» для группы {} ({} — {}): перенесено {}, в «облако» {}, предупреждений {}",
-                savedEvent.getId(), typeLabel(type), group.getName(), startDate, endDate, moved.size(),
-                unresolved.size(), warnings.size());
-        unresolved.forEach(u -> log.info("Событие {}: не перенесена «{}» от {} {} — {}", savedEvent.getId(),
-                u.getDisciplineName(), u.getOriginalDate(), u.getOriginalStartTime(), u.getReason()));
-        warnings.forEach(w -> log.info("Событие {}: {}", savedEvent.getId(), w));
-        return SpecialEventDtos.Result.builder()
-                .eventId(savedEvent.getId())
-                .type(type.name())
-                .typeLabel(typeLabel(type))
-                .groupName(group.getName())
-                .disciplineName(discipline != null ? discipline.getName() : null)
-                .startDate(startDate)
-                .endDate(endDate)
-                .moved(moved)
-                .unresolved(unresolved)
-                .warnings(warnings)
-                .build();
+    // после генерации снимаем пары с дней экзаменов и практик
+    @Transactional
+    public int reapplyEvents(int academicYear) {
+        LocalDate today = LocalDate.now();
+        int moved = 0;
+        for (SpecialEvent event : specialEventRepository.findByAcademicYear(academicYear)) {
+            if (event.getGroup() == null || event.getEndDate().isBefore(today)) continue;
+            LocalDate from = event.getStartDate().isBefore(today) ? today : event.getStartDate();
+            List<SpecialEventDtos.MovedPair> m = new ArrayList<>();
+            List<SpecialEventDtos.UnresolvedConflict> u = new ArrayList<>();
+            List<String> w = new ArrayList<>();
+            displace(event, from, event.getEndDate(), "system:events", m, u, w);
+            coverByRecalculation(academicYear, u, w);
+            moved += m.size();
+        }
+        return moved;
     }
 
     @Transactional
@@ -324,6 +348,15 @@ public class SpecialEventService {
         }
 
         List<Schedule> movedByThis = scheduleRepository.findBySpecialEventId(eventId);
+        if (!movedByThis.isEmpty()) {
+            List<LessonInstance> movedInstances = lessonInstanceRepository.findByScheduleIdIn(
+                    movedByThis.stream().map(Schedule::getId).toList());
+            for (LessonInstance li : movedInstances) {
+                lessonInstanceService.revertHoursBeforeDelete(li, "Событие отменено");
+            }
+            substitutionRequestRepository.deleteByLessonInstanceIdIn(movedInstances.stream().map(LessonInstance::getId).toList());
+            lessonInstanceRepository.deleteAll(movedInstances);
+        }
         scheduleRepository.deleteAll(movedByThis);
 
         unresolvedRescheduleRepository.deleteBySpecialEventId(eventId);

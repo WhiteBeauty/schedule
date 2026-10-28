@@ -34,7 +34,6 @@ public class LessonInstanceAdminController {
         try {
             String note = body != null ? body.get("note") : null;
             LessonInstance updated = lessonInstanceService.cancelInstance(id, note, "admin:" + admin.getEmail());
-            // Отменённая пара могла стоять в середине дня группы — окно у группы недопустимо, закрываем его.
             if (updated.getSchedule() != null && updated.getSchedule().getTeacherLoad() != null
                     && updated.getSchedule().getTeacherLoad().getGroup() != null) {
                 try {
@@ -45,7 +44,6 @@ public class LessonInstanceAdminController {
                     windowEx.printStackTrace();
                 }
             }
-            // Отменённую пару нужно восполнить: при включённом автопересчёте сразу ищем ей место до конца семестра.
             if (settingsService.isPaceRecalculationEnabled() && updated.getSchedule() != null
                     && updated.getSchedule().getTeacherLoad() != null) {
                 int semester = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(updated.getLessonDate());

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расписание групп</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        body { background: var(--color-bg); }
+        .st-shell { max-width: 1120px; margin: 0 auto; padding: 20px 16px 48px; }
+        .st-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+        .st-brand { display: flex; align-items: center; gap: 10px; }
+        .st-brand-mark {
+            width: 36px; height: 36px; border-radius: 10px; background: var(--color-primary); color: #fff;
+            display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700;
+        }
+        .st-brand-name { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--color-text); }
+        .st-brand-sub { font-size: 12.5px; color: var(--color-text-muted); }
+        .st-controls {
+            display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: var(--color-surface);
+            border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 12px 14px; margin-bottom: 16px;
+        }
+        .st-controls select { min-width: 200px; }
+        .st-spacer { flex: 1; }
+        .st-range { font-weight: 600; min-width: 170px; text-align: center; }
+        .st-week { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+        .st-day { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 12px 14px; }
+        .st-day.today { border: 2px solid var(--color-primary); }
+        .st-day-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+        .st-day-name { font-weight: 700; font-size: 15px; }
+        .st-day-date { color: var(--color-text-muted); font-size: 13px; }
+        .st-pair { display: grid; grid-template-columns: 28px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--color-border-light); }
+        .st-pair:first-of-type { border-top: none; }
+        .st-pair-no {
+            width: 26px; height: 26px; border-radius: 50%; background: var(--lesson-lecture-bg); color: var(--lesson-lecture-text);
+            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;
+        }
+        .st-pair-title { font-weight: 600; line-height: 1.3; }
+        .st-pair-meta { font-size: 12.5px; color: var(--color-text-muted); margin-top: 2px; }
+        .st-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+        .st-badge.sub { background: var(--substitute-bg); color: var(--substitute); }
+        .st-badge.moved { background: var(--color-warning-bg); color: var(--color-warning-text); }
+        .st-event {
+            border-radius: var(--radius-control); background: var(--color-danger-bg); color: var(--color-danger-text);
+            padding: 18px 12px; text-align: center;
+        }
+        .st-event-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .st-event-sub { font-size: 14px; margin-top: 4px; font-weight: 600; }
+        .st-event.practice { background: var(--color-warning-bg); color: var(--color-warning-text); }
+        .st-event.driving { background: #E1EEF1; color: var(--color-primary); }
+        .st-free { color: var(--color-text-faint); font-size: 13px; padding: 6px 0; }
+        .st-month { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--color-surface); border-radius: var(--radius-card); overflow: hidden; }
+        .st-month th { font-size: 12px; color: var(--color-text-muted); padding: 8px 4px; border-bottom: 1px solid var(--color-border); }
+        .st-month td { vertical-align: top; border: 1px solid var(--color-border-light); height: 96px; padding: 5px; font-size: 11.5px; cursor: pointer; }
+        .st-month td.out { background: var(--color-bg); cursor: default; }
+        .st-month td.today { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+        .st-month .num { font-weight: 700; margin-bottom: 3px; }
+        .st-month .ev { font-weight: 800; text-transform: uppercase; font-size: 12px; color: var(--color-danger-text); line-height: 1.2; }
+        .st-month .ev.practice { color: var(--color-warning-text); }
+        .st-month .ev.driving { color: var(--color-primary); }
+        .st-month .ln { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+        .st-empty { text-align: center; color: var(--color-text-muted); padding: 40px 10px; }
+        @media (max-width: 640px) {
+            .st-controls select { min-width: 0; width: 100%; }
+            .st-spacer { display: none; }
+            .st-month td { height: 64px; font-size: 10px; }
+            .st-month .ln { display: none; }
+            .st-month .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); margin-right: 2px; }
+            .st-event-title { font-size: 22px; }
+        }
+        @media (min-width: 641px) { .st-month .dot { display: none; } }
+    </style>
+</head>
+<body>
+<div class="st-shell">
+    <div class="st-top">
+        <div class="st-brand">
+            <div class="st-brand-mark">Р</div>
+            <div>
+                <div class="st-brand-name">Расписание групп</div>
+                <div class="st-brand-sub">Учебный год <span th:text="${currentAcademicYear}">2026-2027</span></div>
+            </div>
+        </div>
+        <a class="btn btn-secondary btn-sm" th:href="@{/login}">Вход для преподавателей</a>
+    </div>
+
+    <div class="st-controls">
+        <select id="groupSelect" aria-label="Группа"><option value="">Загрузка групп...</option></select>
+        <div class="segmented" id="viewSeg">
+            <button type="button" class="active" data-view="week">Неделя</button>
+            <button type="button" data-view="month">Месяц</button>
+        </div>
+        <div class="st-spacer"></div>
+        <button type="button" class="btn btn-sm btn-secondary" id="prevBtn" aria-label="Назад">←</button>
+        <span class="st-range" id="rangeLabel">—</span>
+        <button type="button" class="btn btn-sm btn-secondary" id="nextBtn" aria-label="Вперёд">→</button>
+        <button type="button" class="btn btn-sm btn-secondary" id="todayBtn">Сегодня</button>
+    </div>
+
+    <div id="content"><div class="st-empty">Выберите группу</div></div>
+</div>
+
+<script>
+(function () {
+    var DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+    var MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    var MONTHS_NOM = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+    var view = 'week';
+    var anchor = startDay();
+    var requestNo = 0;
+
+    function startDay() {
+        var d = new Date();
+        d.setHours(0, 0, 0, 0);
+        if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+        if (d.getDay() === 6) d.setDate(d.getDate() + 2);
+        return d;
+    }
+
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+    function monday(d) { return addDays(d, -((d.getDay() + 6) % 7)); }
+    function esc(s) { var div = document.createElement('div'); div.textContent = s == null ? '' : s; return div.innerHTML; }
+    function ruDate(isoStr) { var p = isoStr.split('-'); return p[2] + '.' + p[1]; }
+
+    function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+    function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+    function eventClass(type) {
+        if (type === 'DRIVING') return 'driving';
+        if (type === 'STUDY_PRACTICE' || type === 'PRODUCTION_PRACTICE') return 'practice';
+        return '';
+    }
+    function eventShort(e) {
+        if (e.type === 'EXAM') return 'Экзамен';
+        if (e.type === 'DRIVING') return 'Вождение';
+        return 'Практика';
+    }
+    function eventsOn(events, day) {
+        return events.filter(function (e) { return e.startDate <= day && e.endDate >= day; });
+    }
+
+    function range() {
+        if (view === 'week') {
+            var from = monday(anchor);
+            return {from: from, to: addDays(from, 5)};
+        }
+        var first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        var last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+        return {from: first, to: last};
+    }
+
+    function updateLabel() {
+        var r = range();
+        var label = view === 'week'
+            ? r.from.getDate() + ' ' + MONTHS[r.from.getMonth()] + ' по ' + r.to.getDate() + ' ' + MONTHS[r.to.getMonth()]
+            : MONTHS_NOM[anchor.getMonth()] + ' ' + anchor.getFullYear();
+        document.getElementById('rangeLabel').textContent = label;
+    }
+
+    function loadGroups() {
+        fetch('/api/public/groups').then(function (r) { return r.json(); }).then(function (groups) {
+            var sel = document.getElementById('groupSelect');
+            sel.innerHTML = '<option value="">Выберите группу</option>';
+            groups.forEach(function (g) {
+                sel.add(new Option(g.name + (g.course ? ' (' + g.course + ' курс)' : ''), g.id));
+            });
+            var saved = load('student.group');
+            if (saved && groups.some(function (g) { return String(g.id) === saved; })) sel.value = saved;
+            refresh();
+        }).catch(function () {
+            document.getElementById('content').innerHTML = '<div class="st-empty">Не удалось загрузить список групп</div>';
+        });
+    }
+
+    function refresh() {
+        updateLabel();
+        var groupId = document.getElementById('groupSelect').value;
+        var content = document.getElementById('content');
+        if (!groupId) { content.innerHTML = '<div class="st-empty">Выберите группу</div>'; return; }
+        var r = range();
+        var mode = view;
+        var no = ++requestNo;
+        content.innerHTML = '<div class="st-empty">Загрузка...</div>';
+        fetch('/api/public/schedule?groupId=' + encodeURIComponent(groupId) + '&from=' + iso(r.from) + '&to=' + iso(r.to))
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (no !== requestNo) return;
+                if (mode === 'week') renderWeek(data, r); else renderMonth(data, r);
+            })
+            .catch(function () { if (no === requestNo) content.innerHTML = '<div class="st-empty">Не удалось загрузить расписание</div>'; });
+    }
+
+    function byDate(lessons) {
+        var map = {};
+        (lessons || []).forEach(function (l) { (map[l.date] = map[l.date] || []).push(l); });
+        return map;
+    }
+
+    function renderWeek(data, r) {
+        var lessons = byDate(data.lessons);
+        var events = data.events || [];
+        var todayIso = iso(new Date());
+        var html = '<div class="st-week">';
+        for (var i = 0; i < 6; i++) {
+            var d = addDays(r.from, i);
+            var day = iso(d);
+            var dayEvents = eventsOn(events, day);
+            var list = (lessons[day] || []).slice().sort(function (a, b) { return a.startTime.localeCompare(b.startTime); });
+            if (i === 5 && !list.length && !dayEvents.length) continue;
+            html += '<div class="st-day' + (day === todayIso ? ' today' : '') + '">'
+                + '<div class="st-day-head"><span class="st-day-name">' + DAY_NAMES[i] + '</span>'
+                + '<span class="st-day-date">' + d.getDate() + ' ' + MONTHS[d.getMonth()] + '</span></div>';
+            if (dayEvents.length) {
+                dayEvents.forEach(function (e) {
+                    html += '<div class="st-event ' + eventClass(e.type) + '"><div class="st-event-title">' + esc(e.typeLabel) + '</div>'
+                        + (e.disciplineName ? '<div class="st-event-sub">' + esc(e.disciplineName) + '</div>' : '')
+                        + '<div class="st-event-sub" style="font-weight:500;">Пар нет</div></div>';
+                });
+            } else if (!list.length) {
+                html += '<div class="st-free">Пар нет</div>';
+            } else {
+                list.forEach(function (l) {
+                    html += '<div class="st-pair"><div class="st-pair-no">' + (l.pairNumber || '•') + '</div><div>'
+                        + '<div class="st-pair-title">' + esc(l.discipline)
+                        + (l.substituted ? '<span class="st-badge sub">замена</span>' : '')
+                        + (l.movedFrom ? '<span class="st-badge moved">перенос с ' + ruDate(l.movedFrom) + '</span>' : '')
+                        + '</div><div class="st-pair-meta">' + l.startTime.substring(0, 5) + '–' + l.endTime.substring(0, 5)
+                        + ' · ' + esc(l.teacher) + (l.classroom ? ' · ауд. ' + esc(l.classroom) : '') + '</div></div></div>';
+                });
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        document.getElementById('content').innerHTML = html;
+    }
+
+    function renderMonth(data, r) {
+        var lessons = byDate(data.lessons);
+        var events = data.events || [];
+        var todayIso = iso(new Date());
+        var start = monday(r.from);
+        var html = '<table class="st-month"><thead><tr><th>Пн</th><th>Вт</th><th>Ср</th><th>Чт</th><th>Пт</th><th>Сб</th><th>Вс</th></tr></thead><tbody>';
+        for (var d = new Date(start); d <= r.to || d.getDay() !== 1; d = addDays(d, 1)) {
+            if (d.getDay() === 1) html += '<tr>';
+            var day = iso(d);
+            var inMonth = d.getMonth() === r.from.getMonth();
+            if (!inMonth) {
+                html += '<td class="out"></td>';
+            } else {
+                var dayEvents = eventsOn(events, day);
+                var list = (lessons[day] || []).slice().sort(function (a, b) { return a.startTime.localeCompare(b.startTime); });
+                var cell = '<div class="num">' + d.getDate() + '</div>';
+                if (dayEvents.length) {
+                    dayEvents.forEach(function (e) {
+                        cell += '<div class="ev ' + eventClass(e.type) + '">' + esc(eventShort(e)) + '</div>';
+                    });
+                } else {
+                    list.forEach(function (l) {
+                        cell += '<div class="ln"><span class="dot"></span>' + (l.pairNumber || '') + ' ' + esc(l.discipline) + '</div>';
+                    });
+                }
+                html += '<td data-day="' + day + '"' + (day === todayIso ? ' class="today"' : '') + '>' + cell + '</td>';
+            }
+            if (d.getDay() === 0) html += '</tr>';
+        }
+        html += '</tbody></table>';
+        var content = document.getElementById('content');
+        content.innerHTML = html;
+        content.querySelectorAll('td[data-day]').forEach(function (td) {
+            td.addEventListener('click', function () {
+                var p = td.dataset.day.split('-');
+                anchor = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+                setView('week');
+            });
+        });
+    }
+
+    function setView(v) {
+        view = v;
+        document.querySelectorAll('#viewSeg button').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
+        store('student.view', v);
+        refresh();
+    }
+
+    function shift(dir) {
+        if (view === 'week') anchor = addDays(anchor, 7 * dir);
+        else anchor = new Date(anchor.getFullYear(), anchor.getMonth() + dir, 1);
+        refresh();
+    }
+
+    document.getElementById('groupSelect').addEventListener('change', function () {
+        store('student.group', this.value);
+        refresh();
+    });
+    document.getElementById('viewSeg').addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-view]');
+        if (b) setView(b.dataset.view);
+    });
+    document.getElementById('prevBtn').addEventListener('click', function () { shift(-1); });
+    document.getElementById('nextBtn').addEventListener('click', function () { shift(1); });
+    document.getElementById('todayBtn').addEventListener('click', function () {
+        anchor = startDay();
+        refresh();
+    });
+
+    var savedView = load('student.view');
+    if (savedView === 'month') {
+        view = 'month';
+        document.querySelectorAll('#viewSeg button').forEach(function (b) { b.classList.toggle('active', b.dataset.view === 'month'); });
+    }
+    loadGroups();
+})();
+</script>
+</body>
+</html>

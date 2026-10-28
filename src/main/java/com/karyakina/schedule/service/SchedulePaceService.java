@@ -37,10 +37,13 @@ public class SchedulePaceService {
     private final SettingsService settingsService;
     private final LessonInstanceService lessonInstanceService;
     private final HoursRecalculationService hoursRecalculationService;
+    private final HourAccountingService hourAccountingService;
+    private final MonthlyRecordService monthlyRecordService;
+    private final com.karyakina.schedule.repository.TeacherLoadRepository loadRepository;
 
     private static final int MIN_PAIR_DEVIATION = 1;
 
-    @Scheduled(cron = "0 0 6 * * MON")
+    @Scheduled(cron = "0 30 6 * * MON-FRI")
     public void scheduledPaceCheck() {
         if (!settingsService.isPaceRecalculationEnabled()) {
             return;
@@ -51,13 +54,16 @@ public class SchedulePaceService {
             int semester = AcademicYearUtil.getCurrentSemester();
             HoursRecalculationService.Result result = hoursRecalculationService.recalculate(
                     academicYear, semester, null, false);
+            for (TeacherLoad load : loadRepository.findByAcademicYear(academicYear)) {
+                monthlyRecordService.recalculateHoursForLoad(load.getId());
+            }
             log.info("Weekly hours recalculation: {} loads checked, +{} pairs, -{} pairs, {} unresolved",
                     result.loadsChecked(), result.added().size(), result.cancelled().size(), result.unresolved().size());
             if (!result.added().isEmpty() || !result.cancelled().isEmpty() || !result.unresolved().isEmpty()) {
                 notificationRepository.save(Notification.builder()
                         .forAdmins(true)
                         .type(Notification.Type.INFO)
-                        .title("Еженедельный пересчёт расписания по часам")
+                        .title("Пересчёт расписания по часам")
                         .message("Проверено нагрузок: " + result.loadsChecked() + ". Добавлено пар: "
                                 + result.added().size() + ", снято лишних: " + result.cancelled().size()
                                 + ", не удалось разместить: " + result.unresolved().size()
@@ -110,10 +116,7 @@ public class SchedulePaceService {
                 continue;
             }
 
-            double actualHoursToDate = monthlyRecordRepository.findByTeacherLoadId(loadId).stream()
-                    .filter(r -> isMonthInSemester(r.getMonth(), semester))
-                    .mapToInt(MonthlyRecord::getConductedHoursOrZero)
-                    .sum();
+            double actualHoursToDate = hourAccountingService.conductedInSemester(load, semester, today);
             double expectedHoursToDate = expectedHoursToDate(plannedSemesterHours, semester, academicYear, currentWeek);
 
             double remainingHours = Math.max(0, plannedSemesterHours - actualHoursToDate);
@@ -186,8 +189,6 @@ public class SchedulePaceService {
             candidates.forEach(s -> s.setActiveUntilWeek(lastActiveWeek));
             scheduleRepository.saveAll(candidates);
         } else if (delta > 0) {
-            // Раньше увеличение темпа нужно было расставлять вручную — теперь недостающие часы
-            // добавляются в свободные слоты календаря тем же пересчётом, что и еженедельная проверка.
             hoursRecalculationService.recalculate(suggestion.getAcademicYear(), suggestion.getSemester(),
                     List.of(suggestion.getTeacherLoad().getId()), false);
         }
@@ -215,10 +216,6 @@ public class SchedulePaceService {
         int totalWeeks = AcademicYearUtil.getSemesterWeeks(semester, academicYear);
         int weeksElapsed = Math.max(0, Math.min(totalWeeks, currentWeek - semesterStartWeek + 1));
         return plannedSemesterHours * ((double) weeksElapsed / totalWeeks);
-    }
-
-    private boolean isMonthInSemester(int month, int semester) {
-        return semester == 1 ? (month >= 9 && month <= 12) : (month >= 1 && month <= 6);
     }
 
     private int nz(Integer v) {

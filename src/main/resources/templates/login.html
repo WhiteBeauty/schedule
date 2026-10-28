@@ -63,6 +63,12 @@
 
             <div class="auth-divider">или</div>
 
+            <a class="btn btn-secondary" style="width:100%;" th:href="@{/student}">
+                <span th:replace="~{fragments/icons :: calendar}"></span>
+                Я студент
+            </a>
+            <p class="auth-footnote" style="margin:8px 0 14px;">Расписание групп на неделю и месяц, без входа и регистрации.</p>
+
             <button type="button" class="btn btn-secondary" style="width:100%;" disabled title="Доступно после интеграции с университетской SSO">
                 <span th:replace="~{fragments/icons :: lock}"></span>
                 Войти через SSO университета

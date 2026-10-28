@@ -4,10 +4,12 @@ import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.SickLeave;
 import com.karyakina.schedule.domain.TeacherLoad;
 import com.karyakina.schedule.domain.LessonInstance;
+import com.karyakina.schedule.domain.SpecialEvent;
 import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.SickLeaveRepository;
 import com.karyakina.schedule.repository.TeacherLoadRepository;
 import com.karyakina.schedule.repository.MonthlyRecordRepository;
+import com.karyakina.schedule.repository.SpecialEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,6 +33,7 @@ public class ScheduleService {
     private final TeacherLoadRepository loadRepository;
     private final MonthlyRecordRepository recordRepository;
     private final LessonInstanceService lessonInstanceService;
+    private final SpecialEventRepository specialEventRepository;
 
     public List<Schedule> findByYear(Integer year) {
         return scheduleRepository.findByAcademicYear(year);
@@ -65,8 +68,6 @@ public class ScheduleService {
 
     private void validateGroupWeeklyLimit(Long groupId, Integer academicWeek, Integer academicYear,
                                           Integer semester, Long excludeScheduleId) {
-        // Раньше считались пары обоих семестров сразу — при готовых осени и весне (по 18 пар)
-        // добавить пару вручную было невозможно: «уже 36 пар».
         long count = scheduleRepository.findByAcademicYear(academicYear).stream()
                 .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
                         && s.getTeacherLoad().getGroup().getId().equals(groupId))
@@ -131,7 +132,6 @@ public class ScheduleService {
         return createSchedule(teacherLoadId, dayOfWeek, startTime, endTime, classroom, academicWeek, academicYear, null);
     }
 
-    /** Семестр по номеру учебной недели (неделя 1 — неделя 1 сентября). */
     public static int semesterOfWeek(int academicWeek, int academicYear) {
         LocalDate monday = LocalDate.of(academicYear, 9, 1).with(DayOfWeek.MONDAY).plusWeeks(academicWeek - 1L);
         int sem = com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(monday.plusDays(4));
@@ -146,8 +146,6 @@ public class ScheduleService {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
 
-        // Пара без семестра раньше появлялась и осенью, и весной. Теперь семестр определяется явно:
-        // из запроса, по номеру недели для разовой пары или текущий/ближайший семестр.
         if (semester == null) {
             semester = academicWeek != null ? semesterOfWeek(academicWeek, academicYear)
                     : com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
@@ -211,44 +209,64 @@ public class ScheduleService {
 
     @Transactional
     public void autoDeductHours(Integer academicYear) {
-        LocalDate today = LocalDate.now();
-        LocalTime now = LocalTime.now();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
         int semester = com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
         LocalDate semesterStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, academicYear);
         LocalDate from = semesterStart.isAfter(today) ? today : semesterStart;
+        List<SpecialEvent> events = specialEventRepository.findByAcademicYear(academicYear);
 
         int confirmed = 0;
-        int cancelledSick = 0;
+        int cancelled = 0;
         for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
             List<LessonInstance> instances = lessonInstanceService.generateInstancesForDate(date, academicYear);
-            boolean isToday = date.isEqual(today);
 
             for (LessonInstance instance : instances) {
-                if (instance.getStatus() != LessonInstance.Status.PLANNED) {
+                if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) continue;
+                if (!LessonInstanceService.hasEnded(instance, now)) continue;
+                if (instance.getStatus() == LessonInstance.Status.REPLACED && instance.getConfirmedAt() == null) {
+                    lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
+                    confirmed++;
                     continue;
                 }
-                if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) {
-                    continue;
-                }
-                if (isToday && now.isBefore(instance.getSchedule().getEndTime())) {
+                if (instance.getStatus() != LessonInstance.Status.PLANNED) continue;
+
+                SpecialEvent event = eventOn(events, instance, date);
+                if (event != null) {
+                    LessonInstance li = lessonInstanceService.cancelInstance(instance.getId(),
+                            event.getNote(), "system:auto-deduct");
+                    li.setCancelledBySpecialEventId(event.getId());
+                    cancelled++;
                     continue;
                 }
                 Long teacherId = instance.getOriginalTeacher().getId();
                 if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) {
                     lessonInstanceService.cancelInstance(instance.getId(),
-                            "Преподаватель на больничном, замена не была назначена до конца дня",
-                            "system:auto-deduct");
-                    cancelledSick++;
+                            "Преподаватель отсутствовал, замену не нашли", "system:auto-deduct");
+                    cancelled++;
                     continue;
                 }
                 lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
                 confirmed++;
             }
         }
-        if (confirmed > 0 || cancelledSick > 0) {
-            log.info("Автосписание (год {}, семестр {}, с {} по {}): вычитано пар {}, отменено из-за больничного {}",
-                    academicYear, semester, from, today, confirmed, cancelledSick);
+        if (confirmed > 0 || cancelled > 0) {
+            log.info("Автосписание (год {}, семестр {}, с {} по {}): вычитано пар {}, отменено {}",
+                    academicYear, semester, from, today, confirmed, cancelled);
         }
+    }
+
+    private static SpecialEvent eventOn(List<SpecialEvent> events, LessonInstance instance, LocalDate date) {
+        TeacherLoad load = instance.getSchedule().getTeacherLoad();
+        if (load == null || load.getGroup() == null) return null;
+        Long groupId = load.getGroup().getId();
+        for (SpecialEvent e : events) {
+            if (e.getGroup() == null || !groupId.equals(e.getGroup().getId())) continue;
+            if (date.isBefore(e.getStartDate()) || date.isAfter(e.getEndDate())) continue;
+            if (e.getTeacherLoad() != null && e.getTeacherLoad().getId().equals(load.getId())) continue;
+            return e;
+        }
+        return null;
     }
 
     @Scheduled(cron = "0 */15 6-23 * * *")

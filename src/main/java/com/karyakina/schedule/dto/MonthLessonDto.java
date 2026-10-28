@@ -17,6 +17,11 @@ public record MonthLessonDto(
         String actualTeacherName,
         String status,
         boolean substituted,
-        String note
+        String note,
+        Long groupId,
+        Long actualTeacherId,
+        Integer pairNumber,
+        String lessonType,
+        LocalDate movedFrom
 ) {
 }

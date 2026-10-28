@@ -74,8 +74,6 @@ public class TarificationImportService {
         String name = tarificationName != null && !tarificationName.isBlank()
                 ? tarificationName.trim()
                 : (originalFileName != null ? originalFileName : "Тарификация " + academicYear);
-        // Тот же файл (или то же название) за тот же учебный год — обновляем существующую тарификацию,
-        // раньше каждый повторный импорт создавал новую тарификацию с полным набором дублей нагрузки.
         Tarification tarification = tarificationRepository.findByAcademicYearOrderByImportedAtDesc(academicYear).stream()
                 .filter(t -> name.equalsIgnoreCase(t.getName())
                         || (originalFileName != null && originalFileName.equalsIgnoreCase(t.getSourceFileName())))

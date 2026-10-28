@@ -32,11 +32,9 @@ public class ApiController {
 
     private final TimeSyncService timeSyncService;
     private final TeacherLoadService teacherLoadService;
-    private final CuratorshipService curatorshipService;
     private final MonthlyRecordService monthlyRecordService;
     private final ScheduleService scheduleService;
     private final TeacherLoadRepository loadRepository;
-    private final CuratorshipRepository curatorshipRepository;
     private final TeacherRepository teacherRepository;
     private final StudyGroupRepository groupRepository;
     private final ClassroomRepository classroomRepository;
@@ -136,7 +134,7 @@ public class ApiController {
         TeacherLoad before = loadRepository.findById(id).orElse(null);
         int oldHours = before != null && before.getReadHours() != null ? before.getReadHours() : 0;
 
-        TeacherLoad updated = teacherLoadService.updateReadHours(id, hours);
+        TeacherLoad updated = teacherLoadService.updateReadHours(id, hours, "admin:" + adminDisplayName(user));
 
         try {
             scheduleChangeNotifier.loadChanged(updated, oldHours, hours != null ? hours : 0, adminDisplayName(user));
@@ -348,22 +346,6 @@ public class ApiController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/curatorships")
-    public ResponseEntity<List<Curatorship>> getAllCuratorships(Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (user.getRole() == User.Role.ADMIN) {
-            return ResponseEntity.ok(curatorshipService.findAll());
-        } else {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher != null) {
-                return ResponseEntity.ok(curatorshipService.findByTeacherId(teacher.getId()));
-            }
-            return ResponseEntity.ok(new ArrayList<>());
-        }
-    }
-
 @GetMapping("/productivity")
     public ResponseEntity<List<ProductivityDto>> productivity(@RequestParam(required = false) Integer year) {
         if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
@@ -404,6 +386,8 @@ public class ApiController {
                     item.put("month", rec.getMonth());
                     item.put("year", rec.getYear());
                     item.put("hours", rec.getHours());
+                    item.put("plannedHours", rec.getHours());
+                    item.put("conductedHours", rec.getConductedHoursOrZero());
                     item.put("adjustedHours", rec.getAdjustedHours());
                     item.put("note", rec.getNote());
                     item.put("changedBy", rec.getChangedBy());
@@ -425,50 +409,17 @@ public class ApiController {
 
     @PostMapping("/monthly/{recordId}/adjust")
     public ResponseEntity<MonthlyRecord> adjustMonthly(@PathVariable Long recordId,
-                                                        @RequestBody Map<String, Object> body) {
-        Integer adjusted = (Integer) body.get("adjustedHours");
-        String note = (String) body.getOrDefault("note", "");
-        String changedBy = (String) body.getOrDefault("changedBy", "admin");
-        return ResponseEntity.ok(monthlyRecordService.adjust(recordId, adjusted, note, changedBy));
-    }
-
-    @GetMapping("/curatorships/teacher/{teacherId}")
-    public ResponseEntity<List<Curatorship>> curatorshipsByTeacher(@PathVariable Long teacherId) {
-        return ResponseEntity.ok(curatorshipService.findByTeacherId(teacherId));
-    }
-
-    @GetMapping("/curatorships/my")
-    public ResponseEntity<List<Curatorship>> getMyCuratorships(Authentication authentication) {
+                                                        @RequestBody Map<String, Object> body,
+                                                        Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (user.getRole() == User.Role.ADMIN) {
-            return ResponseEntity.ok(curatorshipService.findAll());
-        }
-
-        Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-        if (teacher != null) {
-            return ResponseEntity.ok(curatorshipService.findByTeacherId(teacher.getId()));
-        }
-        return ResponseEntity.ok(new ArrayList<>());
-    }
-
-    @GetMapping("/curatorships/by-id/{id}")
-    public ResponseEntity<Curatorship> curatorshipById(@PathVariable Long id, Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
         if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
+            return ResponseEntity.status(403).build();
         }
-
-        return ResponseEntity.ok(curatorship);
+        Object raw = body.get("adjustedHours");
+        Integer adjusted = raw == null || raw.toString().isBlank() ? null : Integer.valueOf(raw.toString());
+        String note = body.get("note") != null ? body.get("note").toString() : "";
+        return ResponseEntity.ok(monthlyRecordService.adjust(recordId, adjusted, note, "admin:" + adminDisplayName(user)));
     }
 
     @GetMapping("/monthly/export/csv")
@@ -492,25 +443,27 @@ public class ApiController {
 
         StringBuilder csv = new StringBuilder();
         csv.append("\uFEFF");
-        csv.append("Преподаватель;Дисциплина;Группа;Месяц;Год;Часы (факт);Скорректировано;Примечание;Кем изменено\n");
+        csv.append("Преподаватель;Дисциплина;Группа;Месяц;Год;План по расписанию;Проведено;Скорректировано;Примечание;Кем изменено\n");
 
         String[] monthNames = {"", "январь", "февраль", "март", "апрель", "май", "июнь",
                                 "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"};
 
         loads.forEach(load -> {
-            List<MonthlyRecord> records = monthlyRecordService.findByLoad(load.getId());
+            List<MonthlyRecord> records = monthlyRecordService.findAggregatedByLoad(load.getId());
             records.forEach(rec -> {
                 String monthStr = rec.getMonth() > 0 && rec.getMonth() < monthNames.length
                     ? monthNames[rec.getMonth()]
                     : String.valueOf(rec.getMonth());
-                String row = String.format("%s;%s;%s;%s;%d;%d;%d;%s;%s\n",
+                int calendarYear = rec.getMonth() >= 9 ? rec.getYear() : rec.getYear() + 1;
+                String row = String.format("%s;%s;%s;%s;%d;%d;%d;%s;%s;%s\n",
                     load.getTeacher() != null ? load.getTeacher().getFullName() : "Не назначен",
                     load.getDiscipline().getName(),
                     load.getGroup().getName(),
                     monthStr,
-                    rec.getYear(),
-                    rec.getHours(),
-                    rec.getAdjustedHours() != null ? rec.getAdjustedHours() : 0,
+                    calendarYear,
+                    rec.getHours() != null ? rec.getHours() : 0,
+                    rec.getConductedHoursOrZero(),
+                    rec.getAdjustedHours() != null ? String.valueOf(rec.getAdjustedHours()) : "",
                     rec.getNote() != null ? rec.getNote().replace(";", ",") : "",
                     rec.getChangedBy() != null ? rec.getChangedBy() : ""
                 );
@@ -759,7 +712,11 @@ public class ApiController {
                 .orElseThrow(() -> new RuntimeException("Load not found: " + id));
 
         if (body.containsKey("readHours")) {
-            load.setReadHours(Integer.valueOf(body.get("readHours").toString()));
+            int newRead = Integer.parseInt(body.get("readHours").toString());
+            if (load.getReadHours() == null || newRead != load.getReadHours()) {
+                teacherLoadService.updateReadHours(load.getId(), newRead, "admin:" + adminDisplayName(user));
+                load = loadRepository.findById(id).orElse(load);
+            }
         }
         if (body.containsKey("plannedHours")) {
             load.setPlannedHours(Integer.valueOf(body.get("plannedHours").toString()));
@@ -886,284 +843,6 @@ public class ApiController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
-    }
-
-    @PostMapping("/curatorships")
-    public ResponseEntity<?> assignCuratorship(
-            @RequestBody Map<String, Object> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN) {
-            return ResponseEntity.status(403).build();
-        }
-
-        try {
-            Long teacherId = Long.valueOf(body.get("teacherId").toString());
-            Long groupId = Long.valueOf(body.get("groupId").toString());
-            Integer hours = body.containsKey("hours") ? Integer.valueOf(body.get("hours").toString()) : 36;
-
-            Teacher teacher = teacherRepository.findById(teacherId)
-                    .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
-            StudyGroup group = groupRepository.findById(groupId)
-                    .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
-
-            var existing = curatorshipRepository.findByTeacherIdAndGroupId(teacherId, groupId);
-            if (existing.isPresent()) {
-                return ResponseEntity.badRequest().body("Этот преподаватель уже является куратором данной группы");
-            }
-
-            var existingCurators = curatorshipRepository.findByGroupId(groupId);
-            if (!existingCurators.isEmpty()) {
-                return ResponseEntity.badRequest().body("У этой группы уже есть куратор. Одна группа может иметь только одного преподавателя-куратора.");
-            }
-
-            Curatorship curatorship = new Curatorship();
-            curatorship.setTeacher(teacher);
-            curatorship.setGroup(group);
-            curatorship.setHours(hours);
-            curatorship.setEvents(new ArrayList<>());
-            curatorship.setLogs(new ArrayList<>());
-
-            return ResponseEntity.ok(curatorshipRepository.save(curatorship));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Ошибка: " + e.getMessage());
-        }
-    }
-
-    @PutMapping("/curatorships/{id}")
-    public ResponseEntity<?> updateCuratorship(
-            @PathVariable Long id,
-            @RequestBody Map<String, Object> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN) {
-            return ResponseEntity.status(403).build();
-        }
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (body.containsKey("teacherId")) {
-            Long teacherId = Long.valueOf(body.get("teacherId").toString());
-            if (!teacherId.equals(curatorship.getTeacher().getId())) {
-                var clash = curatorshipRepository.findByTeacherIdAndGroupId(teacherId, curatorship.getGroup().getId());
-                if (clash.isPresent()) {
-                    return ResponseEntity.badRequest().body("Этот преподаватель уже является куратором данной группы");
-                }
-                Teacher teacher = teacherRepository.findById(teacherId)
-                        .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
-                curatorship.setTeacher(teacher);
-            }
-        }
-        if (body.containsKey("hours")) {
-            curatorship.setHours(Integer.valueOf(body.get("hours").toString()));
-        }
-
-        return ResponseEntity.ok(curatorshipRepository.save(curatorship));
-    }
-
-    @DeleteMapping("/curatorships/{id}")
-    public ResponseEntity<Void> deleteCuratorship(
-            @PathVariable Long id,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN) {
-            return ResponseEntity.status(403).build();
-        }
-
-        curatorshipRepository.deleteById(id);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/curatorships/{id}/event")
-    public ResponseEntity<Curatorship> addEvent(
-            @PathVariable Long id,
-            @RequestBody Map<String, Object> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        String description = body.get("description") != null ? body.get("description").toString() : null;
-        if (description != null && !description.isEmpty()) {
-            curatorship.getEvents().add(CuratorEvent.builder()
-                    .date(parseEventDate(body.get("date")))
-                    .hours(parseEventHours(body.get("hours")))
-                    .description(description)
-                    .build());
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
-    }
-
-    private java.time.LocalDate parseEventDate(Object value) {
-        if (value == null || value.toString().isBlank()) {
-            return java.time.LocalDate.now();
-        }
-        return java.time.LocalDate.parse(value.toString());
-    }
-
-    private Double parseEventHours(Object value) {
-        if (value == null || value.toString().isBlank()) {
-            return 0.0;
-        }
-        return Double.valueOf(value.toString());
-    }
-
-    @DeleteMapping("/curatorships/{id}/event/{eventIdx}")
-    public ResponseEntity<Curatorship> deleteEvent(
-            @PathVariable Long id,
-            @PathVariable Integer eventIdx,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        if (eventIdx >= 0 && eventIdx < curatorship.getEvents().size()) {
-            curatorship.getEvents().remove(eventIdx.intValue());
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
-    }
-
-    @PutMapping("/curatorships/{id}/event")
-    public ResponseEntity<Curatorship> updateEvent(
-            @PathVariable Long id,
-            @RequestBody Map<String, Object> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        Object eventIdxObj = body.get("eventIdx");
-        Integer eventIdx = eventIdxObj != null ? Integer.valueOf(eventIdxObj.toString()) : null;
-        String description = body.get("description") != null ? body.get("description").toString() : null;
-
-        if (eventIdx != null && eventIdx >= 0 && eventIdx < curatorship.getEvents().size() && description != null) {
-            curatorship.getEvents().set(eventIdx, CuratorEvent.builder()
-                    .date(parseEventDate(body.get("date")))
-                    .hours(parseEventHours(body.get("hours")))
-                    .description(description)
-                    .build());
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
-    }
-
-    @PostMapping("/curatorships/{id}/log")
-    public ResponseEntity<Curatorship> addLog(
-            @PathVariable Long id,
-            @RequestBody Map<String, String> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        String logEntry = body.get("logEntry");
-        if (logEntry != null && !logEntry.isEmpty()) {
-            curatorship.getLogs().add(logEntry);
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
-    }
-
-    @DeleteMapping("/curatorships/{id}/log/{logIdx}")
-    public ResponseEntity<Curatorship> deleteLog(
-            @PathVariable Long id,
-            @PathVariable Integer logIdx,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        if (logIdx >= 0 && logIdx < curatorship.getLogs().size()) {
-            curatorship.getLogs().remove(logIdx.intValue());
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
-    }
-
-    @PutMapping("/curatorships/{id}/log")
-    public ResponseEntity<Curatorship> updateLog(
-            @PathVariable Long id,
-            @RequestBody Map<String, Object> body,
-            Authentication authentication) {
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Curatorship curatorship = curatorshipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Curatorship not found: " + id));
-
-        if (user.getRole() != User.Role.ADMIN) {
-            Teacher teacher = teacherRepository.findByUserId(user.getId()).orElse(null);
-            if (teacher == null || !curatorship.getTeacher().getId().equals(teacher.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-        }
-
-        Object logIdxObj = body.get("logIdx");
-        Integer logIdx = logIdxObj != null ? Integer.valueOf(logIdxObj.toString()) : null;
-        String logEntry = body.get("logEntry") != null ? body.get("logEntry").toString() : null;
-
-        if (logIdx != null && logIdx >= 0 && logIdx < curatorship.getLogs().size() && logEntry != null) {
-            curatorship.getLogs().set(logIdx.intValue(), logEntry);
-            curatorship = curatorshipRepository.save(curatorship);
-        }
-
-        return ResponseEntity.ok(curatorship);
     }
 
     @GetMapping("/admin/groups")
@@ -1443,6 +1122,19 @@ public class ApiController {
         return ResponseEntity.ok(monthScheduleService.getMonth(year, month, academicYear, teacherId, groupId));
     }
 
+    @GetMapping("/schedule/range")
+    public ResponseEntity<com.karyakina.schedule.dto.MonthScheduleDto> getRangeSchedule(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Integer academicYear,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) Long groupId) {
+        if (to.isBefore(from) || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 62) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(monthScheduleService.getRange(from, to, academicYear, teacherId, groupId, true));
+    }
+
     @PostMapping("/pairs")
     public ResponseEntity<?> createPair(
             @RequestBody Map<String, Object> body,
@@ -1645,7 +1337,7 @@ public class ApiController {
     }
 
     @PostMapping("/sick-leaves")
-    public ResponseEntity<SickLeave> createSickLeave(
+    public ResponseEntity<?> createSickLeave(
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -1667,7 +1359,11 @@ public class ApiController {
                     .orElseThrow(() -> new RuntimeException("Teacher not found: " + teacherId));
             LocalDate startDate = LocalDate.parse(body.get("startDate").toString());
             LocalDate endDate = LocalDate.parse(body.get("endDate").toString());
-            String reason = body.get("reason") != null ? body.get("reason").toString() : "";
+            String reason = body.get("reason") != null && !body.get("reason").toString().isBlank()
+                    ? body.get("reason").toString().trim() : "больничный";
+            if (endDate.isBefore(startDate)) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Дата окончания раньше даты начала"));
+            }
             Integer academicYear = body.get("academicYear") != null && !body.get("academicYear").toString().isBlank()
                     ? Integer.valueOf(body.get("academicYear").toString())
                     : AcademicYearUtil.academicYearOf(startDate);
@@ -1682,10 +1378,9 @@ public class ApiController {
 
             SickLeave saved = sickLeaveRepository.save(sickLeave);
 
-            // Один конвейер на отсутствие: замена → перенос в свободный слот до конца семестра → «облако».
-            // Раньше параллельно запускался ещё SubstitutionService.handleNewSickLeave, и пары обрабатывались дважды.
+            com.karyakina.schedule.dto.RescheduleResultDTO result = null;
             try {
-                sickLeaveReschedulingService.handleTeacherSickLeave(
+                result = sickLeaveReschedulingService.handleTeacherSickLeave(
                         saved.getTeacher().getId(), saved.getStartDate(), saved.getEndDate());
             } catch (Exception ex) {
                 ex.printStackTrace();
@@ -1703,7 +1398,10 @@ public class ApiController {
                 }
             }
 
-            return ResponseEntity.ok(saved);
+            Map<String, Object> response = new java.util.HashMap<>();
+            response.put("sickLeave", saved);
+            response.put("result", result);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.badRequest().build();
@@ -1717,11 +1415,15 @@ public class ApiController {
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getRole() != User.Role.ADMIN && user.getRole() != User.Role.TEACHER) {
+        SickLeave leave = sickLeaveRepository.findById(id).orElse(null);
+        if (leave == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (user.getRole() != User.Role.ADMIN && (user.getTeacher() == null
+                || !user.getTeacher().getId().equals(leave.getTeacher().getId()))) {
             return ResponseEntity.status(403).build();
         }
 
-        // Откатываем всё, что поменялось из-за отсутствия: замены, переносы и сдвиги внутри дня.
         sickLeaveReschedulingService.revertSickLeave(id);
 
         List<SubstitutionRequest> related = substitutionRequestRepository.findBySickLeaveId(id);

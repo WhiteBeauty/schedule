@@ -37,6 +37,9 @@ public class ScheduleGenerationController {
     private final SickLeaveReschedulingService sickLeaveService;
     private final UserRepository userRepository;
     private final com.karyakina.schedule.service.ScheduleService scheduleService;
+    private final com.karyakina.schedule.service.SpecialEventService specialEventService;
+    private final com.karyakina.schedule.service.HoursRecalculationService hoursRecalculationService;
+    private final com.karyakina.schedule.service.SettingsService settingsService;
 
     @PostMapping("/run")
     public ResponseEntity<GenerationResultDTO> run(@RequestBody(required = false) GenerationRequestDTO request,
@@ -71,14 +74,24 @@ public class ScheduleGenerationController {
         }
         GenerationResultDTO result = generatorService.commit(sessionId, adminDisplayName(admin));
         if (result.persisted()) {
-            // Прошедшие с начала семестра пары сразу считаем вычитанными (как сделало бы автосписание раз в 15 минут),
-            // иначе сразу после составления посреди семестра везде показывается «вычитано 0».
+            int year = result.metrics().getOrDefault("academicYear", AcademicYearUtil.getCurrentAcademicYearStart());
+            int semester = result.metrics().getOrDefault("semester", AcademicYearUtil.getCurrentSemester());
             try {
-                long started = System.currentTimeMillis();
-                scheduleService.autoDeductHours(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
-                log.info("После сохранения расписания прошедшие пары списаны за {} мс", System.currentTimeMillis() - started);
+                specialEventService.reapplyEvents(year);
+            } catch (Exception e) {
+                log.error("Не удалось снять пары с дней экзаменов и практик", e);
+            }
+            try {
+                scheduleService.autoDeductHours(AcademicYearUtil.getCurrentAcademicYearStart());
             } catch (Exception e) {
                 log.error("Не удалось списать прошедшие пары после сохранения расписания", e);
+            }
+            if (settingsService.isPaceRecalculationEnabled()) {
+                try {
+                    hoursRecalculationService.recalculate(year, semester, null, false);
+                } catch (Exception e) {
+                    log.error("Пересчёт по часам после сохранения не выполнен", e);
+                }
             }
         }
         return ResponseEntity.ok(result);

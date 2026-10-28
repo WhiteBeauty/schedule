@@ -131,6 +131,29 @@
         </div>
     </div>
 
+    <div class="card" th:unless="${isAdmin}">
+        <div class="card-header">
+            <span class="card-title">Не смогу провести пары</span>
+        </div>
+        <p class="page-heading-sub" style="margin:0 0 12px;">
+            Укажите даты, система сама найдёт замену или перенесёт пары, студенты увидят изменения в расписании.
+        </p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <label class="field" style="margin:0;">
+                <span>Причина</span>
+                <select id="absenceReason">
+                    <option value="больничный">Больничный</option>
+                    <option value="форс-мажор">Форс-мажор</option>
+                </select>
+            </label>
+            <label class="field" style="margin:0;"><span>С</span><input type="date" id="absenceStart"></label>
+            <label class="field" style="margin:0;"><span>По</span><input type="date" id="absenceEnd"></label>
+            <button type="button" class="btn" id="absenceSubmit">Сообщить</button>
+        </div>
+        <div id="absenceResult" style="margin-top:12px;"></div>
+        <div id="absenceList" style="margin-top:12px;"></div>
+    </div>
+
     <script>
         (function () {
             fetch('/api/notifications/unread-count')
@@ -239,6 +262,68 @@
                 todayEntityId = this.value;
                 loadTodaySchedule();
             });
+
+            var absenceBtn = document.getElementById('absenceSubmit');
+            if (absenceBtn) {
+                var todayStr = todayIso();
+                document.getElementById('absenceStart').value = todayStr;
+                document.getElementById('absenceEnd').value = todayStr;
+                loadAbsences();
+                absenceBtn.addEventListener('click', function () {
+                    var start = document.getElementById('absenceStart').value;
+                    var end = document.getElementById('absenceEnd').value;
+                    var reason = document.getElementById('absenceReason').value;
+                    var out = document.getElementById('absenceResult');
+                    if (!start || !end) { showToast('Укажите даты', 'danger'); return; }
+                    if (end < start) { showToast('Дата окончания раньше начала', 'danger'); return; }
+                    absenceBtn.disabled = true;
+                    out.innerHTML = '<p class="text-muted" style="margin:0;">Ищем замены...</p>';
+                    fetch('/api/sick-leaves', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({startDate: start, endDate: end, reason: reason})
+                    }).then(function (r) { return r.json().then(function (b) { return {ok: r.ok, body: b}; }); })
+                      .then(function (res) {
+                          if (!res.ok) {
+                              out.innerHTML = '<p class="text-danger" style="margin:0;">' + escapeHtml((res.body && res.body.error) || 'Не удалось сохранить') + '</p>';
+                              return;
+                          }
+                          var r = res.body.result || {};
+                          var subs = (r.substitutions || []).length, moved = (r.moved || []).length, left = (r.unresolved || []).length;
+                          out.innerHTML = '<p style="margin:0;">Пар затронуто: <b>' + (r.affectedLessons || 0) + '</b>, замена найдена: <b>' + subs
+                              + '</b>, перенесено: <b>' + moved + '</b>' + (left ? ', ждут решения администратора: <b>' + left + '</b>' : '') + '</p>';
+                          showToast('Отсутствие сохранено', 'success');
+                          loadAbsences();
+                          loadTodaySchedule();
+                      })
+                      .catch(function () { out.innerHTML = '<p class="text-danger" style="margin:0;">Ошибка сети</p>'; })
+                      .finally(function () { absenceBtn.disabled = false; });
+                });
+            }
+
+            function loadAbsences() {
+                var list = document.getElementById('absenceList');
+                if (!list) return;
+                fetch('/api/sick-leaves').then(function (r) { return r.ok ? r.json() : []; }).then(function (items) {
+                    var upcoming = (items || []).filter(function (s) { return s.endDate >= todayIso(); })
+                        .sort(function (a, b) { return a.startDate.localeCompare(b.startDate); });
+                    if (!upcoming.length) { list.innerHTML = ''; return; }
+                    list.innerHTML = upcoming.map(function (s) {
+                        return '<div class="notif-item" style="align-items:center;"><div class="notif-text" style="flex:1;">'
+                            + escapeHtml(s.reason || 'больничный') + ': ' + s.startDate + (s.endDate !== s.startDate ? ' по ' + s.endDate : '')
+                            + '</div><button type="button" class="btn btn-sm btn-secondary" data-id="' + s.id + '">Отменить</button></div>';
+                    }).join('');
+                    list.querySelectorAll('button[data-id]').forEach(function (b) {
+                        b.addEventListener('click', function () {
+                            if (!confirm('Отменить отсутствие? Пары вернутся на место.')) return;
+                            fetch('/api/sick-leaves/' + b.dataset.id, {method: 'DELETE'}).then(function (r) {
+                                if (r.ok) { showToast('Отменено', 'success'); loadAbsences(); loadTodaySchedule(); }
+                                else showToast('Не удалось отменить', 'danger');
+                            });
+                        });
+                    });
+                }).catch(function () {});
+            }
 
             Promise.all([
                 fetch('/api/teachers').then(function (r) { return r.json(); }).catch(function () { return []; }),

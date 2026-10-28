@@ -500,7 +500,6 @@
         }
 
         function addLoad(teacherId) {
-            // Загрузка дисциплин и групп
             Promise.all([
                 fetch('/api/disciplines').then(r => r.json()),
                 fetch('/api/groups').then(r => r.json())
@@ -573,12 +572,10 @@
             const curatorships = getTeacherCuratorships(teacherId);
 
             if (curatorships.length === 0) {
-                // Нет кураторства - предлагаем добавить
                 if (confirm(`У преподавателя ${teacherName} нет кураторства. Назначить?`)) {
                     openAssignCuratorModal(teacherId, teacherName);
                 }
             } else {
-                // Есть кураторство - показываем меню
                 const options = curatorships.map((c, idx) =>
                     `${idx + 1}. Группа ${c.group.name} (курс ${c.group.course})\n`
                 ).join('');

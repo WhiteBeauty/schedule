@@ -357,7 +357,6 @@
             if (!res.ok) { showToast('Ошибка анализа файла: сервер вернул ' + res.status, 'danger'); return; }
             previewData = await res.json();
             if (!previewData.success) {
-                // Раньше ошибка разбора молча превращалась в пустую проверку «Найдено 0 строк».
                 showToast(previewData.summary || 'Файл не удалось разобрать', 'danger');
                 if (previewData.looksLikeTarification) {
                     const tarifInput = document.getElementById('tarifFileInput');

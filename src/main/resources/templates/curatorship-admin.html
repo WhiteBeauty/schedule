@@ -5,420 +5,248 @@
 <body>
 
 <div th:fragment="topbarLeft" class="topbar-left">
-    <h1 class="topbar-title">Управление кураторством</h1>
+    <h1 class="topbar-title">Кураторство</h1>
 </div>
 
 <div th:fragment="topbarRight" class="topbar-right">
-    <a class="btn" onclick="openAssignModal()">Назначить куратора</a>
+    <label class="select-control">
+        Учебный год:
+        <select id="curYearSelect">
+            <option th:each="y : ${#numbers.sequence(defaultYear - 2, defaultYear)}"
+                    th:value="${y}" th:text="${y} + '/' + ${y + 1}" th:selected="${y == defaultYear}"></option>
+        </select>
+    </label>
+    <button type="button" class="btn" id="assignOpenBtn">Назначить куратора</button>
     <a class="topbar-bell" th:href="@{/notifications}" aria-label="Уведомления">
         <span th:replace="~{fragments/icons :: bell}"></span>
     </a>
 </div>
 
 <div th:fragment="pageContent" class="app-content">
-    <div class="card">
-        <div class="filters">
-            <select id="filterTeacher" onchange="loadCuratorships()">
-                <option value="">Все преподаватели</option>
-            </select>
-            <select id="filterGroup" onchange="loadCuratorships()">
-                <option value="">Все группы</option>
-            </select>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="loadCuratorships()">Обновить</button>
-        </div>
+    <div class="cur-stats">
+        <div class="metric-card"><div class="metric-label">Групп всего</div><div class="metric-value" id="statTotal">0</div></div>
+        <div class="metric-card"><div class="metric-label">С куратором</div><div class="metric-value" id="statWith">0</div></div>
+        <div class="metric-card" id="statWithoutCard"><div class="metric-label">Без куратора</div><div class="metric-value" id="statWithout">0</div></div>
+        <div class="metric-card"><div class="metric-label">Средний % выполнения</div><div class="metric-value" id="statAvg">0%</div></div>
     </div>
 
     <div class="card">
+        <div class="cur-admin-filters" style="margin-bottom:12px;">
+            <input type="search" id="curSearch" placeholder="Группа или преподаватель">
+            <select id="curTeacherFilter"><option value="">Все кураторы</option></select>
+            <label><input type="checkbox" id="curOnlyFree"> Только без куратора</label>
+        </div>
         <div class="table-scroll">
-        <table class="data-table" id="curatorshipTable">
-            <thead>
-            <tr>
-                <th>Преподаватель</th>
-                <th>Группа</th>
-                <th>Курс</th>
-                <th>Часы (план)</th>
-                <th>Часы (факт)</th>
-                <th>Мероприятия</th>
-                <th>Записи в журнале</th>
-                <th>Действия</th>
-            </tr>
-            </thead>
-            <tbody id="curatorshipBody"></tbody>
-        </table>
+            <table class="data-table">
+                <thead>
+                <tr><th>Группа</th><th>Куратор</th><th>План, ч</th><th>Проведено, ч</th><th>Выполнение</th><th>Последнее мероприятие</th><th></th></tr>
+                </thead>
+                <tbody id="curTableBody"><tr><td colspan="7" class="text-muted">Загрузка...</td></tr></tbody>
+            </table>
         </div>
     </div>
 
     <div class="modal-overlay" id="assignModal">
-        <div class="modal">
-            <div class="modal-header"><h3>Назначить куратора</h3><button type="button" class="close-btn" onclick="closeAssignModal()">×</button></div>
-            <div class="modal-body">
-                <div class="field" style="margin-bottom:14px;"><label>Преподаватель *</label><select id="assignTeacher"><option value="">Выберите преподавателя</option></select></div>
-                <div class="field" style="margin-bottom:14px;"><label>Группа *</label><select id="assignGroup"><option value="">Выберите группу</option></select></div>
-                <div class="field" style="margin-bottom:14px;"><label>Кураторские часы (план)</label><input type="number" id="assignHours" value="36" min="0"></div>
-                <div class="chip chip-warning" style="width:100%; box-sizing:border-box; white-space:normal; line-height:1.4; padding:10px 14px;">
-                    Одна группа может иметь только одного преподавателя-куратора.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-ghost" onclick="closeAssignModal()">Отмена</button>
-                <button type="button" class="btn" onclick="assignCurator()">Назначить</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="editModal">
-        <div class="modal" style="max-width:720px">
-            <div class="modal-header"><h3>Кураторство</h3><button type="button" class="close-btn" onclick="closeEditModal()">×</button></div>
-            <div class="modal-body" id="editBody"></div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeEditModal()">Закрыть</button></div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="reassignModal">
-        <div class="modal">
-            <div class="modal-header"><h3>Изменить назначение</h3><button type="button" class="close-btn" onclick="closeReassignModal()">×</button></div>
-            <div class="modal-body">
-                <div class="field" style="margin-bottom:14px;"><label>Преподаватель</label><select id="reassignTeacher"></select></div>
-                <div class="field"><label>Кураторские часы (план)</label><input type="number" id="reassignHours" min="0"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-ghost" onclick="closeReassignModal()">Отмена</button>
-                <button type="button" class="btn" onclick="saveReassign()">Сохранить</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="eventModal">
-        <div class="modal">
+        <div class="modal" style="max-width:520px;">
             <div class="modal-header">
-                <h3 id="eventModalTitle">Мероприятие</h3>
-                <button type="button" class="close-btn" onclick="closeEventModal()">×</button>
+                <h3 id="assignTitle">Назначить куратора</h3>
+                <button type="button" class="close-btn" data-close="assignModal" aria-label="Закрыть">×</button>
             </div>
             <div class="modal-body">
-                <div class="field" style="margin-bottom:14px;"><label>Дата</label><input type="date" id="eventDate"></div>
-                <div class="field" style="margin-bottom:14px;"><label>Часы</label><input type="number" id="eventHours" min="0" step="0.5"></div>
-                <div class="field"><label>Описание</label><input type="text" id="eventDescription" placeholder="Что проведено"></div>
+                <div class="field" style="margin-bottom:14px;"><label for="assignGroup">Группа</label><select id="assignGroup"></select></div>
+                <div class="field" style="margin-bottom:14px;"><label for="assignTeacher">Преподаватель</label><select id="assignTeacher"></select></div>
+                <div class="field"><label for="assignHours">Кураторских часов в год</label><input type="number" id="assignHours" min="0" max="1000" value="36"></div>
+                <p class="text-muted" style="font-size:12.5px; margin:12px 0 0;">У группы может быть только один куратор, у преподавателя может быть несколько групп.</p>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-ghost" onclick="closeEventModal()">Отмена</button>
-                <button type="button" class="btn" onclick="saveEventModal()">Сохранить</button>
+                <button type="button" class="btn btn-ghost" data-close="assignModal">Отмена</button>
+                <button type="button" class="btn" id="assignSaveBtn">Сохранить</button>
             </div>
         </div>
     </div>
 
-    <script th:inline="javascript">
-    const currentYear = /*[[${defaultYear}]]*/ 2025;
-    let allTeachers = [];
-    let currentCuratorships = [];
-    let currentViewId = null;
-    let currentViewEvents = [];
-    let eventModalIdx = null;
-    let reassignId = null;
+    <div class="modal-overlay" id="cardModal">
+        <div class="modal cur-modal-wide">
+            <div class="modal-header">
+                <h3>Кураторство группы</h3>
+                <button type="button" class="close-btn" data-close="cardModal" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <div th:replace="~{fragments/curator-card :: card}"></div>
+            </div>
+        </div>
+    </div>
 
-    document.addEventListener('DOMContentLoaded', () => {
-        loadCuratorships();
-        loadFilters();
-    });
+    <div th:replace="~{fragments/curator-card :: modals}"></div>
 
-    function escapeHtml(s) {
-        const div = document.createElement('div');
-        div.textContent = s == null ? '' : s;
-        return div.innerHTML;
-    }
+    <script th:src="@{/js/curatorship.js}"></script>
+    <script>
+    (function () {
+        var yearSel = document.getElementById('curYearSelect');
+        var rows = [];
+        var teachers = [];
+        var groups = [];
+        var editing = null;
 
-    function formatDateRu(iso) {
-        const parts = String(iso).split('-');
-        return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : iso;
-    }
+        function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+        function fmt(iso) { if (!iso) return '—'; var p = String(iso).split('-'); return p[2] + '.' + p[1] + '.' + p[0]; }
+        function toast(m, k) { if (typeof showToast === 'function') showToast(m, k); }
+        function open(id) { document.getElementById(id).classList.add('active'); }
+        function close(id) { document.getElementById(id).classList.remove('active'); }
 
-    function eventHours(c) {
-        return (c.events || []).reduce((sum, e) => sum + (e.hours != null ? Number(e.hours) : 0), 0);
-    }
-
-    function loadFilters() {
-        Promise.all([
-            fetch('/api/teachers').then(r => r.json()),
-            fetch('/api/groups').then(r => r.json())
-        ]).then(([teachers, groups]) => {
-            allTeachers = teachers;
-            const teacherSelect = document.getElementById('filterTeacher');
-            const groupSelect = document.getElementById('filterGroup');
-            const assignTeacherSelect = document.getElementById('assignTeacher');
-            const assignGroupSelect = document.getElementById('assignGroup');
-
-            teachers.forEach(t => {
-                teacherSelect.add(new Option(t.fullName, t.id));
-                assignTeacherSelect.add(new Option(t.fullName, t.id));
-            });
-
-            groups.forEach(g => {
-                groupSelect.add(new Option(g.name, g.id));
-                assignGroupSelect.add(new Option(g.name, g.id));
-            });
+        document.querySelectorAll('[data-close="assignModal"], [data-close="cardModal"]').forEach(function (b) {
+            b.addEventListener('click', function () { close(b.dataset.close); });
         });
-    }
 
-    function loadCuratorships() {
-        const teacherId = document.getElementById('filterTeacher').value;
-        const groupId = document.getElementById('filterGroup').value;
+        function load() {
+            return fetch('/api/curatorships/overview?year=' + encodeURIComponent(yearSel.value))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    rows = data.rows || [];
+                    document.getElementById('statTotal').textContent = data.totalGroups;
+                    document.getElementById('statWith').textContent = data.withCurator;
+                    document.getElementById('statWithout').textContent = data.withoutCurator;
+                    document.getElementById('statWithoutCard').classList.toggle('is-danger', data.withoutCurator > 0);
+                    document.getElementById('statAvg').textContent = data.avgPercent + '%';
+                    fillTeacherFilter();
+                    render();
+                })
+                .catch(function () {
+                    document.getElementById('curTableBody').innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить</td></tr>';
+                });
+        }
 
-        fetch('/api/curatorships')
-            .then(r => r.json())
-            .then(data => {
-                currentCuratorships = data;
-                const tbody = document.getElementById('curatorshipBody');
-                tbody.innerHTML = '';
+        function fillTeacherFilter() {
+            var sel = document.getElementById('curTeacherFilter');
+            var keep = sel.value;
+            var names = {};
+            rows.forEach(function (r) { if (r.teacherId) names[r.teacherId] = r.teacherName; });
+            sel.innerHTML = '<option value="">Все кураторы</option>';
+            Object.keys(names).sort(function (a, b) { return names[a].localeCompare(names[b]); })
+                .forEach(function (id) { sel.add(new Option(names[id], id)); });
+            sel.value = keep;
+        }
 
-                data.forEach(c => {
-                    if (teacherId && c.teacher.id != teacherId) return;
-                    if (groupId && c.group.id != groupId) return;
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${escapeHtml(c.teacher.fullName)}</td>
-                        <td>${escapeHtml(c.group.name)}</td>
-                        <td>${c.group.course}</td>
-                        <td>${c.hours || 36}</td>
-                        <td>${Math.round(eventHours(c) * 10) / 10}</td>
-                        <td>${c.events ? c.events.length : 0}</td>
-                        <td>${c.logs ? c.logs.length : 0}</td>
-                        <td>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="viewCuratorship(${c.id})">Просмотр</button>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="openReassignModal(${c.id})">Изменить</button>
-                            <button type="button" class="btn btn-sm btn-danger" onclick="deleteCuratorship(${c.id})">Удалить</button>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
+        function render() {
+            var q = document.getElementById('curSearch').value.trim().toLowerCase();
+            var teacher = document.getElementById('curTeacherFilter').value;
+            var onlyFree = document.getElementById('curOnlyFree').checked;
+            var list = rows.filter(function (r) {
+                if (onlyFree && r.curatorshipId) return false;
+                if (teacher && String(r.teacherId) !== teacher) return false;
+                if (q && (r.groupName || '').toLowerCase().indexOf(q) < 0 && (r.teacherName || '').toLowerCase().indexOf(q) < 0) return false;
+                return true;
+            });
+            var body = document.getElementById('curTableBody');
+            if (!list.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align:center; padding:20px;">Ничего не найдено</td></tr>';
+                return;
+            }
+            body.innerHTML = list.map(function (r) {
+                var group = '<b>' + esc(r.groupName) + '</b><div class="text-muted" style="font-size:12px;">'
+                    + esc([r.specialty, r.course ? r.course + ' курс' : null].filter(Boolean).join(', ')) + '</div>';
+                if (!r.curatorshipId) {
+                    return '<tr><td>' + group + '</td><td><span class="chip chip-warning">Не назначен</span></td><td>—</td><td>—</td><td>—</td><td>—</td>'
+                        + '<td><button type="button" class="btn btn-sm" data-assign="' + r.groupId + '">Назначить</button></td></tr>';
+                }
+                var pct = r.percent || 0;
+                var fill = pct >= 90 ? '' : (pct >= 50 ? ' is-low' : ' is-over');
+                return '<tr><td>' + group + '</td><td>' + esc(r.teacherName) + '</td><td>' + r.planHours + '</td>'
+                    + '<td>' + Math.round(r.doneHours * 10) / 10 + '</td>'
+                    + '<td><div class="cur-pct"><div class="progress-track"><div class="progress-fill' + fill + '" style="width:' + pct + '%"></div></div>' + pct + '%</div></td>'
+                    + '<td>' + fmt(r.lastEventDate) + '</td>'
+                    + '<td class="cur-actions"><button type="button" class="btn btn-sm" data-open="' + r.curatorshipId + '">Открыть</button>'
+                    + '<button type="button" class="btn btn-sm btn-secondary" data-edit="' + r.curatorshipId + '">Изменить</button>'
+                    + '<button type="button" class="btn btn-sm btn-ghost" data-remove="' + r.curatorshipId + '">Снять</button></td></tr>';
+            }).join('');
+            body.querySelectorAll('[data-assign]').forEach(function (b) {
+                b.addEventListener('click', function () { openAssign(null, Number(b.dataset.assign)); });
+            });
+            body.querySelectorAll('[data-open]').forEach(function (b) {
+                b.addEventListener('click', function () {
+                    CuratorCard.open(Number(b.dataset.open)).then(function () { open('cardModal'); });
                 });
             });
-    }
-
-    function openReassignModal(id) {
-        const c = currentCuratorships.find(x => x.id === id);
-        if (!c) return;
-        reassignId = id;
-        const select = document.getElementById('reassignTeacher');
-        select.innerHTML = '';
-        allTeachers.forEach(t => select.add(new Option(t.fullName, t.id)));
-        select.value = c.teacher.id;
-        document.getElementById('reassignHours').value = c.hours || 36;
-        document.getElementById('reassignModal').classList.add('active');
-    }
-
-    function closeReassignModal() {
-        document.getElementById('reassignModal').classList.remove('active');
-    }
-
-    function saveReassign() {
-        if (!reassignId) return;
-        const teacherId = document.getElementById('reassignTeacher').value;
-        const hours = document.getElementById('reassignHours').value;
-
-        fetch(`/api/curatorships/${reassignId}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ teacherId: parseInt(teacherId), hours: parseInt(hours) })
-        }).then(r => {
-            if (r.ok) {
-                closeReassignModal();
-                loadCuratorships();
-            } else {
-                r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
-            }
-        });
-    }
-
-    function openAssignModal() {
-        document.getElementById('assignModal').classList.add('active');
-    }
-
-    function closeAssignModal() {
-        document.getElementById('assignModal').classList.remove('active');
-    }
-
-    function assignCurator() {
-        const teacherId = document.getElementById('assignTeacher').value;
-        const groupId = document.getElementById('assignGroup').value;
-        const hours = document.getElementById('assignHours').value;
-
-        if (!teacherId || !groupId) {
-            showToast('Выберите преподавателя и группу', 'danger');
-            return;
+            body.querySelectorAll('[data-edit]').forEach(function (b) {
+                b.addEventListener('click', function () { openAssign(Number(b.dataset.edit), null); });
+            });
+            body.querySelectorAll('[data-remove]').forEach(function (b) {
+                b.addEventListener('click', function () { removeCurator(Number(b.dataset.remove)); });
+            });
         }
 
-        fetch('/api/curatorships', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({teacherId, groupId, hours: parseInt(hours)})
-        }).then(r => {
-            if (r.ok) {
-                closeAssignModal();
-                loadCuratorships();
-            } else {
-                r.text().then(txt => showToast('Ошибка: ' + txt, 'danger'));
-            }
-        });
-    }
-
-    function viewCuratorship(id) {
-        fetch(`/api/curatorships/by-id/${id}`)
-            .then(r => r.json())
-            .then(c => {
-                currentViewId = c.id;
-                currentViewEvents = Array.isArray(c.events) ? c.events : [];
-                const body = document.getElementById('editBody');
-
-                const eventsHtml = currentViewEvents.length > 0
-                    ? currentViewEvents.map((e, idx) => {
-                        const dateLabel = e.date ? formatDateRu(e.date) : '—';
-                        return `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">`
-                            + `<span><strong>${dateLabel}</strong> · ${e.hours != null ? e.hours : 0} ч — ${escapeHtml(e.description || '')}</span>`
-                            + `<div style="display:flex;gap:4px;margin-left:8px">`
-                            + `<button type="button" class="btn btn-sm btn-secondary" onclick="editEvent(${idx})" style="padding:4px 8px;font-size:12px">Изменить</button>`
-                            + `<button type="button" class="btn btn-sm btn-danger" onclick="deleteEvent(${c.id}, ${idx})" style="padding:4px 8px;font-size:12px">×</button>`
-                            + `</div></li>`;
-                    }).join('')
-                    : '<li class="text-muted">Нет мероприятий</li>';
-
-                const logsHtml = c.logs && c.logs.length > 0
-                    ? c.logs.map((l, idx) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">${escapeHtml(l)} <button type="button" class="btn btn-sm btn-danger" onclick="deleteLog(${c.id}, ${idx})" style="margin-left:8px">×</button></li>`).join('')
-                    : '<li class="text-muted">Нет записей</li>';
-
-                const totalHours = c.hours || 36;
-                const doneHours = Math.round(eventHours(c) * 10) / 10;
-
-                body.innerHTML = `
-                    <div class="grid" style="margin-bottom:16px">
-                        <div class="stat"><div class="stat-label">Преподаватель</div><div class="stat-value" style="font-size:16px">${escapeHtml(c.teacher.fullName)}</div></div>
-                        <div class="stat"><div class="stat-label">Группа</div><div class="stat-value" style="font-size:16px">${escapeHtml(c.group.name)}</div></div>
-                        <div class="stat"><div class="stat-label">Курс</div><div class="stat-value" style="font-size:16px">${c.group.course}</div></div>
-                        <div class="stat"><div class="stat-label">Часы (план)</div><div class="stat-value" style="font-size:16px">${totalHours}</div></div>
-                        <div class="stat"><div class="stat-label">Часов проведено</div><div class="stat-value" style="font-size:16px">${doneHours}</div></div>
-                    </div>
-
-                    <h4 style="margin:16px 0 10px">Мероприятия</h4>
-                    <ul style="padding-left:18px;margin-bottom:16px;list-style:none">${eventsHtml}</ul>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="addEvent()">Добавить мероприятие</button>
-
-                    <h4 style="margin:16px 0 10px">Журнал</h4>
-                    <ul style="padding-left:18px;margin-bottom:16px;list-style:none">${logsHtml}</ul>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="addLog(${c.id})">Добавить запись</button>
-                `;
-
-                document.getElementById('editModal').classList.add('active');
-            })
-            .catch(e => {
-                showToast('Ошибка загрузки данных кураторства', 'danger');
+        function loadRefs() {
+            return Promise.all([
+                fetch('/api/teachers').then(function (r) { return r.json(); }),
+                fetch('/api/groups').then(function (r) { return r.json(); })
+            ]).then(function (res) {
+                teachers = (res[0] || []).sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
+                groups = (res[1] || []).sort(function (a, b) { return a.name.localeCompare(b.name); });
             });
-    }
-
-    function closeEditModal() {
-        document.getElementById('editModal').classList.remove('active');
-    }
-
-    function openEventModal(idx) {
-        eventModalIdx = idx != null ? idx : null;
-        const title = document.getElementById('eventModalTitle');
-        const dateEl = document.getElementById('eventDate');
-        const hoursEl = document.getElementById('eventHours');
-        const descEl = document.getElementById('eventDescription');
-        if (idx != null && currentViewEvents[idx]) {
-            title.textContent = 'Изменить мероприятие';
-            dateEl.value = currentViewEvents[idx].date || '';
-            hoursEl.value = currentViewEvents[idx].hours != null ? currentViewEvents[idx].hours : '';
-            descEl.value = currentViewEvents[idx].description || '';
-        } else {
-            title.textContent = 'Новое мероприятие';
-            dateEl.value = new Date().toISOString().slice(0, 10);
-            hoursEl.value = '';
-            descEl.value = '';
         }
-        document.getElementById('eventModal').classList.add('active');
-    }
 
-    function closeEventModal() {
-        document.getElementById('eventModal').classList.remove('active');
-    }
-
-    function saveEventModal() {
-        if (!currentViewId) return;
-        const description = document.getElementById('eventDescription').value.trim();
-        if (!description) { showToast('Укажите описание', 'danger'); return; }
-        const date = document.getElementById('eventDate').value;
-        const hours = document.getElementById('eventHours').value;
-
-        const isEdit = eventModalIdx != null;
-        const method = isEdit ? 'PUT' : 'POST';
-        const body = isEdit
-            ? { eventIdx: eventModalIdx, date, hours, description }
-            : { date, hours, description };
-
-        fetch(`/api/curatorships/${currentViewId}/event`, {
-            method,
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body)
-        }).then(r => {
-            if (r.ok) {
-                closeEventModal();
-                viewCuratorship(currentViewId);
-                loadCuratorships();
+        function openAssign(curatorshipId, groupId) {
+            editing = curatorshipId;
+            var row = curatorshipId ? rows.find(function (r) { return r.curatorshipId === curatorshipId; }) : null;
+            var gSel = document.getElementById('assignGroup');
+            var tSel = document.getElementById('assignTeacher');
+            gSel.innerHTML = '';
+            var free = groups.filter(function (g) {
+                var r = rows.find(function (x) { return x.groupId === g.id; });
+                return row ? g.id === row.groupId : !(r && r.curatorshipId);
+            });
+            free.forEach(function (g) { gSel.add(new Option(g.name, g.id)); });
+            gSel.disabled = !!row;
+            tSel.innerHTML = '';
+            teachers.forEach(function (t) { tSel.add(new Option(t.fullName, t.id)); });
+            if (row) {
+                gSel.value = row.groupId;
+                tSel.value = row.teacherId;
+                document.getElementById('assignHours').value = row.planHours;
             } else {
-                showToast('Ошибка сохранения', 'danger');
+                if (groupId) gSel.value = groupId;
+                document.getElementById('assignHours').value = 36;
             }
+            document.getElementById('assignTitle').textContent = row ? 'Изменить кураторство' : 'Назначить куратора';
+            if (!free.length) { toast('У всех групп уже есть куратор', 'warning'); return; }
+            open('assignModal');
+        }
+
+        document.getElementById('assignSaveBtn').addEventListener('click', function () {
+            var payload = {
+                teacherId: Number(document.getElementById('assignTeacher').value),
+                groupId: Number(document.getElementById('assignGroup').value),
+                hours: Number(document.getElementById('assignHours').value)
+            };
+            var url = editing ? '/api/curatorships/' + editing : '/api/curatorships';
+            fetch(url, {method: editing ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+                .then(function (r) { return r.json().then(function (b) { return {ok: r.ok, body: b}; }); })
+                .then(function (res) {
+                    if (!res.ok) { toast((res.body && res.body.error) || 'Не удалось сохранить', 'danger'); return; }
+                    close('assignModal');
+                    toast('Сохранено', 'success');
+                    load();
+                })
+                .catch(function () { toast('Ошибка сети', 'danger'); });
         });
-    }
 
-    function addEvent() {
-        openEventModal(null);
-    }
-
-    function editEvent(idx) {
-        openEventModal(idx);
-    }
-
-    function deleteEvent(curatorshipId, eventIndex) {
-        if (!confirm('Удалить это мероприятие?')) return;
-
-        fetch(`/api/curatorships/${curatorshipId}/event/${eventIndex}`, { method: 'DELETE' })
-            .then(r => {
-                if (r.ok) {
-                    viewCuratorship(curatorshipId);
-                    loadCuratorships();
-                } else {
-                    showToast('Ошибка удаления', 'danger');
-                }
+        function removeCurator(id) {
+            if (!confirm('Снять куратора с группы? Мероприятия и журнал этого кураторства удалятся.')) return;
+            fetch('/api/curatorships/' + id, {method: 'DELETE'}).then(function (r) {
+                if (r.ok) { toast('Куратор снят', 'success'); load(); } else toast('Не удалось', 'danger');
             });
-    }
+        }
 
-    function addLog(id) {
-        const logEntry = prompt('Введите запись в журнал:');
-        if (!logEntry) return;
+        CuratorCard.init({year: yearSel.value, onChange: function () { load(); }});
 
-        fetch(`/api/curatorships/${id}/log`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({logEntry})
-        }).then(r => {
-            if (r.ok) viewCuratorship(id);
-            else showToast('Ошибка добавления', 'danger');
-        });
-    }
+        document.getElementById('assignOpenBtn').addEventListener('click', function () { openAssign(null, null); });
+        document.getElementById('curSearch').addEventListener('input', render);
+        document.getElementById('curTeacherFilter').addEventListener('change', render);
+        document.getElementById('curOnlyFree').addEventListener('change', render);
+        yearSel.addEventListener('change', function () { CuratorCard.setYear(yearSel.value); load(); });
 
-    function deleteLog(curatorshipId, logIndex) {
-        if (!confirm('Удалить эту запись из журнала?')) return;
-
-        fetch(`/api/curatorships/${curatorshipId}/log/${logIndex}`, { method: 'DELETE' })
-            .then(r => {
-                if (r.ok) viewCuratorship(curatorshipId);
-                else showToast('Ошибка удаления', 'danger');
-            });
-    }
-
-    function deleteCuratorship(id) {
-        if (!confirm('Удалить назначение куратора?')) return;
-        fetch(`/api/curatorships/${id}`, {method: 'DELETE'})
-            .then(r => { if (r.ok) loadCuratorships(); else showToast('Ошибка удаления', 'danger'); });
-    }
+        loadRefs().then(load);
+    })();
     </script>
 </div>
 </body>

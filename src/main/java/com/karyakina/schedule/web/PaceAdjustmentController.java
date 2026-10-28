@@ -38,7 +38,6 @@ public class PaceAdjustmentController {
         return ResponseEntity.ok(Map.of("created", created.size()));
     }
 
-    /** Динамический пересчёт по вычитанным часам: apply=false — только предпросмотр, ничего не меняет. */
     @PostMapping("/recalculate")
     public ResponseEntity<?> recalculate(
             @RequestParam(required = false) Integer academicYear,
@@ -52,7 +51,6 @@ public class PaceAdjustmentController {
         return ResponseEntity.ok(hoursRecalculationService.recalculate(year, sem, null, !apply));
     }
 
-    /** Сверка «вычитано» с журналом занятий: apply=false — предпросмотр. */
     @PostMapping("/rebuild-read-hours")
     public ResponseEntity<?> rebuildReadHours(
             @RequestParam(required = false) Integer academicYear,

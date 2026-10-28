@@ -4,11 +4,6 @@ import com.karyakina.schedule.domain.Schedule;
 
 import java.time.LocalDate;
 
-/**
- * Единое правило «проходит ли строка расписания в эту дату». Раньше каждый сервис проверял это по-своему
- * (где-то забывали семестр, где-то activeFromWeek/activeUntilWeek), из-за чего осенние и весенние пары
- * смешивались, а сокращение темпа не влияло на реальные занятия.
- */
 public final class ScheduleOccurrence {
 
     private ScheduleOccurrence() {
@@ -28,7 +23,6 @@ public final class ScheduleOccurrence {
                 AcademicYearUtil.semesterOfDate(date));
     }
 
-    /** Постоянная (еженедельная) строка, а не разовый перенос/доп. пара. */
     public static boolean isRecurring(Schedule s) {
         return s.getAcademicWeek() == null;
     }

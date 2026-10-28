@@ -73,8 +73,16 @@ public class LessonInstanceService {
         LessonInstance instance = instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
 
-        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
-                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+        if (isCredited(instance)) {
+            return instance;
+        }
+        if (instance.getStatus() == LessonInstance.Status.REPLACED) {
+            addHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
+                    "Замена от " + instance.getLessonDate(), changedBy);
+            instance.setConfirmedAt(LocalDateTime.now());
+            return instanceRepository.save(instance);
+        }
+        if (instance.getStatus() != LessonInstance.Status.PLANNED) {
             return instance;
         }
 
@@ -86,13 +94,25 @@ public class LessonInstanceService {
         return instanceRepository.save(instance);
     }
 
+    public static boolean isCredited(LessonInstance li) {
+        return li.getStatus() == LessonInstance.Status.CONFIRMED
+                || (li.getStatus() == LessonInstance.Status.REPLACED && li.getConfirmedAt() != null);
+    }
+
+    public static boolean hasEnded(LessonInstance li, LocalDateTime now) {
+        LocalDate date = li.getLessonDate();
+        if (date.isBefore(now.toLocalDate())) return true;
+        if (date.isAfter(now.toLocalDate())) return false;
+        return li.getSchedule() != null && li.getSchedule().getEndTime() != null
+                && !li.getSchedule().getEndTime().isAfter(now.toLocalTime());
+    }
+
     @Transactional
     public LessonInstance cancelInstance(Long instanceId, String note, String changedBy) {
         LessonInstance instance = instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
 
-        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
-                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+        if (isCredited(instance)) {
             subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
                     "Отмена пары от " + instance.getLessonDate() + (note != null ? ": " + note : ""), changedBy);
         }
@@ -108,8 +128,7 @@ public class LessonInstanceService {
         LessonInstance instance = instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
 
-        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
-                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+        if (isCredited(instance)) {
             subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
                     "Переведено в самостоятельную работу от " + instance.getLessonDate()
                             + (note != null ? ": " + note : ""), changedBy);
@@ -126,7 +145,7 @@ public class LessonInstanceService {
         LessonInstance instance = instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
 
-        if (instance.getStatus() == LessonInstance.Status.CONFIRMED) {
+        if (isCredited(instance)) {
             subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
                     "Пара передана другому преподавателю (замена)", changedBy);
         }
@@ -134,25 +153,32 @@ public class LessonInstanceService {
         TeacherLoad originalLoad = instance.getSchedule().getTeacherLoad();
         TeacherLoad substituteLoad = findOrCreateSubstituteLoad(substitute, originalLoad);
 
-        addHours(substituteLoad, instance.getDurationHours(), instance.getLessonDate(),
-                "Замена вместо " + instance.getOriginalTeacher().getFullName()
-                        + " от " + instance.getLessonDate(), changedBy);
-
         instance.setTeacherLoad(substituteLoad);
         instance.setActualTeacher(substitute);
         instance.setStatus(LessonInstance.Status.REPLACED);
-        instance.setConfirmedAt(LocalDateTime.now());
         instance.setNote(note);
+        instance.setConfirmedAt(null);
+        // заменяющему часы только когда пара прошла
+        if (hasEnded(instance, LocalDateTime.now())) {
+            addHours(substituteLoad, instance.getDurationHours(), instance.getLessonDate(),
+                    "Замена вместо " + instance.getOriginalTeacher().getFullName()
+                            + " от " + instance.getLessonDate(), changedBy);
+            instance.setConfirmedAt(LocalDateTime.now());
+        }
         return instanceRepository.save(instance);
     }
 
     @Transactional
     public TeacherLoad findOrCreateSubstituteLoad(Teacher substitute, TeacherLoad originalLoad) {
+        if (originalLoad.getTeacher() != null && originalLoad.getTeacher().getId().equals(substitute.getId())) {
+            return originalLoad;
+        }
         List<TeacherLoad> substituteLoads = loadRepository.findByTeacherIdAndAcademicYear(
                 substitute.getId(), originalLoad.getAcademicYear());
 
         return substituteLoads.stream()
-                .filter(l -> l.getDiscipline().getId().equals(originalLoad.getDiscipline().getId())
+                .filter(l -> Boolean.TRUE.equals(l.getOverload())
+                        && l.getDiscipline().getId().equals(originalLoad.getDiscipline().getId())
                         && l.getGroup().getId().equals(originalLoad.getGroup().getId()))
                 .findFirst()
                 .orElseGet(() -> {
@@ -171,25 +197,24 @@ public class LessonInstanceService {
                 });
     }
 
-    /** Откатить часы проведённого/заменённого занятия перед его удалением, чтобы «вычитано» не расходилось с журналом. */
     @Transactional
     public void revertHoursBeforeDelete(LessonInstance instance, String reason) {
         if (instance.getTeacherLoad() == null || instance.getDurationHours() == null) return;
-        if (instance.getStatus() == LessonInstance.Status.CONFIRMED
-                || instance.getStatus() == LessonInstance.Status.REPLACED) {
+        if (isCredited(instance)) {
             subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
                     reason, "system:delete");
         }
     }
 
-    /** Вернуть заменённое занятие исходному преподавателю (например, больничный удалён). */
     @Transactional
     public LessonInstance revertReplacement(Long instanceId, String note) {
         LessonInstance instance = instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new RuntimeException("Занятие не найдено: " + instanceId));
         if (instance.getStatus() != LessonInstance.Status.REPLACED) return instance;
-        subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
-                note, "system:revert");
+        if (isCredited(instance)) {
+            subtractHours(instance.getTeacherLoad(), instance.getDurationHours(), instance.getLessonDate(),
+                    note, "system:revert");
+        }
         instance.setTeacherLoad(instance.getSchedule().getTeacherLoad());
         instance.setActualTeacher(instance.getOriginalTeacher());
         instance.setStatus(LessonInstance.Status.PLANNED);
@@ -200,6 +225,15 @@ public class LessonInstanceService {
 
     public boolean isTeacherSickOnDate(Long teacherId, LocalDate date) {
         return !sickLeaveRepository.findByTeacherIdAndDateRange(teacherId, date).isEmpty();
+    }
+
+    @Transactional
+    public void correctReadHours(TeacherLoad load, int newReadHours, String changedBy) {
+        int delta = newReadHours - (load.getReadHours() == null ? 0 : load.getReadHours());
+        if (delta == 0) return;
+        load.setReadHours(Math.max(0, newReadHours));
+        loadRepository.save(load);
+        upsertMonthly(load, LocalDate.now().getMonthValue(), delta, "Ручная корректировка вычитанных часов", changedBy);
     }
 
     private void addHours(TeacherLoad load, int hours, LocalDate date, String note, String changedBy) {

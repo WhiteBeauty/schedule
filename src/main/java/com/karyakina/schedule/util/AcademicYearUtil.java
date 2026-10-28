@@ -21,10 +21,6 @@ public class AcademicYearUtil {
         return STATE_HOLIDAYS.contains(MonthDay.from(date));
     }
 
-    /**
-     * Учебный год начинается 1 сентября: январь–июнь относятся к году, начавшемуся прошлой осенью.
-     * Июль–август считаем уже предстоящим учебным годом (как и {@link #getCurrentSemester()}).
-     */
     public static int[] getCurrentAcademicYear() {
         return new int[]{academicYearOf(LocalDate.now()), academicYearOf(LocalDate.now()) + 1};
     }
@@ -33,7 +29,6 @@ public class AcademicYearUtil {
         return date.getMonthValue() >= 7 ? date.getYear() : date.getYear() - 1;
     }
 
-    /** Номер учебной недели от недели, в которую попадает 1 сентября (понедельник — первый день). */
     public static int academicWeek(LocalDate date, int academicYear) {
         LocalDate start = LocalDate.of(academicYear, 9, 1);
         if (date.isBefore(start.with(java.time.DayOfWeek.MONDAY))) {
@@ -50,7 +45,6 @@ public class AcademicYearUtil {
         return d != java.time.DayOfWeek.SATURDAY && d != java.time.DayOfWeek.SUNDAY;
     }
 
-    /** Учебные дни (пн–пт, не каникулы, не праздники) в интервале включительно. */
     public static int teachingDays(LocalDate from, LocalDate to) {
         int days = 0;
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
@@ -97,7 +91,6 @@ public class AcademicYearUtil {
         return semester == 2 ? LocalDate.of(academicYear + 1, 6, 30) : LocalDate.of(academicYear, 12, 30);
     }
 
-    /** Число учебных недель семестра: учебные дни без праздников, делённые на 5 дней недели. */
     public static int getSemesterWeeks(int semester, int academicYear) {
         LocalDate start = semesterStart(semester, academicYear);
         LocalDate end = semesterEnd(semester, academicYear);
@@ -105,6 +98,19 @@ public class AcademicYearUtil {
     }
 
     public static final int WEEKS_PER_SEMESTER = 18;
+
+    // null значит расписание действует с начала семестра
+    public static Integer liveStartWeek(int semester, int academicYear, LocalDate today) {
+        LocalDate start = semesterStart(semester, academicYear);
+        LocalDate end = semesterEnd(semester, academicYear);
+        if (!today.isAfter(start) || today.isAfter(end)) return null;
+        LocalDate monday = today.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY));
+        return academicWeek(monday, academicYear);
+    }
+
+    public static LocalDate mondayOfWeek(int academicWeek, int academicYear) {
+        return LocalDate.of(academicYear, 9, 1).with(java.time.DayOfWeek.MONDAY).plusWeeks(academicWeek - 1L);
+    }
 
     public static int semesterOfDate(LocalDate date) {
         return semesterOf(date, false);

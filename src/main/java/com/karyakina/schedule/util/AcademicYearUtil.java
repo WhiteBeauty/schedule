@@ -99,19 +99,6 @@ public class AcademicYearUtil {
 
     public static final int WEEKS_PER_SEMESTER = 18;
 
-    // null значит расписание действует с начала семестра
-    public static Integer liveStartWeek(int semester, int academicYear, LocalDate today) {
-        LocalDate start = semesterStart(semester, academicYear);
-        LocalDate end = semesterEnd(semester, academicYear);
-        if (!today.isAfter(start) || today.isAfter(end)) return null;
-        LocalDate monday = today.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY));
-        return academicWeek(monday, academicYear);
-    }
-
-    public static LocalDate mondayOfWeek(int academicWeek, int academicYear) {
-        return LocalDate.of(academicYear, 9, 1).with(java.time.DayOfWeek.MONDAY).plusWeeks(academicWeek - 1L);
-    }
-
     public static int semesterOfDate(LocalDate date) {
         return semesterOf(date, false);
     }

@@ -43,6 +43,14 @@ public class UnresolvedReschedule {
     @Column(nullable = false)
     private Integer academicYear;
 
+    private Integer semester;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
+
+    public boolean belongsTo(int semesterNumber) {
+        if (semester != null) return semester == semesterNumber;
+        return originalDate == null
+                || com.karyakina.schedule.util.AcademicYearUtil.semesterOfDate(originalDate) == semesterNumber;
+    }
 }

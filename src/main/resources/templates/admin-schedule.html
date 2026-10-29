@@ -28,6 +28,38 @@
         <button type="button" class="btn btn-danger btn-sm" onclick="openWipeModal()">Снести расписание</button>
         <button type="button" class="btn btn-secondary btn-sm" onclick="openExportMonthModal()">Скачать за месяц</button>
         <div th:replace="~{fragments/special-event-modal :: modal}"></div>
+        <button type="button" class="btn btn-secondary" onclick="openVacancyModal()">
+            Вакансии <span class="badge badge-warning" id="vacancyCount" style="display:none; margin-left:4px;">0</span>
+        </button>
+    </div>
+
+    <div class="modal-overlay" id="vacancyModal">
+        <div class="modal" style="max-width:920px; width:95%;">
+            <div class="modal-header">
+                <h3 style="margin:0;">Вакансии</h3>
+                <button class="close-btn" type="button" onclick="closeVacancyModal()" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:0.85rem; margin-top:0;">
+                    Нагрузка из тарификации без преподавателя. После назначения расписание само впишет её пары
+                    с начала семестра: сначала в свободные места, а если не влезут, соберёт неделю группы заново.
+                    Прошедшие пары засчитаются автоматически. Практику и ГИА ставят вручную блоками, для них
+                    назначается только преподаватель.
+                </p>
+                <div id="vacancyResult" style="margin-bottom:0.75rem;"></div>
+                <div class="table-scroll">
+                    <table class="data-table" style="font-size:0.85rem;">
+                        <thead>
+                        <tr><th>Дисциплина</th><th>Группа</th><th>Часы, 1 / 2 сем.</th><th>Преподаватель</th><th></th></tr>
+                        </thead>
+                        <tbody id="vacancyBody"><tr><td colspan="5" class="text-muted">Загрузка…</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" type="button" onclick="closeVacancyModal()">Закрыть</button>
+            </div>
+        </div>
     </div>
 
     <div class="card" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:14px 16px;">
@@ -311,9 +343,10 @@
         </div>
         <div class="modal-body">
             <p class="text-muted" style="margin-bottom:1rem;">
-                Удаляет пары по выбранному фильтру. Если семестр уже идёт, прошедшие пары остаются в истории
-                (вычитанные часы не пропадают), а новое расписание начнёт действовать со следующей недели.
-                Затронутые преподаватели получат уведомление.
+                Удаляет пары по выбранному фильтру вместе с прошедшими занятиями текущего семестра: новое
+                расписание строится с начала семестра, и после сохранения прошедшие пары засчитываются заново
+                уже по нему. Отметки о заменах и отменах за прошедшие дни при этом пропадут. Закончившийся
+                семестр не трогается. Затронутые преподаватели получат уведомление.
             </p>
             <label style="display:block;margin-bottom:0.5rem;">Учебный год:</label>
             <input type="number" id="wipeYear" th:value="${year}" style="width:100%;margin-bottom:1rem;">
@@ -401,6 +434,169 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSelectOptions();
     loadPaceRecalcSetting();
 });
+
+function vacancyYear() {
+    const el = document.getElementById('yearSelect');
+    return el && el.value ? el.value : window.DEFAULT_ACADEMIC_YEAR;
+}
+
+async function fetchVacancies() {
+    const res = await fetch('/api/vacancies?academicYear=' + encodeURIComponent(vacancyYear()));
+    if (!res.ok) throw new Error('код ' + res.status);
+    return res.json();
+}
+
+async function refreshVacancyCount() {
+    try {
+        const list = await fetchVacancies();
+        const badge = document.getElementById('vacancyCount');
+        badge.textContent = list.length;
+        badge.style.display = list.length ? 'inline-flex' : 'none';
+    } catch (e) {
+    }
+}
+
+function openVacancyModal() {
+    document.getElementById('vacancyResult').innerHTML = '';
+    document.getElementById('vacancyModal').classList.add('active');
+    loadVacancies();
+}
+
+function closeVacancyModal() {
+    document.getElementById('vacancyModal').classList.remove('active');
+}
+
+async function loadVacancies() {
+    const body = document.getElementById('vacancyBody');
+    body.innerHTML = '<tr><td colspan="5" class="text-muted">Загрузка…</td></tr>';
+    try {
+        const [list, teachers] = await Promise.all([fetchVacancies(), fetch('/api/teachers').then(r => r.json())]);
+        const sorted = (teachers || []).slice().sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+        body.innerHTML = '';
+        if (!list.length) {
+            body.innerHTML = '<tr><td colspan="5" class="text-muted">Вакансий нет — у всей нагрузки есть преподаватель</td></tr>';
+        }
+        if (list.length && !list.some(v => !v.practice)) {
+            body.appendChild(vacancySection('Пар-вакансий нет, все занятия в расписании с преподавателями'));
+        }
+        let practiceShown = false;
+        list.forEach(v => {
+            if (v.practice && !practiceShown) {
+                body.appendChild(vacancySection('Практика, ГИА, ВКР — назначается только преподаватель, ставится вручную блоками'));
+                practiceShown = true;
+            }
+            body.appendChild(buildVacancyRow(v, sorted));
+        });
+        const badge = document.getElementById('vacancyCount');
+        badge.textContent = list.length;
+        badge.style.display = list.length ? 'inline-flex' : 'none';
+    } catch (e) {
+        body.innerHTML = '<tr><td colspan="5" class="text-danger">Не удалось загрузить вакансии (' + escapeHtml(e.message) + ')</td></tr>';
+    }
+}
+
+function vacancySection(text) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'text-muted';
+    td.style.cssText = 'font-weight:600; background:var(--bg);';
+    td.textContent = text;
+    tr.appendChild(td);
+    return tr;
+}
+
+function buildVacancyRow(v, teachers) {
+    const tr = document.createElement('tr');
+    const suggested = new Set(v.suggestedTeacherIds || []);
+    const discipline = document.createElement('td');
+    discipline.innerHTML = '<b>' + escapeHtml(v.disciplineName) + '</b>'
+        + (v.practice ? '<div class="text-muted" style="font-size:12px;">практика, ставится вручную</div>' : '');
+    const group = document.createElement('td');
+    group.textContent = v.groupName;
+    const hours = document.createElement('td');
+    hours.textContent = (v.firstSemesterHours || 0) + ' / ' + (v.secondSemesterHours || 0);
+
+    const teacherCell = document.createElement('td');
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Преподаватель для ' + v.disciplineName + ', ' + v.groupName);
+    select.style.minWidth = '220px';
+    select.add(new Option('Выберите преподавателя', ''));
+    teachers.filter(t => suggested.has(t.id)).forEach(t => select.add(new Option(t.fullName + ' — ведёт эту дисциплину', t.id)));
+    teachers.filter(t => !suggested.has(t.id)).forEach(t => select.add(new Option(t.fullName, t.id)));
+    teacherCell.appendChild(select);
+
+    const actionCell = document.createElement('td');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-primary';
+    button.textContent = 'Назначить';
+    button.addEventListener('click', () => assignVacancy(v, select, button, tr));
+    actionCell.appendChild(button);
+
+    [discipline, group, hours, teacherCell, actionCell].forEach(td => tr.appendChild(td));
+    return tr;
+}
+
+async function assignVacancy(v, select, button, tr) {
+    if (!select.value) {
+        showToast('Выберите преподавателя', 'danger');
+        select.focus();
+        return;
+    }
+    select.disabled = true;
+    button.disabled = true;
+    button.textContent = v.practice ? 'Назначаем...' : 'Вписываем пары, до минуты...';
+    try {
+        const res = await fetch('/api/vacancies/' + v.loadId + '/assign', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({teacherId: Number(select.value)})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'код ' + res.status);
+        document.getElementById('vacancyResult').innerHTML = vacancyResultHtml(v, data);
+        tr.remove();
+        refreshVacancyCount();
+        loadSchedule();
+        showToast('Преподаватель назначен', 'success');
+    } catch (e) {
+        showToast('Не получилось: ' + e.message, 'danger');
+        select.disabled = false;
+        button.disabled = false;
+        button.textContent = 'Назначить';
+    }
+}
+
+function vacancyResultHtml(v, data) {
+    let html = '<div class="gen-warnings" style="color:var(--text); border-color:var(--border); background:var(--bg);">'
+        + '<b>' + escapeHtml(v.disciplineName) + ' / ' + escapeHtml(v.groupName) + '</b> — ' + escapeHtml(data.teacherName) + '. ';
+    if (data.practice) {
+        return html + 'Практика ставится вручную блоками через «Поставить экзамен / практику / вождение».</div>';
+    }
+    if (!data.placements.length) {
+        return html + 'Часов в текущем и следующем семестре нет, вписывать нечего.</div>';
+    }
+    html += '<ul style="margin:0.35rem 0 0; padding-left:1.1rem;">';
+    data.placements.forEach(p => {
+        let line = p.semester + ' семестр: ';
+        if (p.missingPairs < 0) {
+            line += 'не вписалось';
+        } else {
+            line += p.pairsPerWeek + ' пар в неделю' + (p.rebuilt ? ', неделя группы собрана заново' : '')
+                + (p.missingPairs > 0 ? ', не встало пар: ' + p.missingPairs + ' (они в «Не вставших парах»)' : '');
+        }
+        if (p.notes && p.notes.length) line += ' — ' + p.notes.join('; ');
+        html += '<li>' + escapeHtml(line) + '</li>';
+    });
+    html += '</ul>';
+    if (data.placements.some(p => p.missingPairs !== 0)) {
+        html += '<div class="text-muted" style="margin-top:0.35rem;">Чтобы поставить оставшееся, поднимите недельный лимит '
+            + 'группы («Группы») или снимите ограничения преподавателя и запустите «Автосоставление» на этот семестр — '
+            + 'оно расставит только то, чего ещё нет в расписании.</div>';
+    }
+    return html + '</div>';
+}
 
 function closeRecalcModal() {
     document.getElementById('recalcModal').classList.remove('active');
@@ -879,6 +1075,7 @@ const PROGRESS_HINT = {
 
 function loadSchedule() {
     const year = document.getElementById('yearSelect').value;
+    refreshVacancyCount();
     Promise.all([
         fetch(`/api/schedule?year=${year}`).then(r => r.json()),
         fetch(`/api/schedule/progress?year=${year}`).then(r => r.ok ? r.json() : {}).catch(() => ({}))

@@ -66,7 +66,7 @@ public class TeacherLoadService {
 
             List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
             double curatorshipPlan = curatorships.stream()
-                    .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
+                    .mapToDouble(c -> CuratorshipService.yearPlanHours(c, year)).sum();
             double curatorshipDone = curatorshipDoneHours(curatorships, year);
 
             long totalCp = teacherLoads.stream()
@@ -294,7 +294,7 @@ public class TeacherLoadService {
         int academicYearProgress = calculateAcademicYearProgress();
         List<Curatorship> curatorships = curatorshipRepository.findByTeacherId(teacherId);
         double curatorshipPlan = curatorships.stream()
-                .mapToInt(c -> c.getHours() != null ? c.getHours() : 0).sum();
+                .mapToDouble(c -> CuratorshipService.yearPlanHours(c, year)).sum();
         double curatorshipDone = curatorshipDoneHours(curatorships, year);
 
         double planCompletion = computePlanCompletion(

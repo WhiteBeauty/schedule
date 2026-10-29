@@ -51,6 +51,13 @@ public class CuratorshipController {
         return ResponseEntity.ok(service.overview(year != null ? year : AcademicYearUtil.getCurrentAcademicYearStart()));
     }
 
+    @GetMapping("/calendar")
+    public Map<String, Object> calendar(@RequestParam(required = false) Integer year) {
+        int y = year != null ? year : AcademicYearUtil.getCurrentAcademicYearStart();
+        return Map.of("weeks", Math.round(CuratorshipService.yearWeeks(y) * 10) / 10.0,
+                "months", CuratorshipService.monthWeeks(y));
+    }
+
     @GetMapping("/by-id/{id}")
     public ResponseEntity<Curatorship> byId(@PathVariable Long id, Authentication auth) {
         Curatorship c = service.findById(id).orElse(null);

@@ -1,6 +1,5 @@
 package com.karyakina.schedule.service;
 
-import com.karyakina.schedule.domain.Curatorship;
 import com.karyakina.schedule.domain.Schedule;
 import com.karyakina.schedule.domain.Teacher;
 import com.karyakina.schedule.domain.TeacherLoad;
@@ -166,7 +165,7 @@ public class OverviewService {
         Map<Long, Double> curatorshipByTeacher = curatorshipRepository.findAll().stream()
                 .filter(c -> c.getTeacher() != null && c.getHours() != null)
                 .collect(Collectors.groupingBy(c -> c.getTeacher().getId(),
-                        Collectors.summingDouble(Curatorship::getHours)));
+                        Collectors.summingDouble(c -> CuratorshipService.yearPlanHours(c, academicYearStart))));
 
         Map<Long, List<TeacherLoad>> byTeacher = loads.stream()
                 .filter(l -> l.getTeacher() != null)

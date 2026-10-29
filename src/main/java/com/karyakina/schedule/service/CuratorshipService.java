@@ -51,6 +51,29 @@ public class CuratorshipService {
         return repository.findByTeacherIdAndGroupId(teacherId, groupId);
     }
 
+    // часы кураторства задаются в неделю а план на год это часы на учебные недели года
+    public static double studyWeeks(LocalDate from, LocalDate to) {
+        return com.karyakina.schedule.util.AcademicYearUtil.teachingDays(from, to) / 5.0;
+    }
+
+    public static double yearWeeks(int academicYear) {
+        return studyWeeks(LocalDate.of(academicYear, 9, 1), LocalDate.of(academicYear + 1, 8, 31));
+    }
+
+    public static Map<Integer, Double> monthWeeks(int academicYear) {
+        Map<Integer, Double> result = new LinkedHashMap<>();
+        for (int i = 0; i < 12; i++) {
+            LocalDate start = LocalDate.of(academicYear, 9, 1).plusMonths(i);
+            double weeks = studyWeeks(start, start.withDayOfMonth(start.lengthOfMonth()));
+            result.put(start.getMonthValue(), Math.round(weeks * 10) / 10.0);
+        }
+        return result;
+    }
+
+    public static double yearPlanHours(Curatorship c, int academicYear) {
+        return (c.getHours() != null ? c.getHours() : 0) * yearWeeks(academicYear);
+    }
+
     public static double doneHours(Curatorship c, int academicYear) {
         LocalDate from = LocalDate.of(academicYear, 9, 1);
         LocalDate to = LocalDate.of(academicYear + 1, 8, 31);
@@ -83,7 +106,7 @@ public class CuratorshipService {
             Curatorship c = byGroup.get(g.getId());
             if (c != null) {
                 withCurator++;
-                int plan = c.getHours() != null ? c.getHours() : 0;
+                long plan = Math.round(yearPlanHours(c, academicYear));
                 double done = doneHours(c, academicYear);
                 long events = c.getEvents().stream()
                         .filter(e -> e.getDate() != null && !e.getDate().isBefore(from) && !e.getDate().isAfter(to)).count();
@@ -95,6 +118,7 @@ public class CuratorshipService {
                 row.put("teacherId", c.getTeacher().getId());
                 row.put("teacherName", c.getTeacher().getFullName());
                 row.put("planHours", plan);
+                row.put("hoursPerWeek", c.getHours());
                 row.put("doneHours", done);
                 row.put("percent", Math.round(percent));
                 row.put("eventsCount", events);
@@ -250,7 +274,7 @@ public class CuratorshipService {
 
     private static int validHours(Integer hours) {
         if (hours == null) return DEFAULT_HOURS;
-        if (hours < 0 || hours > 1000) throw new IllegalArgumentException("Часы от 0 до 1000");
+        if (hours < 0 || hours > 168) throw new IllegalArgumentException("Часов в неделю от 0 до 168");
         return hours;
     }
 }

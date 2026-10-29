@@ -5,7 +5,28 @@
     var MONTH_NAMES = {9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь', 1: 'Январь', 2: 'Февраль',
         3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь'};
 
-    var state = {year: new Date().getFullYear(), current: null, editIdx: null, logIdx: null, onChange: null};
+    var state = {year: new Date().getFullYear(), current: null, editIdx: null, logIdx: null, onChange: null,
+        calendars: {}};
+
+    // часы кураторства заданы в неделю а план на год и месяц считается по учебным неделям
+    function loadCalendar(year) {
+        if (state.calendars[year]) return Promise.resolve(state.calendars[year]);
+        return request('GET', '/api/curatorships/calendar?year=' + encodeURIComponent(year)).then(function (cal) {
+            state.calendars[year] = cal;
+            return cal;
+        });
+    }
+
+    function weeksOf(year, month) {
+        var cal = state.calendars[year];
+        if (!cal) return 0;
+        return month == null ? Number(cal.weeks || 0) : Number((cal.months || {})[month] || 0);
+    }
+
+    function planHours(c, year, month) {
+        var perWeek = c && c.hours != null ? Number(c.hours) : 0;
+        return Math.round(perWeek * weeksOf(year, month));
+    }
 
     function $(id) { return document.getElementById(id); }
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
@@ -51,22 +72,23 @@
         $('curTeacherName').textContent = c.teacher ? 'Куратор: ' + c.teacher.fullName : '';
 
         var events = yearEvents();
-        var plan = c.hours != null ? Number(c.hours) : 0;
+        var plan = planHours(c, state.year);
         var done = events.reduce(function (s, x) { return s + (x.e.hours != null ? Number(x.e.hours) : 0); }, 0);
         var pct = plan > 0 ? Math.min(100, done * 100 / plan) : 0;
         $('curPlan').textContent = plan;
+        $('curPlanSub').textContent = (c.hours != null ? c.hours : 0) + ' ч в неделю × '
+            + String(weeksOf(state.year)).replace('.', ',') + ' учебных недель';
         $('curDone').textContent = round1(done);
         $('curLeft').textContent = round1(Math.max(0, plan - done));
         $('curEventsCount').textContent = events.length;
         $('curDoneBar').style.width = pct + '%';
 
-        renderMonths(events, plan);
+        renderMonths(events, c);
         renderEvents(events);
         renderLogs();
     }
 
-    function renderMonths(events, plan) {
-        var perMonth = plan > 0 ? Math.round(plan / MONTHS.length * 2) / 2 : 0;
+    function renderMonths(events, c) {
         var fact = {};
         events.forEach(function (x) {
             var m = parseInt(String(x.e.date).split('-')[1], 10);
@@ -76,6 +98,7 @@
         var html = '<div class="cur-months">';
         MONTHS.forEach(function (m) {
             var f = round1(fact[m] || 0);
+            var perMonth = planHours(c, state.year, m);
             var calYear = m >= 9 ? state.year : state.year + 1;
             var passed = new Date(calYear, m, 0) < now;
             var current = calYear === now.getFullYear() && m === now.getMonth() + 1;
@@ -263,15 +286,19 @@
         },
         setYear: function (year) {
             state.year = Number(year);
-            render();
+            return loadCalendar(state.year).then(render);
         },
         show: function (curatorship) {
             state.current = curatorship;
-            render();
+            loadCalendar(state.year).then(render);
             loadGroupInfo();
         },
         open: function (id) {
             return request('GET', '/api/curatorships/by-id/' + id).then(function (c) { window.CuratorCard.show(c); return c; });
+        },
+        loadCalendar: loadCalendar,
+        planHours: function (c, year) {
+            return planHours(c, Number(year));
         },
         doneHours: function (c, year) {
             var from = year + '-09-01', to = (year + 1) + '-08-31';

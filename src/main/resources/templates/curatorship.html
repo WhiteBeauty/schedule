@@ -52,7 +52,7 @@
             var box = document.getElementById('curGroupList');
             var year = Number(yearSel.value);
             box.innerHTML = list.map(function (c) {
-                var plan = c.hours || 0;
+                var plan = CuratorCard.planHours(c, year);
                 var done = CuratorCard.doneHours(c, year);
                 var pct = plan > 0 ? Math.min(100, done * 100 / plan) : 0;
                 return '<button type="button" class="cur-group-item' + (c.id === activeId ? ' active' : '') + '" data-id="' + c.id + '">'
@@ -82,11 +82,14 @@
         });
 
         yearSel.addEventListener('change', function () {
-            CuratorCard.setYear(yearSel.value);
-            renderList();
+            CuratorCard.setYear(yearSel.value).then(renderList);
         });
 
-        fetch('/api/curatorships/my').then(function (r) { return r.ok ? r.json() : []; }).then(function (data) {
+        Promise.all([
+            fetch('/api/curatorships/my').then(function (r) { return r.ok ? r.json() : []; }),
+            CuratorCard.loadCalendar(Number(yearSel.value))
+        ]).then(function (res) {
+            var data = res[0];
             list = (data || []).sort(function (a, b) { return a.group.name.localeCompare(b.group.name); });
             if (!list.length) {
                 document.getElementById('curGroupList').style.display = 'none';

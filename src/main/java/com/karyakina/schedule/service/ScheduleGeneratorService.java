@@ -33,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -66,7 +65,6 @@ public class ScheduleGeneratorService {
     private final TarificationRepository tarificationRepository;
     private final UnresolvedRescheduleRepository unresolvedRescheduleRepository;
     private final com.karyakina.schedule.repository.SpecialEventRepository specialEventRepository;
-    private final HourAccountingService hourAccountingService;
 
     private static final int APPROX_WEEKS_PER_YEAR = 36;
     private static final int DEFAULT_GROUP_MAX_PAIRS_PER_DAY = 5;
@@ -74,10 +72,18 @@ public class ScheduleGeneratorService {
 
     @Transactional
     public GenerationResultDTO generateInteractive(GenerationRequestDTO request, String adminName) {
+        return generateInteractive(request, adminName, Set.of());
+    }
+
+    // rebuildGroupIds это группы чью неделю собираем заново а не дописываем
+    @Transactional
+    public GenerationResultDTO generateInteractive(GenerationRequestDTO request, String adminName,
+                                                   Set<Long> rebuildGroupIds) {
         Integer year = request != null && request.academicYear() != null
                 ? request.academicYear()
                 : com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart();
         GenerationSessionStore.Session session = sessionStore.create(request, year);
+        session.getRebuildGroupIds().addAll(rebuildGroupIds == null ? Set.of() : rebuildGroupIds);
         GenerationResultDTO result = run(session, adminName);
         if (request != null && request.persist() && !result.hasBlocking()) {
             return commit(session.getId(), adminName);
@@ -115,6 +121,13 @@ public class ScheduleGeneratorService {
             return GenerationResultDTO.failed(sessionId, MissingResourceRequest.technical(
                     "Сессия автосоставления устарела — запустите генерацию заново."));
         }
+        // двойное нажатие сохранить не должно записать пары дважды
+        synchronized (session) {
+            return commitLocked(session, adminName);
+        }
+    }
+
+    private GenerationResultDTO commitLocked(GenerationSessionStore.Session session, String adminName) {
         try {
             List<SolverResult.PlacedPair> draft = new ArrayList<>(session.getDraft());
             if (draft.isEmpty()) {
@@ -141,7 +154,6 @@ public class ScheduleGeneratorService {
                         .academicWeek(null)
                         .academicYear(load.getAcademicYear())
                         .semester(resolveSemester(session))
-                        .activeFromWeek(liveStartWeek(session))
                         .build());
             }
             scheduleRepository.saveAll(created);
@@ -168,6 +180,12 @@ public class ScheduleGeneratorService {
         }
     }
 
+    // ничего не встало сохранять нечего но в облако не вставших пар записать надо
+    @Transactional
+    public void rememberUnplaced(String sessionId) {
+        sessionStore.find(sessionId).ifPresent(this::saveUnresolvedFromGeneration);
+    }
+
     private void saveUnresolvedFromGeneration(GenerationSessionStore.Session session) {
         List<MissingResourceRequest> unplacedIssues = session.getLastIssues().stream()
                 .filter(issue -> issue.code() == MissingResourceRequest.Code.UNPLACED_LESSONS)
@@ -176,16 +194,22 @@ public class ScheduleGeneratorService {
             return;
         }
         SolverConfig hoursConfig = SolverConfig.defaults();
+        int semester = resolveSemester(session);
         Set<Long> loadIds = new HashSet<>();
         unplacedIssues.forEach(issue -> {
             Long id = asLong(issue.context().get("loadId"));
             if (id != null) loadIds.add(id);
         });
-        unresolvedRescheduleRepository.findByAcademicYearOrderByOriginalDateAsc(session.getAcademicYear()).stream()
+        List<Long> stale = unresolvedRescheduleRepository.findByAcademicYearOrderByOriginalDateAsc(session.getAcademicYear())
+                .stream()
                 .filter(u -> u.getSpecialEventId() == null && u.getTeacherLoadId() != null
-                        && loadIds.contains(u.getTeacherLoadId())
+                        && loadIds.contains(u.getTeacherLoadId()) && u.belongsTo(semester)
                         && u.getReason() != null && u.getReason().startsWith("Автосоставление"))
-                .forEach(unresolvedRescheduleRepository::delete);
+                .map(UnresolvedReschedule::getId)
+                .toList();
+        if (!stale.isEmpty()) {
+            unresolvedRescheduleRepository.deleteAllByIdInBatch(stale);
+        }
         List<UnresolvedReschedule> rows = new ArrayList<>();
         for (MissingResourceRequest issue : unplacedIssues) {
             Long loadId = asLong(issue.context().get("loadId"));
@@ -202,6 +226,7 @@ public class ScheduleGeneratorService {
                     .hours(hoursConfig.pairsToHours(missingPairs))
                     .reason("Автосоставление: " + issue.message())
                     .academicYear(session.getAcademicYear())
+                    .semester(semester)
                     .build());
         }
         unresolvedRescheduleRepository.saveAll(rows);
@@ -265,18 +290,19 @@ public class ScheduleGeneratorService {
             }
 
             List<Teacher> allTeachers = teacherRepository.findAll();
-            // практику без преподавателя всё равно не ставим автоматом поэтому и не подбираем
+            // сами подбираем только тем у кого в импорте был список возможных преподавателей
             TeacherAssignmentService.Resolution assignment = teacherAssignmentService.resolve(allLoads.stream()
-                    .filter(l -> l.getTeacher() != null || l.getDiscipline() == null
-                            || !isPracticeOrDriving(l.getDiscipline().getName()))
+                    .filter(l -> l.getTeacher() != null
+                            || (l.getCandidateTeacherNames() != null && !l.getCandidateTeacherNames().isBlank()))
                     .toList(), allTeachers);
             warnings.addAll(assignment.conflicts);
 
             int semester = resolveSemester(session);
-            Integer liveWeek = liveStartWeek(session);
+            Set<Long> rebuildGroups = session.getRebuildGroupIds();
+            // расписание всегда с начала семестра поэтому смотрим все пары семестра
             List<Schedule> existing = scheduleRepository.findByAcademicYear(year).stream()
                     .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
-                    .filter(s -> liveWeek == null || s.getActiveUntilWeek() == null || s.getActiveUntilWeek() >= liveWeek)
+                    .filter(s -> rebuildGroups.isEmpty() || !isRebuiltSlot(s, rebuildGroups))
                     .toList();
             Set<Long> loadsWithSchedule = new HashSet<>();
             existing.forEach(s -> {
@@ -328,7 +354,17 @@ public class ScheduleGeneratorService {
 
             detectDuplicates(candidates, session, issues);
             Map<Long, ResolvedHours> hoursByLoad = reconcileHours(candidates, session, config, issues);
-            Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, allLoads, assignment, session, allTeachers, issues);
+            Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, assignment, session, allTeachers);
+
+            List<String> vacancies = candidates.stream()
+                    .filter(l -> !teacherByLoad.containsKey(l.getId()) && semesterHours(l, semester) > 0)
+                    .map(this::describe)
+                    .toList();
+            if (!vacancies.isEmpty()) {
+                metrics.put("vacancyLoads", vacancies.size());
+                warnings.add("Вакансии без преподавателя (" + vacancies.size() + "): " + String.join(", ", vacancies)
+                        + " — их пары ждут в окне «Вакансии»: назначьте преподавателя, и расписание само их впишет.");
+            }
 
             List<SolverInput.Demand> demands = new ArrayList<>();
             Map<Long, Double> exactPairs = new HashMap<>();
@@ -342,7 +378,7 @@ public class ScheduleGeneratorService {
                 ResolvedHours hours = hoursByLoad.getOrDefault(load.getId(),
                         new ResolvedHours(plannedHours(load), false));
                 PeriodBasis basis = periodBasis(load, semester, session.getAcademicYear(), hours, eventsByGroup);
-                int pairs = weeklyPairs(load, basis, config);
+                int pairs = weeklyPairs(basis, config);
                 exactPairs.put(load.getId(), basis.hours() / basis.weeks() / config.academicHoursPerPair());
                 if (pairs <= 0) {
                     if (plannedHours(load) == 0) {
@@ -519,7 +555,7 @@ public class ScheduleGeneratorService {
             int hours = overridden ? manualHours : fileHours;
             result.put(load.getId(), new ResolvedHours(hours, overridden));
 
-            int pairs = weeklyPairs(load, periodBasis(load, semester, session.getAcademicYear(),
+            int pairs = weeklyPairs(periodBasis(load, semester, session.getAcademicYear(),
                     new ResolvedHours(hours, overridden), session.getEventsByGroup()), config);
             int maxPairs = GenerationGrid.slotCount();
             if (pairs > maxPairs) {
@@ -595,21 +631,13 @@ public class ScheduleGeneratorService {
         }
     }
 
+    // нагрузка без преподавателя не блокирует сохранение а ждёт в окне вакансий
     private Map<Long, Teacher> resolveTeachers(List<TeacherLoad> loads,
-                                               List<TeacherLoad> allLoads,
                                                TeacherAssignmentService.Resolution assignment,
                                                GenerationSessionStore.Session session,
-                                               List<Teacher> allTeachers,
-                                               List<MissingResourceRequest> issues) {
+                                               List<Teacher> allTeachers) {
         Map<Long, Teacher> byId = new HashMap<>();
         allTeachers.forEach(t -> byId.put(t.getId(), t));
-        Map<Long, Set<Long>> teachersByDiscipline = new HashMap<>();
-        for (TeacherLoad l : allLoads) {
-            if (l.getTeacher() != null && l.getDiscipline() != null) {
-                teachersByDiscipline.computeIfAbsent(l.getDiscipline().getId(), k -> new HashSet<>())
-                        .add(l.getTeacher().getId());
-            }
-        }
 
         Map<Long, Teacher> result = new HashMap<>();
         for (TeacherLoad load : loads) {
@@ -622,38 +650,15 @@ public class ScheduleGeneratorService {
             }
             if (teacher != null) {
                 result.put(load.getId(), teacher);
-                continue;
             }
-            Set<Long> teachesIt = teachersByDiscipline.getOrDefault(load.getDiscipline().getId(), Set.of());
-            List<MissingResourceRequest.Choice> choices = allTeachers.stream()
-                    .sorted(Comparator.comparing((Teacher t) -> teachesIt.contains(t.getId()) || matchesDiscipline(t, load) ? 0 : 1)
-                            .thenComparing(t -> t.getFullName() == null ? "" : t.getFullName()))
-                    .limit(30)
-                    .map(t -> new MissingResourceRequest.Choice(String.valueOf(t.getId()),
-                            t.getFullName() + (teachesIt.contains(t.getId()) || matchesDiscipline(t, load)
-                                    ? " — ведёт эту дисциплину" : "")))
-                    .toList();
-
-            issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.NO_TEACHER_FOR_DISCIPLINE,
-                            "Не назначен преподаватель: " + describe(load))
-                    .severity(MissingResourceRequest.Severity.BLOCKING)
-                    .message(String.format(
-                            "Для дисциплины «%s» (группа %s) не указан преподаватель, и подобрать его "
-                                    + "автоматически не вышло: нет никого с подходящей специализацией "
-                                    + "и свободным резервом часов.",
-                            load.getDiscipline().getName(), load.getGroup().getName()))
-                    .context("loadId", load.getId())
-                    .option(MissingResourceRequest.ResolutionOption.withInput(
-                            MissingResourceRequest.Actions.ASSIGN_TEACHER,
-                            "Назначить преподавателя",
-                            MissingResourceRequest.InputSpec.select("Преподаватель", "teacherId", choices)))
-                    .option(MissingResourceRequest.ResolutionOption.of(
-                            MissingResourceRequest.Actions.SKIP_LOAD,
-                            "Пропустить эту нагрузку",
-                            Map.of("loadId", load.getId())))
-                    .build());
         }
         return result;
+    }
+
+    private static boolean isRebuiltSlot(Schedule s, Set<Long> rebuildGroups) {
+        return s.getAcademicWeek() == null && s.getSpecialEventId() == null && s.getRescheduledFromDate() == null
+                && s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
+                && rebuildGroups.contains(s.getTeacherLoad().getGroup().getId());
     }
 
     public static boolean isPracticeOrDriving(String disciplineName) {
@@ -1206,11 +1211,6 @@ public class ScheduleGeneratorService {
     private record ResolvedHours(int annualHours, boolean overridden) {
     }
 
-    private Integer liveStartWeek(GenerationSessionStore.Session session) {
-        return AcademicYearUtil.liveStartWeek(resolveSemester(session), session.getAcademicYear(),
-                java.time.LocalDate.now());
-    }
-
     private int resolveSemester(GenerationSessionStore.Session session) {
         Integer requested = session.getRequest() == null ? null : session.getRequest().semester();
         if (requested != null && requested == 2) return 2;
@@ -1223,33 +1223,23 @@ public class ScheduleGeneratorService {
         return h == null ? 0 : Math.max(0, h);
     }
 
-    record PeriodBasis(int hours, double weeks, boolean overridden, boolean inProgress) {
+    record PeriodBasis(int hours, double weeks, boolean overridden) {
     }
 
+    // неделя считается на весь семестр с первого дня а прошедшие пары потом засчитает автосписание
     PeriodBasis periodBasis(TeacherLoad load, int semester, int academicYear, ResolvedHours hours,
                             Map<Long, List<com.karyakina.schedule.domain.SpecialEvent>> eventsByGroup) {
         if (hours.overridden()) {
-            return new PeriodBasis(hours.annualHours(), APPROX_WEEKS_PER_YEAR, true, false);
+            return new PeriodBasis(hours.annualHours(), APPROX_WEEKS_PER_YEAR, true);
         }
         java.time.LocalDate start = AcademicYearUtil.semesterStart(semester, academicYear);
         java.time.LocalDate end = AcademicYearUtil.semesterEnd(semester, academicYear);
-        java.time.LocalDate today = java.time.LocalDate.now();
-        java.time.LocalDate from = start;
         int planHours = semesterHours(load, semester);
-        boolean inProgress = false;
-        // семестр идёт значит считаем от оставшихся часов
-        Integer liveWeek = AcademicYearUtil.liveStartWeek(semester, academicYear, today);
-        if (liveWeek != null) {
-            from = AcademicYearUtil.mondayOfWeek(liveWeek, academicYear);
-            int done = hourAccountingService == null ? 0 : hourAccountingService.conductedInSemester(load, semester, today);
-            planHours = Math.max(0, planHours - done);
-            inProgress = true;
-        }
 
         List<com.karyakina.schedule.domain.SpecialEvent> events = load.getGroup() == null || eventsByGroup == null
                 ? List.of() : eventsByGroup.getOrDefault(load.getGroup().getId(), List.of());
         int days = 0;
-        for (java.time.LocalDate d = from; !d.isAfter(end); d = d.plusDays(1)) {
+        for (java.time.LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
             if (!AcademicYearUtil.isWorkDay(d) || AcademicYearUtil.isVacation(d)) continue;
             final java.time.LocalDate day = d;
             if (events.stream().anyMatch(e -> !day.isBefore(e.getStartDate()) && !day.isAfter(e.getEndDate()))) continue;
@@ -1257,19 +1247,14 @@ public class ScheduleGeneratorService {
         }
         double weeks = Math.max(1.0, days / (double) GenerationGrid.days());
 
-        return new PeriodBasis(planHours, weeks, false, inProgress);
+        return new PeriodBasis(planHours, weeks, false);
     }
 
-    private int weeklyPairs(TeacherLoad load, PeriodBasis basis, SolverConfig config) {
+    private int weeklyPairs(PeriodBasis basis, SolverConfig config) {
         if (basis.hours() <= 0) {
             return 0;
         }
-        double hoursPerWeek;
-        if (!basis.overridden() && !basis.inProgress() && load.getHoursPerWeek() != null && load.getHoursPerWeek() > 0) {
-            hoursPerWeek = load.getHoursPerWeek();
-        } else {
-            hoursPerWeek = basis.hours() / basis.weeks();
-        }
+        double hoursPerWeek = basis.hours() / basis.weeks();
         int pairs = (int) Math.round(hoursPerWeek / config.academicHoursPerPair());
         if (pairs <= 0) {
             return 1;
@@ -1279,14 +1264,6 @@ public class ScheduleGeneratorService {
 
     private static int nz(Integer v) {
         return v == null ? 0 : Math.max(0, v);
-    }
-
-    private boolean matchesDiscipline(Teacher teacher, TeacherLoad load) {
-        try {
-            return TeacherAssignmentService.matchesSpecialization(teacher, load.getDiscipline().getName());
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private String describe(TeacherLoad load) {

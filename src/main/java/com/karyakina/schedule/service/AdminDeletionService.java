@@ -152,49 +152,55 @@ public class AdminDeletionService {
             }
         }
 
-        List<Schedule> toDelete = keepHistory(schedules);
+        List<Schedule> toDelete = withoutFinishedSemesters(schedules);
         deleteSchedulesCascade(toDelete, true);
+        if (dayOfWeek == null && academicWeek == null) {
+            List<Long> stale = unresolvedRescheduleRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear)
+                    .stream()
+                    .filter(u -> (!semesterFinished(1, academicYear) && u.belongsTo(1))
+                            || (!semesterFinished(2, academicYear) && u.belongsTo(2)))
+                    .map(com.karyakina.schedule.domain.UnresolvedReschedule::getId)
+                    .toList();
+            if (!stale.isEmpty()) {
+                unresolvedRescheduleRepository.deleteAllByIdInBatch(stale);
+            }
+        }
 
-        log.info("Снос расписания: {} ({} пар удалено, {} оставлено в истории до конца недели)", scope,
-                toDelete.size(), count - toDelete.size());
+        log.info("Снос расписания: {} ({} пар удалено вместе с прошедшими занятиями, {} оставлено в закончившемся семестре)",
+                scope, toDelete.size(), count - toDelete.size());
         return WipeScheduleResultDto.builder().deletedPairs(toDelete.size()).scope(scope).build();
     }
 
-    // прошлые пары не трогаем иначе пропадут часы
-    private List<Schedule> keepHistory(List<Schedule> schedules) {
-        java.time.LocalDate today = java.time.LocalDate.now();
+    // закончившийся семестр не трогаем иначе пропадут его часы
+    private List<Schedule> withoutFinishedSemesters(List<Schedule> schedules) {
         List<Schedule> toDelete = new ArrayList<>();
         for (Schedule s : schedules) {
             int semester = s.getSemester() != null ? s.getSemester()
                     : com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
-            int year = s.getAcademicYear();
-            java.time.LocalDate semStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, year);
-            java.time.LocalDate semEnd = com.karyakina.schedule.util.AcademicYearUtil.semesterEnd(semester, year);
-            if (today.isAfter(semEnd)) continue;
-            Integer liveWeek = com.karyakina.schedule.util.AcademicYearUtil.liveStartWeek(semester, year, today);
-            if (liveWeek == null) {
+            if (!semesterFinished(semester, s.getAcademicYear())) {
                 toDelete.add(s);
-                continue;
             }
-            int firstWeek = s.getAcademicWeek() != null ? s.getAcademicWeek()
-                    : Math.max(s.getActiveFromWeek() == null ? 0 : s.getActiveFromWeek(),
-                    com.karyakina.schedule.util.AcademicYearUtil.academicWeek(semStart, year));
-            if (firstWeek >= liveWeek) {
-                toDelete.add(s);
-                continue;
-            }
-            if (s.getAcademicWeek() != null) continue;
-            if (s.getActiveUntilWeek() == null || s.getActiveUntilWeek() >= liveWeek) {
-                s.setActiveUntilWeek(liveWeek - 1);
-                scheduleRepository.save(s);
-            }
-            java.time.LocalDate cut = com.karyakina.schedule.util.AcademicYearUtil.mondayOfWeek(liveWeek, year);
-            List<LessonInstance> future = lessonInstanceRepository.findByScheduleIdIn(List.of(s.getId())).stream()
-                    .filter(li -> !li.getLessonDate().isBefore(cut)).toList();
-            future.forEach(li -> lessonInstanceService.revertHoursBeforeDelete(li, "Снос расписания"));
-            deleteInstancesWithSubstitutions(future);
         }
         return toDelete;
+    }
+
+    private static boolean semesterFinished(int semester, int academicYear) {
+        return java.time.LocalDate.now().isAfter(
+                com.karyakina.schedule.util.AcademicYearUtil.semesterEnd(semester, academicYear));
+    }
+
+    // недельные пары группы в семестре вместе с их занятиями чтобы собрать неделю заново
+    @Transactional
+    public int deleteGroupWeek(Long groupId, int academicYear, int semester) {
+        List<Schedule> week = scheduleRepository.findByAcademicYear(academicYear).stream()
+                .filter(s -> s.getTeacherLoad() != null && s.getTeacherLoad().getGroup() != null
+                        && groupId.equals(s.getTeacherLoad().getGroup().getId()))
+                .filter(s -> s.getSemester() == null || s.getSemester() == semester)
+                .filter(s -> s.getAcademicWeek() == null && s.getSpecialEventId() == null
+                        && s.getRescheduledFromDate() == null)
+                .toList();
+        deleteSchedulesCascade(week, true);
+        return week.size();
     }
 
     @Transactional

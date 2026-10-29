@@ -40,6 +40,7 @@ public class GenerationSessionStore {
         private final Map<Long, Integer> groupWeekLimitOverrides = new HashMap<>();
         private final Set<Long> dismissedCapacityWarnings = new HashSet<>();
         private final Set<String> answeredIssueKeys = new HashSet<>();
+        private final Set<Long> rebuildGroupIds = new HashSet<>();
 
         private Integer maxPairsPerDayGroup;
         private Integer maxSameSubjectPerDay;
@@ -101,6 +102,10 @@ public class GenerationSessionStore {
 
         public Set<Long> getDismissedCapacityWarnings() {
             return dismissedCapacityWarnings;
+        }
+
+        public Set<Long> getRebuildGroupIds() {
+            return rebuildGroupIds;
         }
 
         public Integer getMaxPairsPerDayGroup() {

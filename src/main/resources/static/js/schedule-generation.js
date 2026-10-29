@@ -10,7 +10,8 @@
         bothMode: false,
         semesterQueue: [],
         currentSemester: null,
-        needsConfirmBanner: false
+        needsConfirmBanner: false,
+        committing: false
     };
 
     const SEMESTER_LABEL = {1: '1 (осень)', 2: '2 (весна)'};
@@ -143,12 +144,17 @@
     }
 
     async function commit() {
-        if (!state.sessionId) {
+        if (!state.sessionId || state.committing) {
             return;
         }
+        state.committing = true;
+        const commitBtn = document.getElementById('genCommitBtn');
+        commitBtn.disabled = true;
+        commitBtn.textContent = 'Сохраняем и засчитываем прошедшие пары, это 1–2 минуты, не закрывайте страницу...';
         setBusy(true, 'Сохраняем расписание...');
         const result = await post(API + '/' + encodeURIComponent(state.sessionId) + '/commit');
         setBusy(false);
+        state.committing = false;
         handleResult(result);
         if (result.persisted && typeof window.loadSchedule === 'function') {
             window.loadSchedule();

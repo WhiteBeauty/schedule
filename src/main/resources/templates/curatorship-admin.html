@@ -55,7 +55,8 @@
             <div class="modal-body">
                 <div class="field" style="margin-bottom:14px;"><label for="assignGroup">Группа</label><select id="assignGroup"></select></div>
                 <div class="field" style="margin-bottom:14px;"><label for="assignTeacher">Преподаватель</label><select id="assignTeacher"></select></div>
-                <div class="field"><label for="assignHours">Кураторских часов в год</label><input type="number" id="assignHours" min="0" max="1000" value="36"></div>
+                <div class="field"><label for="assignHours">Кураторских часов в неделю</label><input type="number" id="assignHours" min="0" max="168" value="36"></div>
+                <p class="text-muted" style="font-size:12.5px; margin:8px 0 0;">План на год считается как часы в неделю × учебные недели года (без каникул и праздников).</p>
                 <p class="text-muted" style="font-size:12.5px; margin:12px 0 0;">У группы может быть только один куратор, у преподавателя может быть несколько групп.</p>
             </div>
             <div class="modal-footer">
@@ -151,7 +152,8 @@
                 }
                 var pct = r.percent || 0;
                 var fill = pct >= 90 ? '' : (pct >= 50 ? ' is-low' : ' is-over');
-                return '<tr><td>' + group + '</td><td>' + esc(r.teacherName) + '</td><td>' + r.planHours + '</td>'
+                return '<tr><td>' + group + '</td><td>' + esc(r.teacherName) + '</td><td>' + r.planHours
+                    + '<div class="text-muted" style="font-size:12px;">' + (r.hoursPerWeek != null ? r.hoursPerWeek : 0) + ' ч в неделю</div></td>'
                     + '<td>' + Math.round(r.doneHours * 10) / 10 + '</td>'
                     + '<td><div class="cur-pct"><div class="progress-track"><div class="progress-fill' + fill + '" style="width:' + pct + '%"></div></div>' + pct + '%</div></td>'
                     + '<td>' + fmt(r.lastEventDate) + '</td>'
@@ -202,7 +204,7 @@
             if (row) {
                 gSel.value = row.groupId;
                 tSel.value = row.teacherId;
-                document.getElementById('assignHours').value = row.planHours;
+                document.getElementById('assignHours').value = row.hoursPerWeek != null ? row.hoursPerWeek : 36;
             } else {
                 if (groupId) gSel.value = groupId;
                 document.getElementById('assignHours').value = 36;

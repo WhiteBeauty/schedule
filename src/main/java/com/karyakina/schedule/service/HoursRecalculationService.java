@@ -242,10 +242,8 @@ public class HoursRecalculationService {
         }
 
         if (!dryRun && !balanced.isEmpty()) {
-            unresolvedRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear).stream()
-                    .filter(u -> u.getTeacherLoadId() != null && balanced.contains(u.getTeacherLoadId()))
-                    .filter(u -> u.getOriginalDate() == null || AcademicYearUtil.semesterOfDate(u.getOriginalDate()) == semester)
-                    .forEach(unresolvedRepository::delete);
+            dropUnresolved(academicYear, u -> u.getTeacherLoadId() != null && balanced.contains(u.getTeacherLoadId())
+                    && u.belongsTo(semester));
         }
         return new Result(academicYear, semester, dryRun, checked, imbalances, added, cancelled, unresolved, uncovered);
     }
@@ -358,11 +356,9 @@ public class HoursRecalculationService {
         }
 
         if (!dryRun) {
-            unresolvedRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear).stream()
-                    .filter(u -> u.getSpecialEventId() == null && load.getId().equals(u.getTeacherLoadId())
-                            && u.getReason() != null
-                            && (u.getReason().startsWith(UNRESOLVED_PREFIX) || u.getReason().startsWith("Автосоставление")))
-                    .forEach(unresolvedRepository::delete);
+            dropUnresolved(academicYear, u -> u.getSpecialEventId() == null && load.getId().equals(u.getTeacherLoadId())
+                    && u.belongsTo(semester) && u.getReason() != null
+                    && (u.getReason().startsWith(UNRESOLVED_PREFIX) || u.getReason().startsWith("Автосоставление")));
         }
         int missing = pairs - placed;
         if (missing > 0) {
@@ -380,10 +376,20 @@ public class HoursRecalculationService {
                         .hours(missing * 2)
                         .reason(reason)
                         .academicYear(academicYear)
+                        .semester(semester)
                         .build());
             }
         }
         return missing <= 0;
+    }
+
+    // пачкой по id чтобы не падать если запись уже убрали из окна не вставших пар
+    private void dropUnresolved(int academicYear, java.util.function.Predicate<UnresolvedReschedule> filter) {
+        List<Long> ids = unresolvedRepository.findByAcademicYearOrderByOriginalDateAsc(academicYear).stream()
+                .filter(filter).map(UnresolvedReschedule::getId).toList();
+        if (!ids.isEmpty()) {
+            unresolvedRepository.deleteAllByIdInBatch(ids);
+        }
     }
 
     private void removePairs(TeacherLoad load, int pairs, List<Occurrence> future, CalendarSlotFinder.Calendar calendar,

@@ -1212,6 +1212,7 @@ tr:hover td { background: var(--color-bg); }
 .badge-warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
 .badge-danger { background: var(--color-danger-bg); color: var(--color-danger-text); }
 .badge-info { background: #E1EEF1; color: var(--color-primary); }
+.badge-neutral { background: var(--color-neutral-chip-bg); color: var(--color-neutral-chip-text); }
 
 .stat {
     background: var(--color-surface);
@@ -1473,12 +1474,14 @@ tr:hover td { background: var(--color-bg); }
 .cur-section { margin: 0; }
 .cur-filter { border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 6px 10px; font: inherit; }
 .cur-months { display: flex; flex-direction: column; gap: 6px; }
-.cur-month { display: grid; grid-template-columns: 82px 1fr 64px; gap: 10px; align-items: center; font-size: 13px; }
+.cur-month { display: grid; grid-template-columns: 128px 1fr 64px; gap: 10px; align-items: center; font-size: 13px; padding: 2px 6px; border-radius: var(--radius-mini); }
+.cur-month.now { background: #E1EEF1; font-weight: 700; }
+.cur-month-now { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); margin-left: 4px; }
 .cur-month-bar { height: 8px; border-radius: 999px; background: var(--color-border-light); overflow: hidden; }
 .cur-month-bar span { display: block; height: 100%; background: var(--color-text-faint); }
 .cur-month.ok .cur-month-bar span { background: var(--color-success-text); }
 .cur-month.part .cur-month-bar span { background: var(--color-warning-text); }
-.cur-month.miss .cur-month-name { color: var(--color-danger-text); font-weight: 600; }
+.cur-month.miss .cur-month-name { color: var(--color-danger-text); }
 .cur-month-val { text-align: right; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .cur-upcoming {
     display: flex; justify-content: space-between; gap: 8px; padding: 9px 12px; border-radius: var(--radius-control);

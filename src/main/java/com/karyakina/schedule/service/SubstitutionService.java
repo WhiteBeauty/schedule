@@ -2,6 +2,9 @@ package com.karyakina.schedule.service;
 
 import com.karyakina.schedule.domain.*;
 import com.karyakina.schedule.repository.*;
+import com.karyakina.schedule.service.generator.GenerationGrid;
+import com.karyakina.schedule.service.generator.TeacherAvailability;
+import com.karyakina.schedule.util.ScheduleOccurrence;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -384,7 +387,7 @@ public class SubstitutionService {
             if (tl.getTeacher() == null) continue;
             Long tId = tl.getTeacher().getId();
             if (excluded.contains(tId) || !candidateIds.add(tId)) continue;
-            if (isBusyOrSick(tId, date, instance)) continue;
+            if (isBusyOrSick(tl.getTeacher(), date, instance)) continue;
             Candidate c = new Candidate();
             c.teacher = tl.getTeacher();
             c.priorityRank = 1;
@@ -398,7 +401,7 @@ public class SubstitutionService {
             List<Teacher> sameDept = teacherRepository.findByDepartment(originalTeacher.getDepartment());
             for (Teacher t : sameDept) {
                 if (excluded.contains(t.getId()) || !candidateIds.add(t.getId())) continue;
-                if (isBusyOrSick(t.getId(), date, instance)) continue;
+                if (isBusyOrSick(t, date, instance)) continue;
                 Candidate c = new Candidate();
                 c.teacher = t;
                 c.priorityRank = 2;
@@ -411,7 +414,7 @@ public class SubstitutionService {
 
         for (Teacher t : teacherRepository.findAll()) {
             if (excluded.contains(t.getId()) || !candidateIds.add(t.getId())) continue;
-            if (isBusyOrSick(t.getId(), date, instance)) continue;
+            if (isBusyOrSick(t, date, instance)) continue;
             boolean hasReserve = loadRepository.findByTeacherIdAndAcademicYear(t.getId(), originalLoad.getAcademicYear())
                     .stream().anyMatch(l -> l.getRemainingHours() > 0);
             Candidate c = new Candidate();
@@ -428,7 +431,8 @@ public class SubstitutionService {
         return result;
     }
 
-    private boolean isBusyOrSick(Long teacherId, LocalDate date, LessonInstance instance) {
+    private boolean isBusyOrSick(Teacher teacher, LocalDate date, LessonInstance instance) {
+        Long teacherId = teacher.getId();
         if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) return true;
 
         List<LessonInstance> busyToday = lessonInstanceRepository.findActiveByActualTeacherIdAndDate(teacherId, date);
@@ -450,7 +454,25 @@ public class SubstitutionService {
                 return true;
             }
         }
-        return false;
+        return !fitsAvailability(teacher, date, instance, candidateSchedules);
+    }
+
+    private boolean fitsAvailability(Teacher teacher, LocalDate date, LessonInstance instance, List<Schedule> schedules) {
+        TeacherAvailability availability = TeacherAvailability.of(teacher);
+        int dayIdx = GenerationGrid.dayIndex(date.getDayOfWeek());
+        if (availability.isEmpty() || dayIdx < 0) return true;
+        int pairIdx = GenerationGrid.pairIndex(instance.getSchedule().getStartTime());
+        if (pairIdx >= 0 && availability.pairForbidden(pairIdx)) return false;
+        boolean[] used = new boolean[GenerationGrid.days()];
+        LocalDate monday = date.with(DayOfWeek.MONDAY);
+        for (Schedule s : schedules) {
+            for (int d = 0; d < used.length; d++) {
+                if (!used[d] && ScheduleOccurrence.occursOn(s, monday.plusDays(d), instance.getAcademicYear())) {
+                    used[d] = true;
+                }
+            }
+        }
+        return availability.canUseDay(used, dayIdx);
     }
 
     private boolean timesOverlap(LessonInstance a, LessonInstance b) {

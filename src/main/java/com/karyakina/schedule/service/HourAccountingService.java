@@ -181,6 +181,96 @@ public class HourAccountingService {
         return result;
     }
 
+    public record LoadProgress(int expectedHours, String status, String label) {
+    }
+
+    // сколько должно быть вычитано к этому часу по расписанию и как с этим сходится вычитанное
+    public Map<Long, LoadProgress> progressToDate(int academicYear) {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        LocalDate from = AcademicYearUtil.semesterStart(1, academicYear);
+        LocalDate yearEnd = AcademicYearUtil.semesterEnd(2, academicYear);
+        LocalDate to = today.isAfter(yearEnd) ? yearEnd : today;
+
+        Map<Long, List<Schedule>> schedulesByLoad = new HashMap<>();
+        for (Schedule s : scheduleRepository.findByAcademicYear(academicYear)) {
+            if (s.getTeacherLoad() == null) continue;
+            schedulesByLoad.computeIfAbsent(s.getTeacherLoad().getId(), k -> new ArrayList<>()).add(s);
+        }
+        Map<String, LessonInstance> instanceByKey = new HashMap<>();
+        if (!to.isBefore(from)) {
+            for (LessonInstance li : lessonInstanceRepository.findByLessonDateBetween(from, to)) {
+                if (li.getSchedule() != null) instanceByKey.put(li.getSchedule().getId() + "_" + li.getLessonDate(), li);
+            }
+        }
+
+        Map<Long, Integer> expected = new HashMap<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (!AcademicYearUtil.isWorkDay(d) || AcademicYearUtil.isVacation(d)) continue;
+            int week = AcademicYearUtil.academicWeek(d, academicYear);
+            int dateSemester = AcademicYearUtil.semesterOfDate(d);
+            for (Map.Entry<Long, List<Schedule>> entry : schedulesByLoad.entrySet()) {
+                for (Schedule s : entry.getValue()) {
+                    if (!ScheduleOccurrence.occursOn(s, d, week, dateSemester)) continue;
+                    if (d.equals(today) && s.getEndTime() != null && s.getEndTime().isAfter(now.toLocalTime())) continue;
+                    LessonInstance li = instanceByKey.get(s.getId() + "_" + d);
+                    if (li != null) {
+                        LessonInstance.Status st = li.getStatus();
+                        if (st == LessonInstance.Status.CANCELLED || st == LessonInstance.Status.INDEPENDENT_WORK) continue;
+                        if (st == LessonInstance.Status.REPLACED && li.getTeacherLoad() != null
+                                && !entry.getKey().equals(li.getTeacherLoad().getId())) continue;
+                    }
+                    int hours = li != null && li.getDurationHours() != null ? li.getDurationHours() : pairHours(s);
+                    expected.merge(entry.getKey(), hours, Integer::sum);
+                }
+            }
+        }
+
+        int semester = AcademicYearUtil.getCurrentSemester();
+        Map<Long, LoadProgress> result = new HashMap<>();
+        for (TeacherLoad load : loadRepository.findByAcademicYear(academicYear)) {
+            int planned = nz(load.getPlannedHours());
+            int read = nz(load.getReadHours());
+            int exp = expected.getOrDefault(load.getId(), 0);
+            boolean scheduled = schedulesByLoad.containsKey(load.getId());
+            String status;
+            String label;
+            int diff = exp - read;
+            if (Boolean.TRUE.equals(load.getOverload())) {
+                status = "OVERLOAD";
+                label = "Замены";
+            } else if (planned == 0) {
+                status = "NO_PLAN";
+                label = "Нет в тарификации";
+            } else if (read >= planned) {
+                status = "DONE";
+                label = "Выполнено";
+            } else if (load.getDiscipline() != null
+                    && ScheduleGeneratorService.isPracticeOrDriving(load.getDiscipline().getName())) {
+                status = "PRACTICE";
+                label = "Практика";
+            } else if (!scheduled && read == 0) {
+                int nowHours = semester == 2 ? nz(load.getSecondSemesterHours()) : nz(load.getFirstSemesterHours());
+                status = nowHours > 0 ? "NOT_SCHEDULED" : "LATER";
+                label = nowHours > 0 ? "Нет в расписании" : (semester == 1 ? "Со 2 семестра" : "Не в этом семестре");
+            } else if (Math.abs(diff) <= 2) {
+                status = "ON_TRACK";
+                label = "По графику";
+            } else if (diff < 0) {
+                status = "AHEAD";
+                label = "Сверх графика +" + (-diff) + " ч";
+            } else if (diff <= Math.max(4, exp * 0.15)) {
+                status = "LAG";
+                label = "Отстаёт на " + diff + " ч";
+            } else {
+                status = "BIG_LAG";
+                label = "Отстаёт на " + diff + " ч";
+            }
+            result.put(load.getId(), new LoadProgress(exp, status, label));
+        }
+        return result;
+    }
+
     static int pairHours(Schedule s) {
         long minutes = ChronoUnit.MINUTES.between(s.getStartTime(), s.getEndTime());
         return (int) Math.max(1, Math.round(minutes / 60.0));

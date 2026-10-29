@@ -94,6 +94,23 @@ public class TarificationImportService {
 
         ImportPersistenceService.ImportResult result =
                 persistenceService.applyTarificationRows(parsed.rows, tarification);
+        for (String kept : result.vacancyKeptWithTeacher) {
+            parsed.warnings.add(ImportRowErrorDto.builder()
+                    .rowNumber(0)
+                    .message("В файле это вакансия, но в расписании пары уже ведёт преподаватель: " + kept
+                            + ". Нагрузка оставлена за этим преподавателем вместе с парами и вычитанными часами. Если ведёт другой "
+                            + "преподаватель, поменяйте в «Управлении расписанием» → «Изменить».")
+                    .rawData(kept)
+                    .build());
+        }
+        for (String stale : result.zeroedButScheduled) {
+            parsed.warnings.add(ImportRowErrorDto.builder()
+                    .rowNumber(0)
+                    .message("Нагрузки больше нет в файле, но по ней уже есть пары или вычитанные часы: " + stale
+                            + ". Часы обнулены, пары в расписании остались — снимите их или переназначьте.")
+                    .rawData(stale)
+                    .build());
+        }
 
         log.info("Импорт тарификации «{}» (id {}): {} — создано нагрузок {}, обновлено {}, убрано {}, "
                         + "новых преподавателей {}, групп {}, дисциплин {}", tarification.getName(), tarification.getId(),
@@ -177,6 +194,8 @@ public class TarificationImportService {
 
     private void parseSheet(Sheet sheet, ParseResult result) {
         DataFormatter formatter = new DataFormatter();
+        formatter.setUseCachedValuesForFormulaCells(true);
+        FormulaEvaluator evaluator = sheet.getWorkbook().getCreationHelper().createFormulaEvaluator();
         int headerRow = findHeaderRow(sheet);
         if (headerRow < 0) {
             result.fatalError = "Не найдена строка заголовков.";
@@ -186,7 +205,7 @@ public class TarificationImportService {
         int lastCol = 0;
         for (Row row : sheet) if (row != null) lastCol = Math.max(lastCol, row.getLastCellNum());
 
-        List<String> headerCells = readRowAsText(sheet, headerRow, lastCol, formatter);
+        List<String> headerCells = readRowAsText(sheet, headerRow, lastCol, formatter, evaluator);
 
         int teacherCol = indexOfContaining(headerCells, "преподаватель");
         int disciplineCol = indexOfContaining(headerCells, "предмет");
@@ -196,6 +215,10 @@ public class TarificationImportService {
             if (normalize(headerCells.get(c)).contains("час")) { markerCol = c; break; }
         }
         int totalPerSubjectCol = indexOfContaining(headerCells, "всего по предмету");
+        int teacherTotalCol = -1;
+        for (int c = totalPerSubjectCol + 1; totalPerSubjectCol >= 0 && c < headerCells.size(); c++) {
+            if (normalize(headerCells.get(c)).startsWith("итого")) { teacherTotalCol = c; break; }
+        }
 
         if (teacherCol < 0 || disciplineCol < 0 || markerCol < 0 || totalPerSubjectCol < 0) {
             result.fatalError = "Не удалось распознать структуру заголовков листа \"" + sheet.getSheetName()
@@ -208,9 +231,9 @@ public class TarificationImportService {
         int studentsRowIdx = headerRow + 3;
         int dataStartRow = headerRow + 5;
 
-        List<String> groupNameRow = readRowAsText(sheet, groupNameRowIdx, lastCol, formatter);
-        List<String> courseRow = readRowAsText(sheet, courseRowIdx, lastCol, formatter);
-        List<String> studentsRow = readRowAsText(sheet, studentsRowIdx, lastCol, formatter);
+        List<String> groupNameRow = readRowAsText(sheet, groupNameRowIdx, lastCol, formatter, evaluator);
+        List<String> courseRow = readRowAsText(sheet, courseRowIdx, lastCol, formatter, evaluator);
+        List<String> studentsRow = readRowAsText(sheet, studentsRowIdx, lastCol, formatter, evaluator);
 
         int groupsStartCol = -1;
         for (int c = markerCol + 1; c < totalPerSubjectCol; c++) {
@@ -238,23 +261,32 @@ public class TarificationImportService {
             col = blockEnd;
         }
 
-        String currentTeacher = null;
+        TeacherBlock current = null;
+        List<TeacherBlock> teacherBlocks = new ArrayList<>();
         int lastRow = sheet.getLastRowNum();
         for (int r = dataStartRow; r <= lastRow; r++) {
-            List<String> rowCells = readRowAsText(sheet, r, lastCol, formatter);
+            List<String> rowCells = readRowAsText(sheet, r, lastCol, formatter, evaluator);
             if (rowCells.stream().allMatch(String::isBlank)) continue;
 
             String teacherCell = rowCells.get(teacherCol).trim();
+            String teacherNorm = normalize(teacherCell);
+            if (teacherNorm.startsWith("итог") || teacherNorm.startsWith("всего")) break;
+
+            String discipline = rowCells.get(disciplineCol).trim();
+            Integer blockTotal = teacherTotalCol >= 0 ? parseNumber(rowCells.get(teacherTotalCol)) : null;
             if (!teacherCell.isEmpty()) {
-                currentTeacher = teacherCell;
+                current = new TeacherBlock(r + 1, teacherCell, blockTotal);
+                teacherBlocks.add(current);
+            } else if (blockTotal != null && !discipline.isEmpty()) {
+                // своё итого без фамилии значит начался блок вакансии
+                current = new TeacherBlock(r + 1, null, blockTotal);
+                teacherBlocks.add(current);
             }
 
             String marker = normalize(rowCells.get(markerCol));
-            if (!marker.equals("ч")) continue;
-
-            String discipline = rowCells.get(disciplineCol).trim();
+            if (!marker.isEmpty() && !marker.equals("ч")) continue;
             if (discipline.isEmpty()) continue;
-            if (currentTeacher == null) {
+            if (current == null) {
                 result.warnings.add(ImportRowErrorDto.builder()
                         .rowNumber(r + 1)
                         .message("Строка с дисциплиной \"" + discipline + "\" без преподавателя — пропущена")
@@ -272,7 +304,7 @@ public class TarificationImportService {
                 if (nz(hours1) == 0 && nz(hours2) == 0) continue;
 
                 TarificationRow tr = new TarificationRow();
-                tr.teacherName = currentTeacher;
+                tr.teacherName = current.teacher;
                 tr.disciplineName = discipline;
                 tr.groupName = block.label;
                 tr.specialty = stripGroupNumberPrefix(block.label);
@@ -283,6 +315,29 @@ public class TarificationImportService {
                 tr.control1 = control1;
                 tr.control2 = control2;
                 result.rows.add(tr);
+                current.parsedHours += nz(hours1) + nz(hours2);
+                current.disciplines.add(discipline);
+            }
+        }
+
+        for (TeacherBlock b : teacherBlocks) {
+            if (b.teacher == null && b.parsedHours > 0) {
+                result.warnings.add(ImportRowErrorDto.builder()
+                        .rowNumber(b.firstRow)
+                        .message("Блок без преподавателя (в тарификационном списке это вакансия), " + b.parsedHours
+                                + " ч. Загружен как нагрузка без преподавателя — назначить можно при автосоставлении "
+                                + "или в «Управлении расписанием».")
+                        .rawData(String.join(", ", b.disciplines))
+                        .build());
+            }
+            if (b.fileTotal != null && b.fileTotal != b.parsedHours) {
+                result.warnings.add(ImportRowErrorDto.builder()
+                        .rowNumber(b.firstRow)
+                        .message("У «" + (b.teacher == null ? "вакансии" : b.teacher) + "» в столбце «Итого» "
+                                + b.fileTotal + " ч, а по строкам набралось " + b.parsedHours
+                                + " ч — проверьте строки этого блока в файле.")
+                        .rawData(b.teacher == null ? "" : b.teacher)
+                        .build());
             }
         }
     }
@@ -294,15 +349,42 @@ public class TarificationImportService {
         Integer studentCount;
     }
 
-    private List<String> readRowAsText(Sheet sheet, int rowIdx, int lastCol, DataFormatter formatter) {
+    private static class TeacherBlock {
+        final int firstRow;
+        final String teacher;
+        final Integer fileTotal;
+        int parsedHours;
+        final java.util.Set<String> disciplines = new java.util.LinkedHashSet<>();
+
+        TeacherBlock(int firstRow, String teacher, Integer fileTotal) {
+            this.firstRow = firstRow;
+            this.teacher = teacher;
+            this.fileTotal = fileTotal;
+        }
+    }
+
+    private List<String> readRowAsText(Sheet sheet, int rowIdx, int lastCol, DataFormatter formatter,
+                                       FormulaEvaluator evaluator) {
         List<String> cells = new ArrayList<>();
         Row row = sheet.getRow(rowIdx);
         for (int c = 0; c < lastCol; c++) {
             if (row == null) { cells.add(""); continue; }
             Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-            cells.add(cell == null ? "" : formatter.formatCellValue(cell).trim());
+            cells.add(cell == null ? "" : cellText(cell, formatter, evaluator));
         }
         return cells;
+    }
+
+    // в ячейках бывают формулы вроде =34+36 их надо считать а не читать текстом
+    private String cellText(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
+        if (cell.getCellType() == CellType.FORMULA) {
+            try {
+                return formatter.formatCellValue(cell, evaluator).trim();
+            } catch (RuntimeException e) {
+                return formatter.formatCellValue(cell).trim();
+            }
+        }
+        return formatter.formatCellValue(cell).trim();
     }
 
     private int indexOfContaining(List<String> cells, String needleLower) {

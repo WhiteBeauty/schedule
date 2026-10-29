@@ -56,7 +56,7 @@ public class TeacherLoadService {
                 .collect(Collectors.groupingBy(l -> l.getTeacher().getId()));
 
         int progress = calculateAcademicYearProgress();
-        double targetProgress = Math.min(progress * 100, 100);
+        double targetProgress = Math.min(progress, 100);
 
         List<ProductivityDto> result = new ArrayList<>();
         byTeacher.forEach((teacherId, teacherLoads) -> {

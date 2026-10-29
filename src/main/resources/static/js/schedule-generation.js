@@ -348,6 +348,7 @@
             metric('«Окна» у групп', metrics.groupGaps || 0) +
             metric('«Окна» у преподавателей', metrics.teacherGaps || 0) +
             metric('Одинаковых пар подряд', metrics.adjacentSameSubject || 0) +
+            metric('Нежелательных пар у преподавателей', metrics.undesiredTeacherPairs || 0) +
             metric('Макс. нагрузка, ч/нед', metrics.maxTeacherWeeklyHours || 0) +
             '</div>';
 
@@ -533,6 +534,198 @@
         }
     }
 
+    const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт'];
+    const DAY_TITLES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница'];
+    let availRows = [];
+
+    async function loadAvailability() {
+        const body = document.getElementById('genAvailBody');
+        if (!body) {
+            return;
+        }
+        const tarificationSelect = document.getElementById('genTarificationSelect');
+        const semesterSelect = document.getElementById('genSemesterSelect');
+        const params = new URLSearchParams();
+        if (tarificationSelect && tarificationSelect.value) params.set('tarificationId', tarificationSelect.value);
+        params.set('semester', semesterSelect && semesterSelect.value === '2' ? '2' : '1');
+        try {
+            const res = await fetch('/api/teacher-availability?' + params.toString());
+            if (!res.ok) throw new Error('код ' + res.status);
+            availRows = await res.json();
+            renderAvailability();
+        } catch (e) {
+            body.innerHTML = '<tr><td colspan="6" class="text-muted">Не удалось загрузить дни преподавателей ('
+                + escapeHtml(e.message) + ')</td></tr>';
+        }
+    }
+
+    function renderAvailability() {
+        const body = document.getElementById('genAvailBody');
+        body.innerHTML = '';
+        if (!availRows.length) {
+            body.innerHTML = '<tr><td colspan="6" class="text-muted">В выбранной тарификации нет преподавателей</td></tr>';
+        }
+        availRows.forEach(function (row) { body.appendChild(buildAvailRow(row)); });
+        const limited = availRows.filter(function (r) { return r.summary; }).length;
+        document.getElementById('genAvailCount').textContent = availRows.length
+            ? '· ограничения у ' + limited + ' из ' + availRows.length : '';
+    }
+
+    function dayState(row, day) {
+        if (row.daysOff.indexOf(day) >= 0) return 'off';
+        if (row.optionalDays.indexOf(day) >= 0) return 'soft';
+        return 'on';
+    }
+
+    function pairState(row, pair) {
+        if (row.forbiddenPairs.indexOf(pair) >= 0) return 'off';
+        if (row.undesiredPairs.indexOf(pair) >= 0) return 'soft';
+        return 'on';
+    }
+
+    function toggleButton(label, state, title) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'gen-toggle' + (state === 'off' ? ' is-off' : state === 'soft' ? ' is-soft' : '');
+        button.textContent = label;
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        return button;
+    }
+
+    function buildAvailRow(row) {
+        const tr = document.createElement('tr');
+        const name = document.createElement('td');
+        name.className = 'gen-avail-name';
+        name.textContent = row.fullName;
+        tr.appendChild(name);
+
+        const daysCell = document.createElement('td');
+        const days = document.createElement('div');
+        days.className = 'gen-avail-group';
+        DAY_LABELS.forEach(function (label, i) {
+            const day = i + 1;
+            const state = dayState(row, day);
+            const stateText = {on: 'работает', off: 'выходной', soft: 'день на выбор'}[state];
+            const button = toggleButton(label, state, DAY_TITLES[i] + ': ' + stateText);
+            button.addEventListener('click', function () {
+                const next = {on: 'off', off: 'soft', soft: 'on'}[dayState(row, day)];
+                const draft = copyRow(row);
+                draft.daysOff = draft.daysOff.filter(function (d) { return d !== day; });
+                draft.optionalDays = draft.optionalDays.filter(function (d) { return d !== day; });
+                if (next === 'off') draft.daysOff.push(day);
+                if (next === 'soft') draft.optionalDays.push(day);
+                saveAvailability(row, draft, tr);
+            });
+            days.appendChild(button);
+        });
+        daysCell.appendChild(days);
+        tr.appendChild(daysCell);
+
+        const maxCell = document.createElement('td');
+        const select = document.createElement('select');
+        select.className = 'gen-avail-days';
+        select.setAttribute('aria-label', 'Дней в неделю: ' + row.fullName);
+        select.add(new Option('без лимита', ''));
+        for (let n = 1; n <= 4; n++) select.add(new Option(String(n), String(n)));
+        select.value = row.maxDaysPerWeek ? String(row.maxDaysPerWeek) : '';
+        select.addEventListener('change', function () {
+            const draft = copyRow(row);
+            draft.maxDaysPerWeek = select.value ? Number(select.value) : null;
+            saveAvailability(row, draft, tr);
+        });
+        maxCell.appendChild(select);
+        tr.appendChild(maxCell);
+
+        const pairsCell = document.createElement('td');
+        const pairs = document.createElement('div');
+        pairs.className = 'gen-avail-group';
+        for (let pair = 1; pair <= 5; pair++) {
+            const state = pairState(row, pair);
+            const stateText = {on: 'можно', off: 'нельзя', soft: 'нежелательно'}[state];
+            const button = toggleButton(String(pair), state, pair + '-я пара: ' + stateText);
+            button.addEventListener('click', function () {
+                const next = {on: 'off', off: 'soft', soft: 'on'}[pairState(row, pair)];
+                const draft = copyRow(row);
+                draft.forbiddenPairs = draft.forbiddenPairs.filter(function (p) { return p !== pair; });
+                draft.undesiredPairs = draft.undesiredPairs.filter(function (p) { return p !== pair; });
+                if (next === 'off') draft.forbiddenPairs.push(pair);
+                if (next === 'soft') draft.undesiredPairs.push(pair);
+                saveAvailability(row, draft, tr);
+            });
+            pairs.appendChild(button);
+        }
+        pairsCell.appendChild(pairs);
+        tr.appendChild(pairsCell);
+
+        const capCell = document.createElement('td');
+        const need = row.weeklyPairs;
+        capCell.className = 'gen-avail-cap' + (need != null && need > row.slotsPerWeek ? ' is-over' : '');
+        capCell.textContent = (need == null ? '—' : '≈' + need) + ' из ' + row.slotsPerWeek;
+        capCell.title = 'Нужно пар в неделю по плану семестра из доступных преподавателю слотов';
+        tr.appendChild(capCell);
+
+        const summaryCell = document.createElement('td');
+        summaryCell.className = 'gen-avail-summary';
+        let summary = row.summary || 'без ограничений';
+        if (row.optionalDays.length && !row.maxDaysPerWeek) {
+            summary += (row.summary ? '; ' : '. ') + 'дни «на выбор» работают только вместе с «дней в неделю»';
+        }
+        summaryCell.textContent = summary;
+        tr.appendChild(summaryCell);
+        return tr;
+    }
+
+    function copyRow(row) {
+        return {
+            daysOff: row.daysOff.slice(),
+            optionalDays: row.optionalDays.slice(),
+            maxDaysPerWeek: row.maxDaysPerWeek,
+            forbiddenPairs: row.forbiddenPairs.slice(),
+            undesiredPairs: row.undesiredPairs.slice()
+        };
+    }
+
+    async function saveAvailability(row, draft, tr) {
+        tr.querySelectorAll('button, select').forEach(function (el) { el.disabled = true; });
+        try {
+            const res = await fetch('/api/teacher-availability/' + encodeURIComponent(row.teacherId), {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(draft)
+            });
+            const data = await res.json().catch(function () { return null; });
+            if (!res.ok || !data) {
+                throw new Error(data && data.error ? data.error : 'код ' + res.status);
+            }
+            data.weeklyPairs = row.weeklyPairs;
+            Object.assign(row, data);
+        } catch (e) {
+            if (typeof showToast === 'function') {
+                showToast('Не сохранено: ' + e.message, 'danger');
+            }
+        }
+        tr.replaceWith(buildAvailRow(row));
+        const limited = availRows.filter(function (r) { return r.summary; }).length;
+        document.getElementById('genAvailCount').textContent = '· ограничения у ' + limited + ' из ' + availRows.length;
+    }
+
+    function rememberAvailOpen() {
+        const box = document.getElementById('genAvailBox');
+        if (!box) return;
+        try {
+            const saved = localStorage.getItem('genAvailOpen');
+            if (saved !== null) box.open = saved === '1';
+        } catch (e) {
+        }
+        box.addEventListener('toggle', function () {
+            try {
+                localStorage.setItem('genAvailOpen', box.open ? '1' : '0');
+            } catch (e) {
+            }
+        });
+    }
+
     async function loadTeachers() {
         const select = document.getElementById('sickTeacher');
         if (!select) {
@@ -559,7 +752,12 @@
         bind('genIssueCloseBtn', closeModal);
         bind('sickSubmitBtn', submitSickLeave);
         loadTeachers();
-        loadTarifications();
+        rememberAvailOpen();
+        loadTarifications().then(loadAvailability);
+        ['genTarificationSelect', 'genSemesterSelect'].forEach(function (id) {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('change', loadAvailability);
+        });
     });
 
     function bind(id, handler) {

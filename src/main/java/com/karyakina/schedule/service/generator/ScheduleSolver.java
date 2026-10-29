@@ -94,11 +94,21 @@ public class ScheduleSolver {
         repairGroupGaps(index, scorer, input, placed, roomsByDemand, targetPerDay);
 
         SoftScorer.Metrics metrics = scorer.evaluate(placed);
+        int undesired = 0;
+        for (SolverResult.PlacedPair pair : placed) {
+            SolverInput.TeacherRef teacher = teachers.get(pair.teacherId());
+            if (teacher != null && teacher.availability().pairUndesired(pair.pairIndex())) {
+                undesired++;
+            }
+        }
+        Map<String, Integer> values = new HashMap<>(metrics.values());
+        values.put("undesiredTeacherPairs", undesired);
         List<SolverResult.Unplaced> unplaced = buildUnplaced(input, missing, blockStats);
         placed.sort(Comparator.comparingInt(SolverResult.PlacedPair::dayIndex)
                 .thenComparingInt(SolverResult.PlacedPair::pairIndex)
                 .thenComparingLong(SolverResult.PlacedPair::groupId));
-        return new SolverResult(placed, unplaced, metrics.penalty(), metrics.values());
+        return new SolverResult(placed, unplaced,
+                metrics.penalty() + config.weights().undesiredPair() * undesired, values);
     }
 
     private record Placement(int dayIdx, int pairIdx, GenerationGrid.Room room, double penalty) {
@@ -777,10 +787,11 @@ public class ScheduleSolver {
     private List<SolverInput.Demand> orderUnits(SolverInput input, Random random) {
         Map<Long, Integer> teacherLoad = new HashMap<>();
         input.demands().forEach(d -> teacherLoad.merge(d.teacherId(), d.pairsPerWeek(), Integer::sum));
+        Map<Long, SolverInput.TeacherRef> teachers = input.teachersById();
 
         List<SolverInput.Demand> sorted = new ArrayList<>(input.demands());
         sorted.sort(Comparator
-                .comparingInt((SolverInput.Demand d) -> -difficulty(d, teacherLoad))
+                .comparingInt((SolverInput.Demand d) -> -difficulty(d, teacherLoad, teachers.get(d.teacherId())))
                 .thenComparingLong(SolverInput.Demand::loadId));
 
         int maxPairs = sorted.stream().mapToInt(SolverInput.Demand::pairsPerWeek).max().orElse(0);
@@ -805,8 +816,11 @@ public class ScheduleSolver {
         return units;
     }
 
-    private int difficulty(SolverInput.Demand demand, Map<Long, Integer> teacherLoad) {
+    private int difficulty(SolverInput.Demand demand, Map<Long, Integer> teacherLoad, SolverInput.TeacherRef teacher) {
         int score = demand.pairsPerWeek() * 2 + teacherLoad.getOrDefault(demand.teacherId(), 0);
+        if (teacher != null && !teacher.availability().isEmpty()) {
+            score += Math.max(0, GenerationGrid.slotCount() - teacher.availability().slotsPerWeek()) / 2;
+        }
         if (!demand.preferredDays().isEmpty()) {
             score += 6;
         }
@@ -880,6 +894,7 @@ public class ScheduleSolver {
             case GROUP_DAY_LIMIT -> SolverResult.Reason.GROUP_DAY_LIMIT;
             case GROUP_WEEK_LIMIT -> SolverResult.Reason.GROUP_WEEK_LIMIT;
             case TEACHER_BUSY -> SolverResult.Reason.TEACHER_BUSY;
+            case TEACHER_DAY_OFF, TEACHER_PAIR_FORBIDDEN, TEACHER_DAYS_LIMIT -> SolverResult.Reason.TEACHER_UNAVAILABLE;
             case ROOM_BUSY -> SolverResult.Reason.NO_ROOM;
             case ROOM_CAPACITY -> SolverResult.Reason.ROOM_CAPACITY;
             case SUBJECT_ROW_LIMIT, SUBJECT_DAY_LIMIT -> SolverResult.Reason.SUBJECT_LIMIT;

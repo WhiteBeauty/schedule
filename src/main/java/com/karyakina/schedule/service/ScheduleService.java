@@ -118,6 +118,32 @@ public class ScheduleService {
         }
     }
 
+    // пары этой нагрузки которые совпадут с парами другого преподавателя если передать нагрузку
+    public List<String> teacherSlotConflicts(TeacherLoad load, com.karyakina.schedule.domain.Teacher teacher) {
+        List<Schedule> own = scheduleRepository.findByTeacherLoadId(load.getId());
+        if (own.isEmpty()) return List.of();
+        List<Schedule> others = scheduleRepository.findByTeacherLoadTeacherIdAndAcademicYear(teacher.getId(),
+                load.getAcademicYear());
+        List<String> conflicts = new ArrayList<>();
+        for (Schedule s : own) {
+            for (Schedule o : others) {
+                if (o.getTeacherLoad() == null || o.getTeacherLoad().getId().equals(load.getId())) continue;
+                if (s.getDayOfWeek() != o.getDayOfWeek() || !s.getStartTime().equals(o.getStartTime())) continue;
+                if (s.getSemester() != null && o.getSemester() != null && !s.getSemester().equals(o.getSemester())) continue;
+                if (s.getAcademicWeek() != null && o.getAcademicWeek() != null
+                        && !s.getAcademicWeek().equals(o.getAcademicWeek())) continue;
+                int sFrom = s.getActiveFromWeek() == null ? Integer.MIN_VALUE : s.getActiveFromWeek();
+                int sTo = s.getActiveUntilWeek() == null ? Integer.MAX_VALUE : s.getActiveUntilWeek();
+                int oFrom = o.getActiveFromWeek() == null ? Integer.MIN_VALUE : o.getActiveFromWeek();
+                int oTo = o.getActiveUntilWeek() == null ? Integer.MAX_VALUE : o.getActiveUntilWeek();
+                if (sFrom > oTo || oFrom > sTo) continue;
+                conflicts.add(dayLabel(s.getDayOfWeek()) + " " + s.getStartTime() + " ("
+                        + o.getTeacherLoad().getDiscipline().getName() + ", " + o.getTeacherLoad().getGroup().getName() + ")");
+            }
+        }
+        return conflicts;
+    }
+
     private String dayLabel(DayOfWeek d) {
         return switch (d) {
             case MONDAY -> "понедельник"; case TUESDAY -> "вторник"; case WEDNESDAY -> "среда";
@@ -145,6 +171,11 @@ public class ScheduleService {
                                    Integer semester) {
         TeacherLoad load = loadRepository.findById(teacherLoadId)
                 .orElseThrow(() -> new RuntimeException("TeacherLoad not found: " + teacherLoadId));
+        if (load.getTeacher() == null) {
+            throw new IllegalStateException("У нагрузки «" + load.getDiscipline().getName() + "» ("
+                    + load.getGroup().getName() + ") не назначен преподаватель (вакансия). "
+                    + "Сначала назначьте его в «Управлении расписанием».");
+        }
 
         if (semester == null) {
             semester = academicWeek != null ? semesterOfWeek(academicWeek, academicYear)

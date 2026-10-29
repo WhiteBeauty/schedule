@@ -26,6 +26,27 @@
             .gen-input:focus-visible, .gen-issue-row:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
             .gen-stack { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.75rem; }
             .gen-stack-counter { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
+            .gen-avail { margin-top:1rem; border-top:1px solid var(--border); padding-top:0.75rem; }
+            .gen-avail > summary { cursor:pointer; font-weight:600; font-size:0.9rem; list-style:none; display:flex; gap:0.5rem; align-items:baseline; flex-wrap:wrap; }
+            .gen-avail > summary::-webkit-details-marker { display:none; }
+            .gen-avail > summary::before { content:'▸'; color:var(--muted); }
+            .gen-avail[open] > summary::before { content:'▾'; }
+            .gen-avail-count { font-weight:400; font-size:0.8rem; color:var(--muted); }
+            .gen-avail-legend { display:flex; flex-wrap:wrap; gap:0.35rem 1rem; font-size:0.78rem; color:var(--muted); margin:0.6rem 0; align-items:center; }
+            .gen-avail-table td { padding:6px 10px; white-space:nowrap; }
+            .gen-avail-table td.gen-avail-name { white-space:normal; min-width:150px; font-weight:600; }
+            .gen-avail-group { display:inline-flex; gap:3px; }
+            .gen-toggle { min-width:2.1rem; padding:0.2rem 0.35rem; border:1px solid var(--border); border-radius:var(--radius-mini); background:var(--card); color:var(--text); font:inherit; font-size:0.78rem; cursor:pointer; line-height:1.2; }
+            .gen-toggle:hover { border-color:var(--primary); }
+            .gen-toggle:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+            .gen-toggle.is-off { background:var(--danger-bg); border-color:var(--danger); color:var(--danger); text-decoration:line-through; font-weight:600; }
+            .gen-toggle.is-soft { background:var(--warning-bg); border-color:var(--warning); color:var(--warning); font-weight:600; }
+            .gen-toggle:disabled { opacity:0.55; cursor:wait; }
+            .gen-avail-legend .gen-toggle { display:inline-block; text-align:center; cursor:default; }
+            .gen-avail-days { width:auto; min-width:7.5rem; padding:0.2rem 0.3rem; border:1px solid var(--border); border-radius:var(--radius-mini); font:inherit; font-size:0.8rem; background:var(--card); }
+            .gen-avail-cap { font-size:0.8rem; font-variant-numeric:tabular-nums; }
+            .gen-avail-cap.is-over { color:var(--danger); font-weight:600; }
+            .gen-avail-table td.gen-avail-summary { font-size:0.76rem; color:var(--muted); white-space:normal; min-width:180px; max-width:260px; }
             @media (max-width: 640px) {
                 .gen-metrics { gap:0.85rem; }
                 .gen-option { flex-direction:column; align-items:stretch; }
@@ -50,6 +71,26 @@
                     </select>
                 </label>
             </div>
+
+            <details class="gen-avail" id="genAvailBox" open>
+                <summary>Дни и пары преподавателей <span class="gen-avail-count" id="genAvailCount"></span></summary>
+                <div class="gen-avail-legend">
+                    <span><span class="gen-toggle">Пн</span> работает</span>
+                    <span><span class="gen-toggle is-off">Пн</span> выходной</span>
+                    <span><span class="gen-toggle is-soft">Пн</span> на выбор: из таких дней берётся столько, сколько не хватает до «дней в неделю»</span>
+                    <span><span class="gen-toggle is-off">1</span> пару ставить нельзя</span>
+                    <span><span class="gen-toggle is-soft">4</span> пара нежелательна</span>
+                    <span>Клик по дню или паре переключает состояние, сохраняется сразу</span>
+                </div>
+                <div class="table-scroll">
+                    <table class="data-table gen-avail-table">
+                        <thead>
+                        <tr><th>Преподаватель</th><th>Дни</th><th>Дней в неделю</th><th>Пары</th><th>Пар в неделю</th><th>Итого</th></tr>
+                        </thead>
+                        <tbody id="genAvailBody"><tr><td colspan="6" class="text-muted">Загрузка…</td></tr></tbody>
+                    </table>
+                </div>
+            </details>
         </div>
 
         <div class="card" id="genResultCard" style="display:none; margin-bottom:1.5rem;">

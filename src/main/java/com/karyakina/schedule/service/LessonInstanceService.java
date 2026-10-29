@@ -46,6 +46,7 @@ public class LessonInstanceService {
         int currentWeek = computeAcademicWeek(date, academicYear);
 
         for (Schedule schedule : schedules) {
+            if (schedule.getTeacherLoad() == null || schedule.getTeacherLoad().getTeacher() == null) continue;
             if (!com.karyakina.schedule.util.ScheduleOccurrence.occursOn(schedule, date, currentWeek, dateSemester)) continue;
 
             instanceRepository.findByScheduleIdAndLessonDate(schedule.getId(), date)
@@ -191,6 +192,7 @@ public class LessonInstanceService {
                             .secondSemesterHours(0)
                             .readHours(0)
                             .academicYear(originalLoad.getAcademicYear())
+                            .tarification(originalLoad.getTarification())
                             .overload(true)
                             .build();
                     return loadRepository.save(overloadLoad);

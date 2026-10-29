@@ -770,7 +770,11 @@
             warnBlock.style.display = '';
             warnings.forEach(w => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = '<td>' + w.rowNumber + '</td><td>' + (w.message || '') + '</td><td>' + (w.rawData || '') + '</td>';
+                [w.rowNumber ? w.rowNumber : '—', w.message || '', w.rawData || ''].forEach(text => {
+                    const td = document.createElement('td');
+                    td.textContent = text;
+                    tr.appendChild(td);
+                });
                 warnBody.appendChild(tr);
             });
         } else {

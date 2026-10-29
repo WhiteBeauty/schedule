@@ -15,7 +15,10 @@ public final class OccupancyIndex {
         GROUP_WEEK_LIMIT,
         ROOM_CAPACITY,
         SUBJECT_ROW_LIMIT,
-        SUBJECT_DAY_LIMIT
+        SUBJECT_DAY_LIMIT,
+        TEACHER_DAY_OFF,
+        TEACHER_PAIR_FORBIDDEN,
+        TEACHER_DAYS_LIMIT
     }
 
     private final SolverConfig config;
@@ -54,6 +57,18 @@ public final class OccupancyIndex {
         }
         if (teacher != null && busy(teacherBusy, teacher.id(), flat)) {
             return Violation.TEACHER_BUSY;
+        }
+        if (teacher != null && !teacher.availability().isEmpty()) {
+            TeacherAvailability availability = teacher.availability();
+            if (availability.dayOff(dayIdx)) {
+                return Violation.TEACHER_DAY_OFF;
+            }
+            if (availability.pairForbidden(pairIdx)) {
+                return Violation.TEACHER_PAIR_FORBIDDEN;
+            }
+            if (!availability.canUseDay(teacherDays(teacher.id()), dayIdx)) {
+                return Violation.TEACHER_DAYS_LIMIT;
+            }
         }
         if (room != null && roomBusy(room.name(), flat)) {
             return Violation.ROOM_BUSY;
@@ -176,6 +191,20 @@ public final class OccupancyIndex {
 
     public boolean[] teacherTimeline(long teacherId) {
         return array(teacherBusy, teacherId);
+    }
+
+    public boolean[] teacherDays(long teacherId) {
+        boolean[] days = new boolean[GenerationGrid.days()];
+        boolean[] line = teacherBusy.get(teacherId);
+        if (line == null) {
+            return days;
+        }
+        for (int flat = 0; flat < slots; flat++) {
+            if (line[flat]) {
+                days[GenerationGrid.dayOf(flat)] = true;
+            }
+        }
+        return days;
     }
 
     public long[] groupDisciplines(long groupId) {

@@ -43,6 +43,9 @@ public final class SoftScorer {
             if (!teacher.preferredDays().isEmpty() && !teacher.preferredDays().contains(dayIdx)) {
                 penalty += weights.preferredDayMiss();
             }
+            if (teacher.availability().pairUndesired(pairIdx)) {
+                penalty += weights.undesiredPair();
+            }
         }
         if (!demand.preferredDays().isEmpty() && !demand.preferredDays().contains(dayIdx)) {
             penalty += weights.preferredDayMiss();

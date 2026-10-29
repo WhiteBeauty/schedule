@@ -78,9 +78,12 @@
             var f = round1(fact[m] || 0);
             var calYear = m >= 9 ? state.year : state.year + 1;
             var passed = new Date(calYear, m, 0) < now;
+            var current = calYear === now.getFullYear() && m === now.getMonth() + 1;
             var cls = f >= perMonth && perMonth > 0 ? 'ok' : (f > 0 ? 'part' : (passed ? 'miss' : ''));
+            if (current) cls += ' now';
             var width = perMonth > 0 ? Math.min(100, f * 100 / perMonth) : (f > 0 ? 100 : 0);
-            html += '<div class="cur-month ' + cls + '"><span class="cur-month-name">' + MONTH_NAMES[m] + '</span>'
+            html += '<div class="cur-month ' + cls + '"' + (current ? ' aria-current="date"' : '') + '>'
+                + '<span class="cur-month-name">' + MONTH_NAMES[m] + (current ? ' <span class="cur-month-now">сейчас</span>' : '') + '</span>'
                 + '<span class="cur-month-bar"><span style="width:' + width + '%"></span></span>'
                 + '<span class="cur-month-val">' + f + ' / ' + perMonth + '</span></div>';
         });

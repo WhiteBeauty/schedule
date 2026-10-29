@@ -171,24 +171,48 @@
         </div>
     </div>
 
+    <style>
+        .load-table th, .load-table td { padding: 9px 8px; }
+        .load-table th { white-space: normal; }
+        .load-table td { vertical-align: middle; }
+        .load-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .load-table .badge { white-space: nowrap; }
+        .load-table .group-sub { display: block; font-size: 11.5px; color: var(--color-text-muted); }
+        .load-table .row-actions { white-space: nowrap; display: flex; gap: 4px; }
+        .load-table .row-actions .btn { padding: 4px 9px; font-size: 12px; }
+        .load-progress { position: relative; width: 72px; height: 6px; margin: 6px 0 0 auto; border-radius: 999px; background: var(--color-border-light); }
+        .load-progress-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--color-text-faint); }
+        .load-progress-fill.success { background: var(--color-success-text); }
+        .load-progress-fill.warning { background: var(--color-warning-text); }
+        .load-progress-fill.danger { background: var(--color-danger-text); }
+        .load-progress-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--color-text); border-radius: 1px; }
+        .load-vacancy { color: var(--color-warning-text); font-weight: 600; }
+    </style>
     <div class="card">
-        <table id="scheduleTable">
+        <p class="text-muted" style="font-size:12.5px; margin:0 0 10px;">
+            «По графику» — сколько часов к этому моменту должно быть вычитано по расписанию (прошедшие пары без отменённых
+            и отданных на замену). Статус сравнивает с ним вычитанное, а не долю годового плана. Чёрная риска на полоске —
+            где по графику должны быть сейчас.
+        </p>
+        <div class="table-scroll">
+        <table id="scheduleTable" class="data-table load-table">
             <thead>
             <tr>
-                <th style="width:40px"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th style="width:40px"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()" aria-label="Выбрать все"></th>
                 <th>Преподаватель</th>
                 <th>Дисциплина</th>
                 <th>Группа (специальность, курс)</th>
-                <th>План (час)</th>
-                <th>Вычитано (час)</th>
-                <th>Осталось</th>
-                <th>Прогресс</th>
+                <th class="num">План, ч</th>
+                <th class="num">По графику, ч</th>
+                <th class="num">Вычитано, ч</th>
+                <th class="num">Осталось</th>
                 <th>Статус</th>
                 <th>Действия</th>
             </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
         </table>
+        </div>
     </div>
 
     <div class="modal-overlay" id="scheduleModal">
@@ -218,9 +242,15 @@
                         <option value="">Выберите группу</option>
                     </select>
                 </div>
-                <div style="margin-bottom:1rem">
-                    <label style="display:block;margin-bottom:0.5rem;font-weight:600">Плановых часов *</label>
-                    <input type="number" id="plannedHours" required min="0">
+                <div style="margin-bottom:1rem; display:flex; gap:0.75rem;">
+                    <label style="flex:1">
+                        <span style="display:block;margin-bottom:0.5rem;font-weight:600">Часов в 1 семестре *</span>
+                        <input type="number" id="firstSemesterHours" min="0" value="0">
+                    </label>
+                    <label style="flex:1">
+                        <span style="display:block;margin-bottom:0.5rem;font-weight:600">Часов во 2 семестре *</span>
+                        <input type="number" id="secondSemesterHours" min="0" value="0">
+                    </label>
                 </div>
                 <div style="margin-bottom:1rem">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:600">Учебный год *</label>
@@ -819,17 +849,47 @@ function renderGenerationResult(result, wasApplied) {
     if (applyBtn) applyBtn.style.display = wasApplied ? 'none' : 'inline-block';
 }
 
+let progressByLoad = {};
+
+const PROGRESS_STYLE = {
+    DONE: ['badge-success', 'success'],
+    ON_TRACK: ['badge-success', 'success'],
+    AHEAD: ['badge-warning', 'success'],
+    LAG: ['badge-warning', 'warning'],
+    BIG_LAG: ['badge-danger', 'danger'],
+    NOT_SCHEDULED: ['badge-warning', ''],
+    NO_PLAN: ['badge-warning', ''],
+    PRACTICE: ['badge-neutral', ''],
+    LATER: ['badge-neutral', ''],
+    OVERLOAD: ['badge-neutral', '']
+};
+
+const PROGRESS_HINT = {
+    DONE: 'Годовой план вычитан',
+    ON_TRACK: 'Вычитано столько, сколько стояло в расписании к этому моменту',
+    AHEAD: 'Вычитано больше, чем стояло пар в расписании — проверьте ручные правки «вычитано»',
+    LAG: 'Вычитано меньше, чем стояло пар в расписании к этому моменту',
+    BIG_LAG: 'Вычитано заметно меньше, чем стояло пар в расписании к этому моменту',
+    NOT_SCHEDULED: 'В этом семестре по плану есть часы, но в расписании пар нет',
+    NO_PLAN: 'По тарификации часов нет, но в расписании есть пары или вычитанные часы',
+    PRACTICE: 'Практику, ГИА, ВКР и вождение ставят вручную блоками',
+    LATER: 'Часы этой нагрузки начинаются в другом семестре',
+    OVERLOAD: 'Часы за замены сверх плана'
+};
+
 function loadSchedule() {
     const year = document.getElementById('yearSelect').value;
-    fetch(`/api/schedule?year=${year}`)
-        .then(r => r.json())
-        .then(data => {
-            scheduleData = data;
-            selectedIds.clear();
-            updateSelectedCount();
-            renderTable(data);
-            updateStats(data);
-        });
+    Promise.all([
+        fetch(`/api/schedule?year=${year}`).then(r => r.json()),
+        fetch(`/api/schedule/progress?year=${year}`).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+    ]).then(([data, progress]) => {
+        scheduleData = data;
+        progressByLoad = progress || {};
+        selectedIds.clear();
+        updateSelectedCount();
+        filterTable();
+        updateStats(data);
+    });
 }
 
 function renderTable(data) {
@@ -839,37 +899,40 @@ function renderTable(data) {
     data.forEach(load => {
         const remaining = load.plannedHours - load.readHours;
         const completion = load.plannedHours > 0 ? (load.readHours * 100 / load.plannedHours) : 0;
-        let status, statusClass;
+        const progress = progressByLoad[load.id];
+        const style = progress ? (PROGRESS_STYLE[progress.status] || ['badge-neutral', '']) : ['badge-neutral', ''];
+        const status = progress ? progress.label : '—';
+        const expected = progress ? progress.expectedHours : null;
+        const expectedPct = expected != null && load.plannedHours > 0 ? Math.min(100, expected * 100 / load.plannedHours) : null;
 
-        if (completion >= 100) { status = 'Осуществлено'; statusClass = 'badge-success'; }
-        else if (completion >= 80) { status = 'В норме'; statusClass = 'badge-warning'; }
-        else if (completion >= 50) { status = 'Отставание'; statusClass = 'badge-warning'; }
-        else { status = 'Критическое отставание'; statusClass = 'badge-danger'; }
-
-        const groupName = load.group?.name || '-';
-        const specialty = load.group?.specialty || '';
-        const course = load.group?.course ? `${load.group.course}-й курс` : '';
-        const groupDisplay = specialty || course
-            ? `${groupName} <small class="text-muted">(${specialty}, ${course})</small>`
+        const groupName = escapeHtml(load.group?.name || '-');
+        const parts = [load.group?.specialty, load.group?.course ? `${load.group.course}-й курс` : null].filter(Boolean);
+        const groupDisplay = parts.length
+            ? `${groupName} <span class="group-sub">${escapeHtml(parts.join(', '))}</span>`
             : groupName;
+        const teacherDisplay = load.teacher
+            ? escapeHtml(load.teacher.fullName)
+            : '<span class="load-vacancy" title="Преподаватель не назначен — назначьте через «Изменить» или при автосоставлении">Вакансия</span>';
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><input type="checkbox" class="row-checkbox" value="${load.id}" onchange="updateSelectedCount()"></td>
-            <td>${load.teacher?.fullName || '-'}</td>
-            <td>${load.discipline?.name || '-'} ${load.discipline?.code ? `<small class="text-muted">(${load.discipline.code})</small>` : ''}</td>
+            <td><input type="checkbox" class="row-checkbox" value="${load.id}" onchange="updateSelectedCount()" aria-label="Выбрать запись"></td>
+            <td>${teacherDisplay}</td>
+            <td>${escapeHtml(load.discipline?.name || '-')} ${load.discipline?.code ? `<small class="text-muted">(${escapeHtml(load.discipline.code)})</small>` : ''}</td>
             <td>${groupDisplay}</td>
-            <td>${load.plannedHours}</td>
-            <td>${load.readHours}</td>
-            <td class="${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
-            <td><div class="progress" style="width:100px">
-                <div class="progress-bar ${completion >= 100 ? 'success' : completion >= 80 ? 'warning' : 'danger'}" style="width:${Math.min(completion, 100)}%"></div>
-            </div></td>
-            <td><span class="badge ${statusClass}">${status}</span></td>
-            <td>
+            <td class="num" title="1 семестр: ${load.firstSemesterHours ?? 0} ч, 2 семестр: ${load.secondSemesterHours ?? 0} ч">${load.plannedHours}</td>
+            <td class="num">${expected == null ? '—' : expected}</td>
+            <td class="num">${load.readHours}
+                <div class="load-progress" title="Вычитано ${Math.round(completion)}% годового плана${expectedPct != null ? ', по графику должно быть ' + Math.round(expectedPct) + '%' : ''}">
+                    <div class="load-progress-fill ${style[1]}" style="width:${Math.min(completion, 100)}%"></div>
+                    ${expectedPct != null && expectedPct > 0 ? `<div class="load-progress-mark" style="left:calc(${expectedPct}% - 1px)"></div>` : ''}
+                </div></td>
+            <td class="num ${remaining < 0 ? 'text-success' : ''}">${remaining}</td>
+            <td><span class="badge ${style[0]}" title="${progress ? escapeHtml(PROGRESS_HINT[progress.status] || '') : ''}">${escapeHtml(status)}</span></td>
+            <td><div class="row-actions">
                 <button class="btn btn-sm btn-secondary" onclick="openEditModal(${load.id})">Изменить</button>
                 <button class="btn btn-sm btn-danger" onclick="openDeleteModal(${load.id})">Удалить</button>
-            </td>
+            </div></td>
         `;
         tbody.appendChild(tr);
     });
@@ -924,7 +987,7 @@ function deleteSelected() {
 
 function updateStats(data) {
     document.getElementById('statTotal').textContent = data.length;
-    const teachers = new Set(data.map(l => l.teacher?.id)).size;
+    const teachers = new Set(data.filter(l => l.teacher).map(l => l.teacher.id)).size;
     document.getElementById('statTeachers').textContent = teachers;
     const totalPlanned = data.reduce((sum, l) => sum + l.plannedHours, 0);
     const totalRead = data.reduce((sum, l) => sum + l.readHours, 0);
@@ -967,7 +1030,8 @@ function openEditModal(id) {
     document.getElementById('teacherSelect').value = load.teacher?.id || '';
     document.getElementById('disciplineSelect').value = load.discipline?.id || '';
     document.getElementById('groupSelect').value = load.group?.id || '';
-    document.getElementById('plannedHours').value = load.plannedHours;
+    document.getElementById('firstSemesterHours').value = load.firstSemesterHours ?? 0;
+    document.getElementById('secondSemesterHours').value = load.secondSemesterHours ?? 0;
     document.getElementById('academicYear').value = load.academicYear;
     document.getElementById('readHours').value = load.readHours;
     document.getElementById('controlPoint1').value = load.controlPointType1 || '';
@@ -984,22 +1048,24 @@ function saveSchedule() {
     const teacherId = document.getElementById('teacherSelect').value;
     const disciplineId = document.getElementById('disciplineSelect').value;
     const groupId = document.getElementById('groupSelect').value;
-    const plannedHours = document.getElementById('plannedHours').value;
+    const firstSemesterHours = document.getElementById('firstSemesterHours').value;
+    const secondSemesterHours = document.getElementById('secondSemesterHours').value;
     const academicYear = document.getElementById('academicYear').value;
     const readHours = document.getElementById('readHours').value;
     const controlPoint1 = document.getElementById('controlPoint1').value;
     const controlPoint2 = document.getElementById('controlPoint2').value;
 
-    if (!teacherId || !disciplineId || !groupId || !plannedHours || !academicYear) {
+    if ((!teacherId && !editId) || !disciplineId || !groupId || firstSemesterHours === '' || secondSemesterHours === '' || !academicYear) {
         showToast('Заполните обязательные поля', 'danger');
         return;
     }
 
     const data = {
-        teacherId,
+        teacherId: teacherId || null,
         disciplineId,
         groupId,
-        plannedHours: parseInt(plannedHours),
+        firstSemesterHours: parseInt(firstSemesterHours) || 0,
+        secondSemesterHours: parseInt(secondSemesterHours) || 0,
         academicYear: parseInt(academicYear),
         readHours: parseInt(readHours) || 0,
         controlPointType1: controlPoint1 || null,
@@ -1014,13 +1080,14 @@ function saveSchedule() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     })
-    .then(r => {
+    .then(async r => {
         if (r.ok) {
             closeModal();
             loadSchedule();
             showToast('Запись сохранена', 'success');
         } else {
-            showToast('Ошибка сохранения', 'danger');
+            const err = await r.json().catch(() => ({}));
+            showToast(err.error || 'Ошибка сохранения', 'danger');
         }
     })
     .catch(e => showToast('Ошибка: ' + e.message, 'danger'));
@@ -1042,13 +1109,14 @@ function closeDeleteModal() {
 function deleteSchedule() {
     if (!scheduleIdToDelete) return;
     fetch(`/api/schedule/${scheduleIdToDelete}`, { method: 'DELETE' })
-        .then(r => {
+        .then(async r => {
             if (r.ok) {
                 closeDeleteModal();
                 loadSchedule();
                 showToast('Запись удалена', 'success');
             } else {
-                showToast('Ошибка удаления', 'danger');
+                const err = await r.json().catch(() => ({}));
+                showToast('Ошибка удаления' + (err.error ? ': ' + err.error : ''), 'danger');
             }
         });
 }

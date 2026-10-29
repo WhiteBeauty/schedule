@@ -13,6 +13,7 @@ import com.karyakina.schedule.repository.ScheduleRepository;
 import com.karyakina.schedule.repository.SickLeaveRepository;
 import com.karyakina.schedule.repository.SpecialEventRepository;
 import com.karyakina.schedule.service.generator.GenerationGrid;
+import com.karyakina.schedule.service.generator.TeacherAvailability;
 import com.karyakina.schedule.util.AcademicYearUtil;
 import com.karyakina.schedule.util.ScheduleOccurrence;
 import lombok.RequiredArgsConstructor;
@@ -100,10 +101,14 @@ public class CalendarSlotFinder {
         int wouldCreateWindow;
         int lunch;
         int daysChecked;
+        int teacherUnavailable;
 
         public String describe(int groupWeekCap) {
             List<String> parts = new ArrayList<>();
             if (teacherBusy > 0) parts.add("преподаватель занят (" + teacherBusy + " слотов)");
+            if (teacherUnavailable > 0) {
+                parts.add("у преподавателя выходной, запрещённая пара или уже набраны дни недели (" + teacherUnavailable + ")");
+            }
             if (groupBusy > 0) parts.add("у группы уже пара в это время (" + groupBusy + " слотов)");
             if (wouldCreateWindow > 0) parts.add("слот создал бы окно у группы (" + wouldCreateWindow + ")");
             if (noRoom > 0) parts.add("нет подходящей свободной аудитории (" + noRoom + " слотов)");
@@ -274,6 +279,27 @@ public class CalendarSlotFinder {
             return teacherDayCount(teacherId, date);
         }
 
+        public boolean[] teacherWeekDays(Long teacherId, LocalDate date) {
+            boolean[] days = new boolean[GenerationGrid.days()];
+            if (teacherId == null) return days;
+            LocalDate monday = date.with(DayOfWeek.MONDAY);
+            for (int i = 0; i < days.length; i++) {
+                days[i] = byDate.getOrDefault(monday.plusDays(i), List.of()).stream()
+                        .anyMatch(o -> teacherId.equals(o.teacherId));
+            }
+            return days;
+        }
+
+        // свободен ли преподаватель по своим дням и парам
+        public boolean fitsAvailability(Teacher teacher, LocalDate date, int pairIdx) {
+            TeacherAvailability availability = TeacherAvailability.of(teacher);
+            if (teacher == null || availability.isEmpty()) return true;
+            int dayIdx = GenerationGrid.dayIndex(date.getDayOfWeek());
+            if (dayIdx < 0) return true;
+            if (pairIdx >= 0 && availability.pairForbidden(pairIdx)) return false;
+            return availability.canUseDay(teacherWeekDays(teacher.getId(), date), dayIdx);
+        }
+
         private int loadDayCount(Long loadId, LocalDate date) {
             return (int) byDate.getOrDefault(date, List.of()).stream()
                     .filter(o -> loadId.equals(o.loadId)).count();
@@ -315,7 +341,11 @@ public class CalendarSlotFinder {
             StudyGroup group = load.getGroup();
             Long groupId = group.getId();
             Long teacherId = req.teacherId();
-            Teacher teacher = teacherId == null ? null : teachers.getOrDefault(teacherId, load.getTeacher());
+            Teacher teacher = teacherId == null ? null : teachers.get(teacherId);
+            if (teacher == null && load.getTeacher() != null && load.getTeacher().getId().equals(teacherId)) {
+                teacher = load.getTeacher();
+            }
+            TeacherAvailability availability = TeacherAvailability.of(teacher);
             int students = group.getStudentCount() == null ? 0 : group.getStudentCount();
             String discipline = load.getDiscipline() != null ? load.getDiscipline().getName() : null;
             int weekCap = weekCap(group);
@@ -334,6 +364,12 @@ public class CalendarSlotFinder {
                 diag.daysChecked++;
                 if (isGroupBlocked(groupId, d)) { diag.blockedByEvent++; continue; }
                 if (isTeacherAbsent(teacherId, d)) { diag.teacherSick++; continue; }
+                int dayIdx = GenerationGrid.dayIndex(d.getDayOfWeek());
+                if (!availability.isEmpty() && dayIdx >= 0
+                        && !availability.canUseDay(teacherWeekDays(teacherId, d), dayIdx)) {
+                    diag.teacherUnavailable++;
+                    continue;
+                }
                 if (groupWeekCount(groupId, d) >= weekCap) { diag.weekCap++; continue; }
                 TreeSet<Integer> pairs = groupPairs(groupId, d);
                 if (pairs.size() >= DEFAULT_GROUP_DAY_CAP) { diag.dayCap++; continue; }
@@ -348,6 +384,7 @@ public class CalendarSlotFinder {
                     if (d.equals(now.toLocalDate()) && !GenerationGrid.start(p).isAfter(now.toLocalTime())) continue;
                     if (pairs.contains(p)) { diag.groupBusy++; continue; }
                     if (isTeacherBusy(teacherId, d, p)) { diag.teacherBusy++; continue; }
+                    if (availability.pairForbidden(p)) { diag.teacherUnavailable++; continue; }
                     if (lunch != null && GenerationGrid.overlapsLunch(p, lunch[0], lunch[1])) { diag.lunch++; continue; }
                     if (req.onlyFillGaps() && (pairs.isEmpty() || p < pairs.first() || p > pairs.last())) continue;
                     boolean window = createsWindow(pairs, p);
@@ -361,6 +398,7 @@ public class CalendarSlotFinder {
                     else if (!window) score = 1;
                     else score = 5 + Math.min(Math.abs(p - pairs.first()), Math.abs(p - pairs.last()));
                     if (req.preferredPair() >= 0 && p != req.preferredPair()) score += 0.5;
+                    if (availability.pairUndesired(p)) score += 3;
                     score += p * 0.01;
                     if (score < bestScore) {
                         bestScore = score;

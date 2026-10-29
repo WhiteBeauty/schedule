@@ -38,6 +38,8 @@ public class ImportPersistenceService {
         public int createdLoads;
         public int updatedLoads;
         public int removedLoads;
+        public List<String> zeroedButScheduled = new java.util.ArrayList<>();
+        public List<String> vacancyKeptWithTeacher = new java.util.ArrayList<>();
     }
 
     @Transactional
@@ -324,15 +326,23 @@ public class ImportPersistenceService {
             }
         }
         java.util.Map<String, TeacherLoad> touched = new java.util.LinkedHashMap<>();
+        java.util.Set<String> namedInFile = new java.util.HashSet<>();
+        for (TarificationImportService.TarificationRow row : rows) {
+            if (!isBlank(row.teacherName)) {
+                namedInFile.add(nameKey(row.teacherName, row.groupName, row.disciplineName));
+            }
+        }
 
         for (TarificationImportService.TarificationRow row : rows) {
-            List<Teacher> existingTeachers = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
-            Teacher teacher;
-            if (!existingTeachers.isEmpty()) {
-                teacher = existingTeachers.get(0);
-            } else {
-                result.createdTeachers++;
-                teacher = teacherRepository.save(Teacher.builder().fullName(row.teacherName.trim()).build());
+            Teacher teacher = null;
+            if (!isBlank(row.teacherName)) {
+                List<Teacher> existingTeachers = teacherRepository.findByFullNameIgnoreCase(row.teacherName.trim());
+                if (!existingTeachers.isEmpty()) {
+                    teacher = existingTeachers.get(0);
+                } else {
+                    result.createdTeachers++;
+                    teacher = teacherRepository.save(Teacher.builder().fullName(row.teacherName.trim()).build());
+                }
             }
 
             Discipline discipline = disciplineRepository.findByNameIgnoreCase(row.disciplineName.trim())
@@ -354,7 +364,7 @@ public class ImportPersistenceService {
 
             int hours1 = nz(row.hours1);
             int hours2 = nz(row.hours2);
-            String key = loadKey(teacher.getId(), group.getId(), discipline.getId());
+            String key = loadKey(teacher != null ? teacher.getId() : null, group.getId(), discipline.getId());
 
             TeacherLoad seenInFile = touched.get(key);
             if (seenInFile != null) {
@@ -367,6 +377,21 @@ public class ImportPersistenceService {
             }
 
             TeacherLoad existing = existingByKey.remove(key);
+            if (existing == null && teacher == null) {
+                // вакансия которая уже стоит в расписании остаётся за тем же преподавателем
+                existing = existingByKey.values().stream()
+                        .filter(l -> l.getTeacher() != null && l.getGroup().getId().equals(group.getId())
+                                && l.getDiscipline().getId().equals(discipline.getId()))
+                        .filter(l -> !namedInFile.contains(nameKey(l.getTeacher().getFullName(),
+                                l.getGroup().getName(), l.getDiscipline().getName())))
+                        .filter(l -> nz(l.getReadHours()) > 0 || !scheduleRepository.findByTeacherLoadId(l.getId()).isEmpty())
+                        .findFirst().orElse(null);
+                if (existing != null) {
+                    existingByKey.values().remove(existing);
+                    result.vacancyKeptWithTeacher.add(discipline.getName() + " / " + group.getName() + " ("
+                            + existing.getTeacher().getFullName() + ")");
+                }
+            }
             if (existing != null) {
                 existing.setFirstSemesterHours(hours1);
                 existing.setSecondSemesterHours(hours2);
@@ -403,6 +428,10 @@ public class ImportPersistenceService {
         for (TeacherLoad stale : existingByKey.values()) {
             boolean used = nz(stale.getReadHours()) > 0 || !scheduleRepository.findByTeacherLoadId(stale.getId()).isEmpty();
             if (used) {
+                if (nz(stale.getPlannedHours()) > 0) {
+                    result.zeroedButScheduled.add(stale.getDiscipline().getName() + " / " + stale.getGroup().getName()
+                            + " (" + (stale.getTeacher() != null ? stale.getTeacher().getFullName() : "без преподавателя") + ")");
+                }
                 stale.setFirstSemesterHours(0);
                 stale.setSecondSemesterHours(0);
                 stale.setPlannedHours(0);
@@ -417,6 +446,12 @@ public class ImportPersistenceService {
 
     private static String loadKey(Long teacherId, Long groupId, Long disciplineId) {
         return teacherId + "|" + groupId + "|" + disciplineId;
+    }
+
+    private static String nameKey(String teacher, String group, String discipline) {
+        return (teacher == null ? "" : teacher.trim().toLowerCase()) + "|"
+                + (group == null ? "" : group.trim().toLowerCase()) + "|"
+                + (discipline == null ? "" : discipline.trim().toLowerCase());
     }
 
     private TeacherLoad findExistingLoad(Long teacherId, Long groupId, Long disciplineId, Integer year) {

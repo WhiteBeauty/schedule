@@ -21,9 +21,14 @@ public record SolverInput(
         }
     }
 
-    public record TeacherRef(long id, String fullName, Set<Integer> preferredDays) {
+    public record TeacherRef(long id, String fullName, Set<Integer> preferredDays, TeacherAvailability availability) {
         public TeacherRef {
             preferredDays = preferredDays == null ? Set.of() : Set.copyOf(preferredDays);
+            availability = availability == null ? TeacherAvailability.NONE : availability;
+        }
+
+        public TeacherRef(long id, String fullName, Set<Integer> preferredDays) {
+            this(id, fullName, preferredDays, TeacherAvailability.NONE);
         }
     }
 

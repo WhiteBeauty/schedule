@@ -32,6 +32,21 @@ public class Teacher {
 
     private Integer maxPairsPerDay;
 
+    // дни и пары через запятую пн это 1 первая пара это 1
+    @Column(length = 20)
+    private String daysOff;
+
+    @Column(length = 20)
+    private String optionalDays;
+
+    private Integer maxDaysPerWeek;
+
+    @Column(length = 20)
+    private String forbiddenPairs;
+
+    @Column(length = 20)
+    private String undesiredPairs;
+
     @Column(length = 2048)
     private String specialization;
 

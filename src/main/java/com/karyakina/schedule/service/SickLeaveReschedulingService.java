@@ -300,6 +300,7 @@ public class SickLeaveReschedulingService {
     private boolean isFree(Teacher candidate, LessonInstance instance, LocalDate date, int pairIdx,
                            CalendarSlotFinder.Calendar calendar) {
         if (calendar.isTeacherAbsent(candidate.getId(), date)) return false;
+        if (!calendar.fitsAvailability(candidate, date, pairIdx)) return false;
         if (pairIdx >= 0) return !calendar.isTeacherBusy(candidate.getId(), date, pairIdx);
         for (LessonInstance other : lessonInstanceRepository.findActiveByActualTeacherIdAndDate(candidate.getId(), date)) {
             if (other.getSchedule() != null && overlaps(other.getSchedule(), instance.getSchedule())) return false;

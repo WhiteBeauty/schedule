@@ -59,6 +59,7 @@ public class ApiController {
     private final ScheduleChangeNotifier scheduleChangeNotifier;
     private final LoadBalanceService loadBalanceService;
     private final SickLeaveReschedulingService sickLeaveReschedulingService;
+    private final TarificationRepository tarificationRepository;
 
     private String adminDisplayName(User user) {
         String first = user.getFirstName();
@@ -652,8 +653,21 @@ public class ApiController {
         return ResponseEntity.ok(teacherLoadService.findByYear(year));
     }
 
+    @GetMapping("/schedule/progress")
+    public ResponseEntity<Map<Long, HourAccountingService.LoadProgress>> scheduleProgress(
+            @RequestParam(required = false) Integer year,
+            Authentication authentication) {
+        if (year == null) { year = AcademicYearUtil.getCurrentAcademicYearStart(); }
+        User user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getRole() != User.Role.ADMIN) {
+            return ResponseEntity.status(403).build();
+        }
+        return ResponseEntity.ok(hourAccountingService.progressToDate(year));
+    }
+
     @PostMapping("/schedule")
-    public ResponseEntity<TeacherLoad> createScheduleEntry(
+    public ResponseEntity<?> createScheduleEntry(
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -666,7 +680,6 @@ public class ApiController {
             Long teacherId = Long.valueOf(body.get("teacherId").toString());
             Long groupId = Long.valueOf(body.get("groupId").toString());
             Long disciplineId = Long.valueOf(body.get("disciplineId").toString());
-            Integer plannedHours = Integer.valueOf(body.get("plannedHours").toString());
             Integer academicYear = Integer.valueOf(body.get("academicYear").toString());
 
             Teacher teacher = teacherRepository.findById(teacherId)
@@ -680,11 +693,12 @@ public class ApiController {
             load.setTeacher(teacher);
             load.setGroup(group);
             load.setDiscipline(discipline);
-            load.setPlannedHours(plannedHours);
-            load.setFirstSemesterHours(0);
-            load.setSecondSemesterHours(0);
+            applySemesterHours(load, body);
             load.setReadHours(0);
             load.setAcademicYear(academicYear);
+            // без тарификации запись не попадёт в автосоставление
+            load.setTarification(tarificationRepository.findByAcademicYearOrderByImportedAtDesc(academicYear)
+                    .stream().findFirst().orElse(null));
 
             TeacherLoad savedLoad = loadRepository.save(load);
 
@@ -693,12 +707,12 @@ public class ApiController {
             return ResponseEntity.ok(savedLoad);
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(Map.of("error", "Не удалось создать запись: " + e.getMessage()));
         }
     }
 
     @PutMapping("/schedule/{id}")
-    public ResponseEntity<TeacherLoad> updateScheduleEntry(
+    public ResponseEntity<?> updateScheduleEntry(
             @PathVariable Long id,
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
@@ -711,34 +725,84 @@ public class ApiController {
         TeacherLoad load = loadRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Load not found: " + id));
 
-        if (body.containsKey("readHours")) {
+        if (body.get("readHours") != null && !body.get("readHours").toString().isBlank()) {
             int newRead = Integer.parseInt(body.get("readHours").toString());
             if (load.getReadHours() == null || newRead != load.getReadHours()) {
                 teacherLoadService.updateReadHours(load.getId(), newRead, "admin:" + adminDisplayName(user));
                 load = loadRepository.findById(id).orElse(load);
             }
         }
-        if (body.containsKey("plannedHours")) {
+        Long newTeacherId = optionalLong(body.get("teacherId"));
+        if (newTeacherId != null && (load.getTeacher() == null || !load.getTeacher().getId().equals(newTeacherId))) {
+            Teacher newTeacher = teacherRepository.findById(newTeacherId).orElse(null);
+            if (newTeacher == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Преподаватель не найден"));
+            }
+            List<String> conflicts = scheduleService.teacherSlotConflicts(load, newTeacher);
+            if (!conflicts.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "У преподавателя " + newTeacher.getFullName()
+                        + " в это время уже есть пары: " + String.join("; ", conflicts)));
+            }
+            load.setTeacher(newTeacher);
+        }
+        Long newGroupId = optionalLong(body.get("groupId"));
+        if (newGroupId != null && !newGroupId.equals(load.getGroup().getId())) {
+            if (!scheduleRepository.findByTeacherLoadId(load.getId()).isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "У записи уже есть пары в расписании, "
+                        + "группу у неё поменять нельзя — удалите эти пары или заведите новую запись."));
+            }
+            StudyGroup group = groupRepository.findById(newGroupId).orElse(null);
+            if (group != null) load.setGroup(group);
+        }
+        Long newDisciplineId = optionalLong(body.get("disciplineId"));
+        if (newDisciplineId != null && !newDisciplineId.equals(load.getDiscipline().getId())) {
+            disciplineRepository.findById(newDisciplineId).ifPresent(load::setDiscipline);
+        }
+        Long newYear = optionalLong(body.get("academicYear"));
+        if (newYear != null) {
+            load.setAcademicYear(newYear.intValue());
+        }
+        if (body.get("firstSemesterHours") != null || body.get("secondSemesterHours") != null) {
+            applySemesterHours(load, body);
+        } else if (body.get("plannedHours") != null) {
             load.setPlannedHours(Integer.valueOf(body.get("plannedHours").toString()));
         }
-        if (body.containsKey("firstSemesterHours")) {
-            load.setFirstSemesterHours(Integer.valueOf(body.get("firstSemesterHours").toString()));
-        }
-        if (body.containsKey("secondSemesterHours")) {
-            load.setSecondSemesterHours(Integer.valueOf(body.get("secondSemesterHours").toString()));
-        }
         if (body.containsKey("controlPointType1")) {
-            load.setControlPointType1(body.get("controlPointType1").toString());
+            load.setControlPointType1(blankToNull(body.get("controlPointType1")));
         }
         if (body.containsKey("controlPointType2")) {
-            load.setControlPointType2(body.get("controlPointType2").toString());
+            load.setControlPointType2(blankToNull(body.get("controlPointType2")));
         }
 
         return ResponseEntity.ok(loadRepository.save(load));
     }
 
+    private void applySemesterHours(TeacherLoad load, Map<String, Object> body) {
+        Long first = optionalLong(body.get("firstSemesterHours"));
+        Long second = optionalLong(body.get("secondSemesterHours"));
+        if (first == null && second == null) {
+            int planned = Math.max(0, Integer.parseInt(body.get("plannedHours").toString()));
+            boolean spring = AcademicYearUtil.getCurrentSemester() == 2;
+            load.setFirstSemesterHours(spring ? 0 : planned);
+            load.setSecondSemesterHours(spring ? planned : 0);
+        } else {
+            load.setFirstSemesterHours(first == null ? 0 : (int) Math.max(0, first));
+            load.setSecondSemesterHours(second == null ? 0 : (int) Math.max(0, second));
+        }
+        load.setPlannedHours(load.getFirstSemesterHours() + load.getSecondSemesterHours());
+    }
+
+    private static Long optionalLong(Object value) {
+        if (value == null || value.toString().isBlank()) return null;
+        return Long.valueOf(value.toString().trim());
+    }
+
+    private static String blankToNull(Object value) {
+        return value == null || value.toString().isBlank() ? null : value.toString();
+    }
+
     @DeleteMapping("/schedule/{id}")
-    public ResponseEntity<Void> deleteScheduleEntry(
+    public ResponseEntity<?> deleteScheduleEntry(
             @PathVariable Long id,
             Authentication authentication) {
         User user = userRepository.findByEmail(authentication.getName())
@@ -747,8 +811,12 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
-        loadRepository.deleteById(id);
-        return ResponseEntity.ok().build();
+        try {
+            adminDeletionService.deleteTeacherLoadCompletely(id);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage() == null ? "ошибка удаления" : e.getMessage()));
+        }
     }
 
     @PostMapping("/schedule/delete-batch")

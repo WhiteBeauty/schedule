@@ -24,6 +24,7 @@ import com.karyakina.schedule.service.generator.ScheduleSolver;
 import com.karyakina.schedule.service.generator.SolverConfig;
 import com.karyakina.schedule.service.generator.SolverInput;
 import com.karyakina.schedule.service.generator.SolverResult;
+import com.karyakina.schedule.service.generator.TeacherAvailability;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -264,7 +265,11 @@ public class ScheduleGeneratorService {
             }
 
             List<Teacher> allTeachers = teacherRepository.findAll();
-            TeacherAssignmentService.Resolution assignment = teacherAssignmentService.resolve(allLoads, allTeachers);
+            // практику без преподавателя всё равно не ставим автоматом поэтому и не подбираем
+            TeacherAssignmentService.Resolution assignment = teacherAssignmentService.resolve(allLoads.stream()
+                    .filter(l -> l.getTeacher() != null || l.getDiscipline() == null
+                            || !isPracticeOrDriving(l.getDiscipline().getName()))
+                    .toList(), allTeachers);
             warnings.addAll(assignment.conflicts);
 
             int semester = resolveSemester(session);
@@ -323,7 +328,7 @@ public class ScheduleGeneratorService {
 
             detectDuplicates(candidates, session, issues);
             Map<Long, ResolvedHours> hoursByLoad = reconcileHours(candidates, session, config, issues);
-            Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, assignment, session, allTeachers, issues);
+            Map<Long, Teacher> teacherByLoad = resolveTeachers(candidates, allLoads, assignment, session, allTeachers, issues);
 
             List<SolverInput.Demand> demands = new ArrayList<>();
             Map<Long, Double> exactPairs = new HashMap<>();
@@ -362,9 +367,11 @@ public class ScheduleGeneratorService {
                         + GenerationGrid.rooms().size() + " аудиторий. Добавьте аудитории на странице «Импорт» "
                         + "(или перезапустите приложение — создадутся 30 по умолчанию) и составьте расписание заново.");
             }
+            List<SolverInput.TeacherRef> teacherRefs = buildTeachers(teacherByLoad.values(), config, session);
+            warnings.addAll(teacherCapacityWarnings(teacherRefs, demands));
             SolverInput input = new SolverInput(
                     groupRefs,
-                    buildTeachers(teacherByLoad.values(), config, session),
+                    teacherRefs,
                     GenerationGrid.rooms(dbRooms),
                     demands,
                     config);
@@ -589,12 +596,20 @@ public class ScheduleGeneratorService {
     }
 
     private Map<Long, Teacher> resolveTeachers(List<TeacherLoad> loads,
+                                               List<TeacherLoad> allLoads,
                                                TeacherAssignmentService.Resolution assignment,
                                                GenerationSessionStore.Session session,
                                                List<Teacher> allTeachers,
                                                List<MissingResourceRequest> issues) {
         Map<Long, Teacher> byId = new HashMap<>();
         allTeachers.forEach(t -> byId.put(t.getId(), t));
+        Map<Long, Set<Long>> teachersByDiscipline = new HashMap<>();
+        for (TeacherLoad l : allLoads) {
+            if (l.getTeacher() != null && l.getDiscipline() != null) {
+                teachersByDiscipline.computeIfAbsent(l.getDiscipline().getId(), k -> new HashSet<>())
+                        .add(l.getTeacher().getId());
+            }
+        }
 
         Map<Long, Teacher> result = new HashMap<>();
         for (TeacherLoad load : loads) {
@@ -609,11 +624,14 @@ public class ScheduleGeneratorService {
                 result.put(load.getId(), teacher);
                 continue;
             }
+            Set<Long> teachesIt = teachersByDiscipline.getOrDefault(load.getDiscipline().getId(), Set.of());
             List<MissingResourceRequest.Choice> choices = allTeachers.stream()
-                    .sorted(Comparator.comparing(t -> matchesDiscipline(t, load) ? 0 : 1))
+                    .sorted(Comparator.comparing((Teacher t) -> teachesIt.contains(t.getId()) || matchesDiscipline(t, load) ? 0 : 1)
+                            .thenComparing(t -> t.getFullName() == null ? "" : t.getFullName()))
                     .limit(30)
                     .map(t -> new MissingResourceRequest.Choice(String.valueOf(t.getId()),
-                            t.getFullName() + (matchesDiscipline(t, load) ? " — ведёт эту дисциплину" : "")))
+                            t.getFullName() + (teachesIt.contains(t.getId()) || matchesDiscipline(t, load)
+                                    ? " — ведёт эту дисциплину" : "")))
                     .toList();
 
             issues.add(MissingResourceRequest.builder(MissingResourceRequest.Code.NO_TEACHER_FOR_DISCIPLINE,
@@ -705,12 +723,19 @@ public class ScheduleGeneratorService {
             if (load == null) {
                 continue;
             }
+            String reasonText = unplaced.reason().ru();
+            if (unplaced.reason() == SolverResult.Reason.TEACHER_UNAVAILABLE && load.getTeacher() != null) {
+                String limits = TeacherAvailability.of(load.getTeacher()).describe();
+                if (!limits.isBlank()) {
+                    reasonText += " (" + load.getTeacher().getFullName() + ": " + limits + ")";
+                }
+            }
             MissingResourceRequest.Builder builder = MissingResourceRequest.builder(
                             MissingResourceRequest.Code.UNPLACED_LESSONS, "Не встали пары: " + describe(load))
                     .severity(MissingResourceRequest.Severity.WARNING)
                     .message(String.format("Не удалось поставить %d пар(ы) «%s» у группы %s — %s.",
                             unplaced.missingPairs(), load.getDiscipline().getName(),
-                            load.getGroup().getName(), unplaced.reason().ru()))
+                            load.getGroup().getName(), reasonText))
                     .context("loadId", load.getId())
                     .context("groupId", load.getGroup().getId())
                     .context("missingPairs", unplaced.missingPairs())
@@ -1000,7 +1025,29 @@ public class ScheduleGeneratorService {
 
         List<SolverInput.TeacherRef> result = new ArrayList<>();
         for (Teacher teacher : unique.values()) {
-            result.add(new SolverInput.TeacherRef(teacher.getId(), teacher.getFullName(), Set.of()));
+            result.add(new SolverInput.TeacherRef(teacher.getId(), teacher.getFullName(), Set.of(),
+                    TeacherAvailability.of(teacher)));
+        }
+        return result;
+    }
+
+    private List<String> teacherCapacityWarnings(List<SolverInput.TeacherRef> teachers,
+                                                 List<SolverInput.Demand> demands) {
+        Map<Long, Integer> pairsByTeacher = new HashMap<>();
+        demands.forEach(d -> pairsByTeacher.merge(d.teacherId(), d.pairsPerWeek(), Integer::sum));
+        List<String> result = new ArrayList<>();
+        for (SolverInput.TeacherRef teacher : teachers) {
+            TeacherAvailability availability = teacher.availability();
+            if (availability.isEmpty()) continue;
+            int need = pairsByTeacher.getOrDefault(teacher.id(), 0);
+            int slots = availability.slotsPerWeek();
+            log.info("Автосоставление: ограничения {} — {}; нужно {} пар/нед, доступно слотов {}",
+                    teacher.fullName(), availability.describe(), need, slots);
+            if (need > slots) {
+                result.add("У преподавателя " + teacher.fullName() + " по плану " + need + " пар в неделю, а с учётом "
+                        + "ограничений (" + availability.describe() + ") доступно не больше " + slots
+                        + " слотов — часть пар не встанет. Ослабьте ограничения или передайте часть часов.");
+            }
         }
         return result;
     }

@@ -57,6 +57,9 @@
             <div th:replace="${topbarLeft}"></div>
             <div th:replace="${topbarRight}"></div>
         </header>
+        <div class="password-banner" th:if="${mustChangePassword}">
+            Вы вошли с временным паролем от администратора. <a th:href="@{/settings#password}">Смените его на свой</a>.
+        </div>
         <main th:replace="${content}"></main>
     </div>
 </div>

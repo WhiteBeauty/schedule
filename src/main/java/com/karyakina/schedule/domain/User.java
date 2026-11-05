@@ -23,7 +23,11 @@ public class User {
     private String email;
 
     @Column(nullable = false)
+    @JsonIgnore
     private String password;
+
+    // пароль выдал администратор и его надо сменить
+    private Boolean mustChangePassword;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

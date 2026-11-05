@@ -48,6 +48,14 @@ public class UnresolvedReschedule {
     @CreationTimestamp
     private LocalDateTime createdAt;
 
+    // в окне не вставших пар часы пересчёта показываем отдельно от пар
+    @com.fasterxml.jackson.annotation.JsonProperty("kind")
+    public String getKind() {
+        if (reason != null && reason.startsWith("Пересчёт часов")) return "HOURS";
+        if (reason != null && reason.startsWith("Автосоставление")) return "WEEKLY";
+        return "PAIR";
+    }
+
     public boolean belongsTo(int semesterNumber) {
         if (semester != null) return semester == semesterNumber;
         return originalDate == null

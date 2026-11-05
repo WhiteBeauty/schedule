@@ -58,7 +58,7 @@
         </div>
 
         <div class="modal-overlay" id="unresolvedCloudModal">
-            <div class="modal" style="max-width:720px;">
+            <div class="modal" style="max-width:980px;">
                 <div class="modal-header">
                     <h3>Не вставшие пары</h3>
                     <button class="close-btn" type="button" onclick="closeUnresolvedCloudModal()" aria-label="Закрыть">×</button>
@@ -70,12 +70,30 @@
                         семестра. Перенесите/расставьте их вручную через редактирование пары на самом расписании.
                         Нагрузка без преподавателя сюда не попадает, она ждёт в окне «Вакансии».
                     </p>
-                    <table class="table" style="width:100%; font-size:0.85rem;">
-                        <thead>
-                        <tr><th>Дата</th><th>Дисциплина</th><th>Группа</th><th>Преподаватель</th><th>Часы</th><th>Причина</th><th></th></tr>
-                        </thead>
-                        <tbody id="unresolvedCloudBody"><tr><td colspan="7" class="text-muted">Загрузка…</td></tr></tbody>
-                    </table>
+                    <div id="unresolvedSummary" style="font-weight:600; margin-bottom:0.75rem;"></div>
+                    <h4 style="margin:0 0 0.4rem;">Пары, которые не встали</h4>
+                    <div class="table-scroll">
+                        <table class="table" style="width:100%; font-size:0.85rem;">
+                            <thead>
+                            <tr><th>Когда</th><th>Дисциплина</th><th>Группа</th><th>Преподаватель</th><th>Часы</th><th>Причина</th><th></th></tr>
+                            </thead>
+                            <tbody id="unresolvedCloudBody"><tr><td colspan="7" class="text-muted">Загрузка…</td></tr></tbody>
+                        </table>
+                    </div>
+                    <h4 style="margin:1.25rem 0 0.4rem;">Часы, которые не встали</h4>
+                    <p class="text-muted" style="font-size:0.8rem; margin:0 0 0.4rem;">
+                        Сколько часов не хватает до плана семестра после пересчёта: все свободные места до конца
+                        семестра уже заняты. Их можно добрать доп. парами вручную или подняв недельный лимит группы.
+                    </p>
+                    <div class="table-scroll">
+                        <table class="table" style="width:100%; font-size:0.85rem;">
+                            <thead>
+                            <tr><th>Преподаватель</th><th>Дисциплина</th><th>Группа</th><th>Семестр</th><th>Не хватает</th><th>Почему</th><th></th></tr>
+                            </thead>
+                            <tbody id="unresolvedHoursBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="unresolvedHoursByTeacher" class="text-muted" style="font-size:0.8rem; margin-top:0.4rem;"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-ghost" type="button" onclick="closeUnresolvedCloudModal()">Закрыть</button>
@@ -284,30 +302,82 @@
             }
 
             async function loadUnresolvedCloud() {
-                const tbody = document.getElementById('unresolvedCloudBody');
-                tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Загрузка…</td></tr>';
+                const pairsBody = document.getElementById('unresolvedCloudBody');
+                const hoursBody = document.getElementById('unresolvedHoursBody');
+                const summary = document.getElementById('unresolvedSummary');
+                const byTeacher = document.getElementById('unresolvedHoursByTeacher');
+                pairsBody.innerHTML = '<tr><td colspan="7" class="text-muted">Загрузка…</td></tr>';
+                hoursBody.innerHTML = '';
+                summary.textContent = '';
+                byTeacher.textContent = '';
                 try {
                     const res = await fetch('/api/special-events/unresolved?academicYear=' + resolveAcademicYearForSpecialEvent());
                     const items = await res.json();
-                    if (!items.length) {
-                        tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Пусто — всё перенесено</td></tr>';
-                        return;
-                    }
-                    tbody.innerHTML = '';
-                    items.forEach(u => {
+                    const pairs = items.filter(u => u.kind !== 'HOURS');
+                    const hours = items.filter(u => u.kind === 'HOURS');
+                    const pairHours = pairs.filter(u => u.kind === 'PAIR').reduce((sum, u) => sum + (u.hours || 0), 0);
+                    const missingHours = hours.reduce((sum, u) => sum + (u.hours || 0), 0);
+                    summary.textContent = items.length
+                        ? 'Не встало пар: ' + pairs.length + (pairHours ? ' (' + pairHours + ' ч)' : '')
+                            + ' · не хватает часов до плана: ' + missingHours + ' ч'
+                        : 'Пусто — всё встало';
+
+                    pairsBody.innerHTML = pairs.length ? '' : '<tr><td colspan="7" class="text-muted">Нет</td></tr>';
+                    pairs.forEach(u => {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = '<td>' + (u.originalDate || '—') + '</td>' +
+                        tr.innerHTML = '<td>' + unresolvedWhen(u) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.disciplineName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.groupName) + '</td>' +
                             '<td>' + escapeHtmlSafe(u.teacherName) + '</td>' +
-                            '<td>' + (u.hours != null ? u.hours : '—') + '</td>' +
+                            '<td>' + (u.hours != null ? u.hours + (u.kind === 'WEEKLY' ? ' ч/нед' : ' ч') : '—') + '</td>' +
                             '<td>' + escapeHtmlSafe(u.reason) + '</td>' +
                             '<td><button class="btn btn-sm btn-secondary" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
-                        tbody.appendChild(tr);
+                        pairsBody.appendChild(tr);
                     });
+
+                    hours.sort((a, b) => (a.teacherName || '').localeCompare(b.teacherName || '')
+                        || (a.groupName || '').localeCompare(b.groupName || ''));
+                    hoursBody.innerHTML = hours.length ? '' : '<tr><td colspan="7" class="text-muted">Нет</td></tr>';
+                    const totals = {};
+                    hours.forEach(u => {
+                        const name = u.teacherName || '—';
+                        totals[name] = (totals[name] || 0) + (u.hours || 0);
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = '<td>' + escapeHtmlSafe(u.teacherName) + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.disciplineName) + '</td>' +
+                            '<td>' + escapeHtmlSafe(u.groupName) + '</td>' +
+                            '<td>' + (u.semester || '—') + '</td>' +
+                            '<td style="font-weight:600;">' + (u.hours || 0) + ' ч</td>' +
+                            '<td>' + escapeHtmlSafe(hoursReason(u.reason)) + '</td>' +
+                            '<td><button class="btn btn-sm btn-secondary" onclick="dismissUnresolved(' + u.id + ')">Убрать</button></td>';
+                        hoursBody.appendChild(tr);
+                    });
+                    if (hours.length) {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = '<td colspan="4" style="font-weight:600;">Итого</td>' +
+                            '<td style="font-weight:600;">' + missingHours + ' ч</td><td colspan="2"></td>';
+                        hoursBody.appendChild(tr);
+                        byTeacher.textContent = 'По преподавателям: ' + Object.keys(totals)
+                            .sort((a, b) => totals[b] - totals[a])
+                            .map(name => name + ' — ' + totals[name] + ' ч').join(', ');
+                    }
                 } catch (e) {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить</td></tr>';
+                    pairsBody.innerHTML = '<tr><td colspan="7" class="text-danger">Не удалось загрузить</td></tr>';
                 }
+            }
+
+            function unresolvedWhen(u) {
+                if (u.kind === 'WEEKLY') return 'каждую неделю' + (u.semester ? ', ' + u.semester + ' семестр' : '');
+                if (!u.originalDate) return '—';
+                const d = u.originalDate.split('-');
+                const time = u.originalStartTime ? ', ' + String(u.originalStartTime).substring(0, 5) : '';
+                return d[2] + '.' + d[1] + '.' + d[0] + time;
+            }
+
+            // в причине пересчёта первая половина повторяет столбец часов
+            function hoursReason(reason) {
+                const text = (reason || '').replace(/^Пересчёт часов: не хватает \d+ ч до плана семестра,\s*/, '');
+                return text.charAt(0).toUpperCase() + text.slice(1);
             }
 
             async function dismissUnresolved(id) {

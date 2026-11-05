@@ -3,6 +3,7 @@ package com.karyakina.schedule.repository;
 import com.karyakina.schedule.domain.LessonInstance;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -32,6 +33,19 @@ public interface LessonInstanceRepository extends JpaRepository<LessonInstance, 
 
     @EntityGraph(attributePaths = {"schedule", "teacherLoad", "teacherLoad.teacher", "teacherLoad.group", "teacherLoad.discipline"})
     List<LessonInstance> findByLessonDate(LocalDate lessonDate);
+
+    @Query("SELECT li.schedule.id FROM LessonInstance li WHERE li.lessonDate = :date")
+    List<Long> findScheduleIdsByLessonDate(@Param("date") LocalDate date);
+
+    // если занятие уже создал другой поток просто ничего не делаем
+    @Modifying
+    @Query(value = "INSERT INTO lesson_instances (schedule_id, lesson_date, academic_year, duration_hours, status, "
+            + "teacher_load_id, original_teacher_id, actual_teacher_id, created_at) "
+            + "VALUES (:scheduleId, :date, :year, :hours, 'PLANNED', :loadId, :teacherId, :teacherId, now()) "
+            + "ON CONFLICT (schedule_id, lesson_date) DO NOTHING", nativeQuery = true)
+    int insertPlannedIfAbsent(@Param("scheduleId") Long scheduleId, @Param("date") LocalDate date,
+                              @Param("year") Integer year, @Param("hours") int hours,
+                              @Param("loadId") Long loadId, @Param("teacherId") Long teacherId);
 
     @Query("SELECT li FROM LessonInstance li WHERE li.actualTeacher.id = :teacherId " +
            "AND li.lessonDate = :date AND li.status <> 'CANCELLED'")

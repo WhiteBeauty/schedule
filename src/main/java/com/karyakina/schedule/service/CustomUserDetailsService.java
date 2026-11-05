@@ -22,8 +22,11 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
         log.info("Attempting to load user by: {}", usernameOrEmail);
-        User user = userRepository.findByEmail(usernameOrEmail)
-                .or(() -> userRepository.findByUsername(usernameOrEmail))
+        String login = usernameOrEmail == null ? "" : usernameOrEmail.trim();
+        // логины преподавателей строчными а с телефона часто пишут с большой буквы
+        User user = userRepository.findByEmail(login)
+                .or(() -> userRepository.findByUsername(login))
+                .or(() -> userRepository.findByUsername(login.toLowerCase(java.util.Locale.ROOT)))
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "Пользователь не найден: " + usernameOrEmail));
 

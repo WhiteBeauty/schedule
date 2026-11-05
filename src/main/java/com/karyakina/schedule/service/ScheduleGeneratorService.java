@@ -75,6 +75,30 @@ public class ScheduleGeneratorService {
         return generateInteractive(request, adminName, Set.of());
     }
 
+    // черновик из окна автосоставления его можно открыть снова если окно закрыли
+    @Transactional
+    public GenerationResultDTO generateDraft(GenerationRequestDTO request, String adminName) {
+        GenerationResultDTO result = generateInteractive(request, adminName, Set.of());
+        sessionStore.find(result.sessionId()).ifPresent(s -> s.setUserDraft(true));
+        return result;
+    }
+
+    public java.util.Optional<Map<String, Object>> latestDraft(int academicYear) {
+        return sessionStore.latestDraft(academicYear).map(session -> {
+            Map<String, Object> draft = new LinkedHashMap<>();
+            draft.put("sessionId", session.getId());
+            draft.put("semester", resolveSemester(session));
+            draft.put("pairs", session.getDraft().size());
+            draft.put("updatedAt", session.getTouchedAt().toString());
+            draft.put("result", session.getLastResult());
+            return draft;
+        });
+    }
+
+    public void forget(String sessionId) {
+        sessionStore.drop(sessionId);
+    }
+
     // rebuildGroupIds это группы чью неделю собираем заново а не дописываем
     @Transactional
     public GenerationResultDTO generateInteractive(GenerationRequestDTO request, String adminName,
@@ -133,6 +157,10 @@ public class ScheduleGeneratorService {
             if (draft.isEmpty()) {
                 return run(session, adminName);
             }
+            if (session.getBaseFingerprint() != null && session.getBaseFingerprint()
+                    != fingerprint(existingFor(session, session.getAcademicYear(), resolveSemester(session)))) {
+                return rebuiltBecauseChanged(session, adminName);
+            }
             Map<Long, TeacherLoad> loadsById = loadsByIds(draft.stream().map(SolverResult.PlacedPair::loadId).toList());
             List<Schedule> created = new ArrayList<>();
 
@@ -178,6 +206,20 @@ public class ScheduleGeneratorService {
             return GenerationResultDTO.failed(session.getId(), MissingResourceRequest.technical(
                     "Расписание не сохранено: " + describe(e) + ". Черновик остался в силе, изменения не применены."));
         }
+    }
+
+    // черновик лежал а расписание за это время поменяли значит сохранять его поверх нельзя
+    private GenerationResultDTO rebuiltBecauseChanged(GenerationSessionStore.Session session, String adminName) {
+        log.info("Автосоставление {}: расписание изменилось после черновика, собираем заново", session.getId());
+        GenerationResultDTO fresh = run(session, adminName);
+        List<String> warnings = new ArrayList<>();
+        warnings.add("Пока черновик ждал сохранения, расписание семестра поменялось, поэтому черновик собран заново "
+                + "по текущему расписанию и ничего не сохранено. Проверьте его и нажмите «Сохранить в расписание» ещё раз.");
+        warnings.addAll(fresh.warnings());
+        GenerationResultDTO result = new GenerationResultDTO(fresh.sessionId(), fresh.status(), false,
+                fresh.successSchedule(), fresh.missingData(), warnings, fresh.metrics());
+        session.setLastResult(result);
+        return result;
     }
 
     // ничего не встало сохранять нечего но в облако не вставших пар записать надо
@@ -260,6 +302,12 @@ public class ScheduleGeneratorService {
     }
 
     private GenerationResultDTO run(GenerationSessionStore.Session session, String adminName) {
+        GenerationResultDTO result = runOnce(session, adminName);
+        session.setLastResult(result);
+        return result;
+    }
+
+    private GenerationResultDTO runOnce(GenerationSessionStore.Session session, String adminName) {
         List<MissingResourceRequest> issues = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         Map<String, Integer> metrics = new LinkedHashMap<>();
@@ -298,12 +346,8 @@ public class ScheduleGeneratorService {
             warnings.addAll(assignment.conflicts);
 
             int semester = resolveSemester(session);
-            Set<Long> rebuildGroups = session.getRebuildGroupIds();
-            // расписание всегда с начала семестра поэтому смотрим все пары семестра
-            List<Schedule> existing = scheduleRepository.findByAcademicYear(year).stream()
-                    .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
-                    .filter(s -> rebuildGroups.isEmpty() || !isRebuiltSlot(s, rebuildGroups))
-                    .toList();
+            List<Schedule> existing = existingFor(session, year, semester);
+            session.setBaseFingerprint(fingerprint(existing));
             Set<Long> loadsWithSchedule = new HashSet<>();
             existing.forEach(s -> {
                 if (s.getTeacherLoad() != null && s.getTeacherLoad().getId() != null
@@ -653,6 +697,26 @@ public class ScheduleGeneratorService {
             }
         }
         return result;
+    }
+
+    // расписание всегда с начала семестра поэтому смотрим все пары семестра
+    private List<Schedule> existingFor(GenerationSessionStore.Session session, int year, int semester) {
+        Set<Long> rebuildGroups = session.getRebuildGroupIds();
+        return scheduleRepository.findByAcademicYear(year).stream()
+                .filter(s -> s.getSemester() == null || s.getSemester().equals(semester))
+                .filter(s -> rebuildGroups.isEmpty() || !isRebuiltSlot(s, rebuildGroups))
+                .toList();
+    }
+
+    // от порядка строк не зависит меняется если пару добавили убрали или передвинули
+    static long fingerprint(List<Schedule> schedules) {
+        long acc = schedules.size();
+        for (Schedule s : schedules) {
+            acc += 1_000_003L * java.util.Objects.hash(s.getId(), s.getDayOfWeek(), s.getStartTime(),
+                    s.getClassroom(), s.getAcademicWeek(), s.getActiveFromWeek(), s.getActiveUntilWeek(),
+                    s.getSemester(), s.getTeacherLoad() == null ? null : s.getTeacherLoad().getId());
+        }
+        return acc;
     }
 
     private static boolean isRebuiltSlot(Schedule s, Set<Long> rebuildGroups) {

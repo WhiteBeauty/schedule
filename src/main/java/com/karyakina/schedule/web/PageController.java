@@ -48,6 +48,7 @@ public class PageController {
         model.addAttribute("currentUserRoleLabel", user.getRole() == User.Role.ADMIN ? "Администратор" : "Преподаватель");
         model.addAttribute("activeNav", activeNav);
         model.addAttribute("isAdmin", user.getRole() == User.Role.ADMIN);
+        model.addAttribute("mustChangePassword", Boolean.TRUE.equals(user.getMustChangePassword()));
     }
 
     private String initialsOf(String fullName) {
@@ -160,6 +161,8 @@ public class PageController {
 
         addUserChrome(model, user, "settings");
         model.addAttribute("currentAcademicYear", AcademicYearUtil.getAcademicYearString());
+        model.addAttribute("currentLogin", user.getUsername());
+        model.addAttribute("currentEmail", user.getEmail() != null && user.getEmail().contains("@") ? user.getEmail() : null);
         return "settings";
     }
 

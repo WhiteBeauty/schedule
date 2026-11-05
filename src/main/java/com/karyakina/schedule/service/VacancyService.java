@@ -106,20 +106,31 @@ public class VacancyService {
                 groupLoadIds);
     }
 
-    // сначала пробуем дописать пары в свободные места а если не влезли собираем неделю группы заново
     private Placement place(TeacherLoad load, int semester, String adminName) {
+        List<String> sessions = new ArrayList<>();
+        try {
+            return place(load, semester, adminName, sessions);
+        } finally {
+            sessions.forEach(generatorService::forget);
+        }
+    }
+
+    // сначала пробуем дописать пары в свободные места а если не влезли собираем неделю группы заново
+    private Placement place(TeacherLoad load, int semester, String adminName, List<String> sessions) {
         Long groupId = load.getGroup().getId();
         GenerationRequestDTO request = new GenerationRequestDTO(load.getAcademicYear(),
                 load.getTarification() != null ? load.getTarification().getId() : null,
                 List.of(groupId), List.of(), null, false, semester);
 
         GenerationResultDTO fit = generatorService.generateInteractive(request, adminName, Set.of());
+        sessions.add(fit.sessionId());
         int fitMissing = missing(fit);
         if (!fit.hasBlocking() && fitMissing == 0) {
             return save(fit, load, semester, false, 0, adminName);
         }
 
         GenerationResultDTO rebuild = generatorService.generateInteractive(request, adminName, Set.of(groupId));
+        sessions.add(rebuild.sessionId());
         int rebuildMissing = missing(rebuild);
         if (!rebuild.hasBlocking() && !rebuild.successSchedule().isEmpty()
                 && (fit.hasBlocking() || rebuildMissing < fitMissing)) {

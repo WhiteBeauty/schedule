@@ -20,7 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class GenerationSessionStore {
 
-    private static final long TTL_MINUTES = 60;
+    // черновик можно открыть снова пока сессия жива
+    private static final long TTL_MINUTES = 12 * 60;
     private static final int MAX_SESSIONS = 200;
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
@@ -51,6 +52,9 @@ public class GenerationSessionStore {
         private final List<String> lastWarnings = new ArrayList<>();
         private final Map<String, Integer> lastMetrics = new LinkedHashMap<>();
         private boolean persisted;
+        private boolean userDraft;
+        private Long baseFingerprint;
+        private volatile com.karyakina.schedule.dto.GenerationResultDTO lastResult;
 
         public String getId() {
             return id;
@@ -156,6 +160,34 @@ public class GenerationSessionStore {
             this.touchedAt = Instant.now();
         }
 
+        public Instant getTouchedAt() {
+            return touchedAt;
+        }
+
+        public boolean isUserDraft() {
+            return userDraft;
+        }
+
+        public void setUserDraft(boolean userDraft) {
+            this.userDraft = userDraft;
+        }
+
+        public Long getBaseFingerprint() {
+            return baseFingerprint;
+        }
+
+        public void setBaseFingerprint(Long baseFingerprint) {
+            this.baseFingerprint = baseFingerprint;
+        }
+
+        public com.karyakina.schedule.dto.GenerationResultDTO getLastResult() {
+            return lastResult;
+        }
+
+        public void setLastResult(com.karyakina.schedule.dto.GenerationResultDTO lastResult) {
+            this.lastResult = lastResult;
+        }
+
         boolean expired() {
             return touchedAt.plusSeconds(TTL_MINUTES * 60).isBefore(Instant.now());
         }
@@ -182,6 +214,17 @@ public class GenerationSessionStore {
         }
         session.touch();
         return Optional.of(session);
+    }
+
+    // последний несохранённый черновик из окна автосоставления чтобы его можно было открыть снова
+    public Optional<Session> latestDraft(int academicYear) {
+        purgeExpired();
+        return sessions.values().stream()
+                .filter(s -> s.isUserDraft() && !s.isPersisted() && s.getLastResult() != null
+                        && Integer.valueOf(academicYear).equals(s.getAcademicYear())
+                        && s.getLastResult().status() != com.karyakina.schedule.dto.GenerationResultDTO.Status.FAILED
+                        && (!s.getDraft().isEmpty() || s.getLastResult().hasBlocking()))
+                .max(java.util.Comparator.comparing(Session::getTouchedAt));
     }
 
     public void drop(String sessionId) {

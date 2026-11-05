@@ -12,8 +12,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -44,27 +46,17 @@ public class LessonInstanceService {
 
         List<Schedule> schedules = scheduleRepository.findByAcademicYear(academicYear);
         int currentWeek = computeAcademicWeek(date, academicYear);
+        Set<Long> existing = new HashSet<>(instanceRepository.findScheduleIdsByLessonDate(date));
 
         for (Schedule schedule : schedules) {
             if (schedule.getTeacherLoad() == null || schedule.getTeacherLoad().getTeacher() == null) continue;
+            if (existing.contains(schedule.getId())) continue;
             if (!com.karyakina.schedule.util.ScheduleOccurrence.occursOn(schedule, date, currentWeek, dateSemester)) continue;
 
-            instanceRepository.findByScheduleIdAndLessonDate(schedule.getId(), date)
-                    .orElseGet(() -> {
-                        long minutes = ChronoUnit.MINUTES.between(schedule.getStartTime(), schedule.getEndTime());
-                        int hours = (int) Math.max(1, Math.round(minutes / 60.0));
-                        LessonInstance instance = LessonInstance.builder()
-                                .schedule(schedule)
-                                .lessonDate(date)
-                                .academicYear(academicYear)
-                                .durationHours(hours)
-                                .status(LessonInstance.Status.PLANNED)
-                                .teacherLoad(schedule.getTeacherLoad())
-                                .originalTeacher(schedule.getTeacherLoad().getTeacher())
-                                .actualTeacher(schedule.getTeacherLoad().getTeacher())
-                                .build();
-                        return instanceRepository.save(instance);
-                    });
+            long minutes = ChronoUnit.MINUTES.between(schedule.getStartTime(), schedule.getEndTime());
+            int hours = (int) Math.max(1, Math.round(minutes / 60.0));
+            instanceRepository.insertPlannedIfAbsent(schedule.getId(), date, academicYear, hours,
+                    schedule.getTeacherLoad().getId(), schedule.getTeacherLoad().getTeacher().getId());
         }
         return instanceRepository.findByLessonDate(date);
     }

@@ -32,16 +32,17 @@
     <div class="auth-form-side">
         <div class="auth-form">
             <h1>Вход в систему</h1>
-            <p class="auth-form-sub">Введите рабочую почту и пароль, чтобы открыть кабинет.</p>
+            <p class="auth-form-sub">Введите рабочую почту или логин и пароль, чтобы открыть кабинет.</p>
 
-            <div th:if="${param.error}" class="auth-notice error">Неверная почта или пароль</div>
+            <div th:if="${param.error}" class="auth-notice error">Неверный логин или пароль</div>
             <div th:if="${param.logout}" class="auth-notice success">Вы успешно вышли из системы</div>
             <div th:if="${param.registered}" class="auth-notice success">Регистрация выполнена. Войдите с помощью почты и пароля</div>
 
             <form th:action="@{/login}" method="post" id="login-form" novalidate>
                 <div class="field" id="field-email">
-                    <label for="email">Электронная почта</label>
-                    <input type="email" id="email" name="email" required placeholder="you@iate.ru" autocomplete="username">
+                    <label for="email">Почта или логин</label>
+                    <input type="text" id="email" name="email" required placeholder="you@iate.ru или ivanov.ii" autocomplete="username"
+                           autocapitalize="none" spellcheck="false">
                     <span class="field-error" id="error-email" style="display:none;"></span>
                 </div>
                 <div class="field" id="field-password">
@@ -55,7 +56,11 @@
                         <input type="checkbox" name="remember-me">
                         Запомнить меня
                     </label>
-                    <a class="auth-link" href="#">Забыли пароль?</a>
+                    <a class="auth-link" href="#" id="forgot-link">Забыли пароль?</a>
+                </div>
+                <div class="auth-notice info" id="forgot-hint" style="display:none;">
+                    Новый пароль задаёт администратор в разделе «Пользователи», обратитесь к администратору.
+                    После входа свой пароль можно сменить в «Настройках».
                 </div>
 
                 <button type="submit" class="btn" style="width:100%;">Войти</button>
@@ -101,11 +106,15 @@
         }
 
         function validateEmail() {
-            if (!email.value) { setError('field-email', 'error-email', 'Укажите почту'); return false; }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { setError('field-email', 'error-email', 'Проверьте формат почты'); return false; }
+            if (!email.value.trim()) { setError('field-email', 'error-email', 'Укажите почту или логин'); return false; }
             setError('field-email', 'error-email', null);
             return true;
         }
+
+        document.getElementById('forgot-link').addEventListener('click', function (e) {
+            e.preventDefault();
+            document.getElementById('forgot-hint').style.display = 'block';
+        });
 
         function validatePassword() {
             if (!password.value) { setError('field-password', 'error-password', 'Введите пароль'); return false; }

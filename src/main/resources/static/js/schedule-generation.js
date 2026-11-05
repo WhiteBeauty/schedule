@@ -101,6 +101,79 @@
         });
         setBusy(false);
         handleResult(result);
+        refreshDraftButton();
+    }
+
+    function currentYear() {
+        const yearSelect = document.getElementById('yearSelect');
+        return yearSelect && yearSelect.value ? Number(yearSelect.value) : null;
+    }
+
+    async function fetchDraft() {
+        const year = currentYear();
+        try {
+            const response = await fetch(API + '/draft' + (year ? '?academicYear=' + year : ''));
+            return response.status === 200 ? await response.json() : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function pairsWord(n) {
+        const mod10 = n % 10;
+        const mod100 = n % 100;
+        if (mod10 === 1 && mod100 !== 11) return 'пара';
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'пары';
+        return 'пар';
+    }
+
+    // кнопка нужна когда черновик скрыли или ушли со страницы а на сервере он ещё лежит
+    async function refreshDraftButton() {
+        const button = document.getElementById('genDraftBtn');
+        if (!button) {
+            return;
+        }
+        const card = document.getElementById('genResultCard');
+        const cardOpen = card && card.style.display !== 'none' && state.result && !state.result.persisted;
+        const draft = cardOpen || state.committing ? null : await fetchDraft();
+        if (!draft) {
+            button.style.display = 'none';
+            return;
+        }
+        button.textContent = 'Черновик: ' + draft.semester + ' семестр, ' + draft.pairs + ' ' + pairsWord(draft.pairs);
+        const time = draft.updatedAt ? new Date(draft.updatedAt).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) : '';
+        button.title = 'Несохранённый черновик автосоставления' + (time ? ' от ' + time : '') + ': откройте, проверьте и сохраните';
+        button.style.display = '';
+    }
+
+    async function openDraft() {
+        const draft = await fetchDraft();
+        if (!draft || !draft.result) {
+            if (typeof showToast === 'function') {
+                showToast('Черновика уже нет: его сохранили или он устарел. Запустите автосоставление заново.', 'warning');
+            }
+            refreshDraftButton();
+            return;
+        }
+        state.bothMode = false;
+        state.semesterQueue = [];
+        state.needsConfirmBanner = false;
+        state.currentSemester = draft.semester;
+        state.sessionId = draft.sessionId;
+        handleResult(draft.result);
+        document.getElementById('genDraftBtn').style.display = 'none';
+        const card = document.getElementById('genResultCard');
+        if (card) {
+            card.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+    }
+
+    function hideResult() {
+        const card = document.getElementById('genResultCard');
+        if (card) {
+            card.style.display = 'none';
+        }
+        refreshDraftButton();
     }
 
     function formatImportDate(iso) {
@@ -156,6 +229,7 @@
         setBusy(false);
         state.committing = false;
         handleResult(result);
+        refreshDraftButton();
         if (result.persisted && typeof window.loadSchedule === 'function') {
             window.loadSchedule();
         }
@@ -756,7 +830,12 @@
         bind('genCommitBtn', commit);
         bind('genIssueSkipBtn', skip);
         bind('genIssueCloseBtn', closeModal);
+        bind('genHideBtn', hideResult);
+        bind('genDraftBtn', openDraft);
         bind('sickSubmitBtn', submitSickLeave);
+        refreshDraftButton();
+        const yearSelect = document.getElementById('yearSelect');
+        if (yearSelect) yearSelect.addEventListener('change', refreshDraftButton);
         loadTeachers();
         rememberAvailOpen();
         loadTarifications().then(loadAvailability);

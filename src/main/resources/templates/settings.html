@@ -64,6 +64,71 @@
             <div class="settings-tile-text">Плановые и фактические часы по вашей нагрузке</div>
         </a>
     </div>
+
+    <div class="card" id="password" style="max-width:560px;">
+        <div class="card-header"><span class="card-title">Вход и пароль</span></div>
+        <p class="text-muted" style="font-size:13px; margin:0 0 12px;">
+            Логин для входа: <b th:text="${currentLogin}">login</b><span th:if="${currentEmail}">, можно и по почте
+            <b th:text="${currentEmail}">mail</b></span>
+        </p>
+        <div class="field">
+            <label for="pwdCurrent">Текущий пароль</label>
+            <input type="password" id="pwdCurrent" autocomplete="current-password">
+        </div>
+        <div class="field" style="margin-top:12px;">
+            <label for="pwdNew">Новый пароль</label>
+            <input type="password" id="pwdNew" autocomplete="new-password" maxlength="72" placeholder="Не короче 6 символов">
+        </div>
+        <div class="field" style="margin-top:12px;">
+            <label for="pwdRepeat">Повторите новый пароль</label>
+            <input type="password" id="pwdRepeat" autocomplete="new-password" maxlength="72">
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
+            <button type="button" class="btn" id="pwdSaveBtn">Сменить пароль</button>
+            <span id="pwdResult" role="status" style="font-size:13px; font-weight:600;"></span>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        var button = document.getElementById('pwdSaveBtn');
+        var result = document.getElementById('pwdResult');
+
+        function show(text, ok) {
+            result.textContent = text;
+            result.style.color = ok ? 'var(--color-success-text)' : 'var(--color-danger-text)';
+        }
+
+        button.addEventListener('click', function () {
+            var body = {
+                currentPassword: document.getElementById('pwdCurrent').value,
+                newPassword: document.getElementById('pwdNew').value,
+                repeatPassword: document.getElementById('pwdRepeat').value
+            };
+            if (!body.currentPassword) { show('Введите текущий пароль', false); return; }
+            if (body.newPassword.length < 6) { show('Новый пароль не короче 6 символов', false); return; }
+            if (body.newPassword !== body.repeatPassword) { show('Новые пароли не совпадают', false); return; }
+            button.disabled = true;
+            fetch('/api/account/password', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            }).then(function (res) {
+                return res.json().catch(function () { return {}; }).then(function (data) {
+                    if (!res.ok) { show(data.error || 'Не удалось сменить пароль', false); return; }
+                    ['pwdCurrent', 'pwdNew', 'pwdRepeat'].forEach(function (id) { document.getElementById(id).value = ''; });
+                    show('Пароль сменён', true);
+                    var banner = document.querySelector('.password-banner');
+                    if (banner) banner.remove();
+                });
+            }).catch(function () {
+                show('Сервер не ответил, попробуйте ещё раз', false);
+            }).then(function () {
+                button.disabled = false;
+            });
+        });
+    })();
+    </script>
 </div>
 
 </body>

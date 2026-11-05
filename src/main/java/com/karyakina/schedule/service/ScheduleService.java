@@ -14,13 +14,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +38,8 @@ public class ScheduleService {
     private final MonthlyRecordRepository recordRepository;
     private final LessonInstanceService lessonInstanceService;
     private final SpecialEventRepository specialEventRepository;
+    private final PlatformTransactionManager transactionManager;
+    private final ReentrantLock deductLock = new ReentrantLock();
 
     public List<Schedule> findByYear(Integer year) {
         return scheduleRepository.findByAcademicYear(year);
@@ -238,53 +244,85 @@ public class ScheduleService {
         return !sickLeaves.isEmpty();
     }
 
-    @Transactional
+    // два списания сразу создавали одни и те же занятия поэтому по одному и каждый день в своей транзакции
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void autoDeductHours(Integer academicYear) {
+        deductLock.lock();
+        try {
+            deductLocked(academicYear);
+        } finally {
+            deductLock.unlock();
+        }
+    }
+
+    private void deductLocked(Integer academicYear) {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         LocalDate today = now.toLocalDate();
         int semester = com.karyakina.schedule.util.AcademicYearUtil.getCurrentSemester();
         LocalDate semesterStart = com.karyakina.schedule.util.AcademicYearUtil.semesterStart(semester, academicYear);
         LocalDate from = semesterStart.isAfter(today) ? today : semesterStart;
-        List<SpecialEvent> events = specialEventRepository.findByAcademicYear(academicYear);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
 
         int confirmed = 0;
         int cancelled = 0;
+        int failedDays = 0;
         for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
-            List<LessonInstance> instances = lessonInstanceService.generateInstancesForDate(date, academicYear);
-
-            for (LessonInstance instance : instances) {
-                if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) continue;
-                if (!LessonInstanceService.hasEnded(instance, now)) continue;
-                if (instance.getStatus() == LessonInstance.Status.REPLACED && instance.getConfirmedAt() == null) {
-                    lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
-                    confirmed++;
-                    continue;
+            LocalDate day = date;
+            try {
+                DayResult result = tx.execute(status -> deductDay(day, academicYear, now));
+                if (result != null) {
+                    confirmed += result.confirmed();
+                    cancelled += result.cancelled();
                 }
-                if (instance.getStatus() != LessonInstance.Status.PLANNED) continue;
-
-                SpecialEvent event = eventOn(events, instance, date);
-                if (event != null) {
-                    LessonInstance li = lessonInstanceService.cancelInstance(instance.getId(),
-                            event.getNote(), "system:auto-deduct");
-                    li.setCancelledBySpecialEventId(event.getId());
-                    cancelled++;
-                    continue;
-                }
-                Long teacherId = instance.getOriginalTeacher().getId();
-                if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) {
-                    lessonInstanceService.cancelInstance(instance.getId(),
-                            "Преподаватель отсутствовал, замену не нашли", "system:auto-deduct");
-                    cancelled++;
-                    continue;
-                }
-                lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
-                confirmed++;
+            } catch (Exception e) {
+                failedDays++;
+                log.error("Автосписание за {} не выполнено", day, e);
             }
         }
-        if (confirmed > 0 || cancelled > 0) {
-            log.info("Автосписание (год {}, семестр {}, с {} по {}): вычитано пар {}, отменено {}",
-                    academicYear, semester, from, today, confirmed, cancelled);
+        if (confirmed > 0 || cancelled > 0 || failedDays > 0) {
+            log.info("Автосписание (год {}, семестр {}, с {} по {}): вычитано пар {}, отменено {}, дней с ошибкой {}",
+                    academicYear, semester, from, today, confirmed, cancelled, failedDays);
         }
+    }
+
+    private record DayResult(int confirmed, int cancelled) {
+    }
+
+    private DayResult deductDay(LocalDate date, Integer academicYear, java.time.LocalDateTime now) {
+        List<SpecialEvent> events = specialEventRepository.findByAcademicYear(academicYear);
+        int confirmed = 0;
+        int cancelled = 0;
+        List<LessonInstance> instances = lessonInstanceService.generateInstancesForDate(date, academicYear);
+
+        for (LessonInstance instance : instances) {
+            if (instance.getSchedule() == null || instance.getSchedule().getEndTime() == null) continue;
+            if (!LessonInstanceService.hasEnded(instance, now)) continue;
+            if (instance.getStatus() == LessonInstance.Status.REPLACED && instance.getConfirmedAt() == null) {
+                lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
+                confirmed++;
+                continue;
+            }
+            if (instance.getStatus() != LessonInstance.Status.PLANNED) continue;
+
+            SpecialEvent event = eventOn(events, instance, date);
+            if (event != null) {
+                LessonInstance li = lessonInstanceService.cancelInstance(instance.getId(),
+                        event.getNote(), "system:auto-deduct");
+                li.setCancelledBySpecialEventId(event.getId());
+                cancelled++;
+                continue;
+            }
+            Long teacherId = instance.getOriginalTeacher().getId();
+            if (lessonInstanceService.isTeacherSickOnDate(teacherId, date)) {
+                lessonInstanceService.cancelInstance(instance.getId(),
+                        "Преподаватель отсутствовал, замену не нашли", "system:auto-deduct");
+                cancelled++;
+                continue;
+            }
+            lessonInstanceService.confirmInstance(instance.getId(), "system:auto-deduct");
+            confirmed++;
+        }
+        return new DayResult(confirmed, cancelled);
     }
 
     private static SpecialEvent eventOn(List<SpecialEvent> events, LessonInstance instance, LocalDate date) {
@@ -301,14 +339,21 @@ public class ScheduleService {
     }
 
     @Scheduled(cron = "0 */15 6-23 * * *")
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void scheduledAutoDeduct() {
-        log.info("Running scheduled auto-deduct hours...");
+        // списание после сохранения ещё идёт значит оно и так всё засчитает
+        if (!deductLock.tryLock()) {
+            log.info("Автосписание уже идёт, плановый запуск пропущен");
+            return;
+        }
         try {
-            autoDeductHours(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
+            log.info("Running scheduled auto-deduct hours...");
+            deductLocked(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
             log.info("Auto-deduct completed successfully");
         } catch (Exception e) {
             log.error("Error during auto-deduct: {}", e.getMessage(), e);
+        } finally {
+            deductLock.unlock();
         }
     }
 }

@@ -23,6 +23,14 @@
         .role-admin { background: var(--color-danger-bg); color: #7d160d; }
         .role-teacher { background: #E1EEF1; color: #0a4f61; }
         .audit-row { font-size: 13.5px; }
+        .login-cell { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; }
+        .temp-pass { display: block; font-size: 11.5px; color: var(--color-warning-text); font-weight: 600; }
+        .user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        @media print {
+            body * { visibility: hidden; }
+            #credPrint, #credPrint * { visibility: visible; }
+            #credPrint { position: fixed; left: 0; top: 0; width: 100%; }
+        }
     </style>
 
     <p class="page-heading-sub" style="margin:0;">
@@ -30,27 +38,115 @@
         регистрация с ролью администратора невозможна.
     </p>
 
+    <div class="card" id="teacherLoginsCard" style="display:none;">
+        <div class="card-header">
+            <span class="card-title">Вход для преподавателей</span>
+            <button type="button" class="btn btn-sm" id="createAllLoginsBtn">Создать вход всем</button>
+        </div>
+        <p class="text-muted" style="font-size:13px; margin:0 0 10px;">
+            У этих преподавателей из тарификации ещё нет входа в систему. Логин составляется из фамилии и инициалов,
+            пароль выдаётся временный: он покажется один раз, а после первого входа преподаватель сменит его на свой.
+        </p>
+        <div class="table-scroll" style="max-height:320px; overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr><th>Преподаватель</th><th>Логин</th><th></th></tr></thead>
+                <tbody id="noLoginBody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="segmented" style="width:fit-content;">
         <button type="button" class="active" id="tabUsers" onclick="switchTab('users')">Пользователи</button>
         <button type="button" id="tabAudit" onclick="switchTab('audit')">Журнал изменений</button>
     </div>
 
     <div class="card" id="panelUsers">
-        <table class="data-table">
-            <thead><tr><th>Пользователь</th><th>Email</th><th>Роль</th><th>Действия</th></tr></thead>
-            <tbody id="usersBody"><tr><td colspan="4"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
-        </table>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead><tr><th>Пользователь</th><th>Логин</th><th>Почта</th><th>Роль</th><th>Действия</th></tr></thead>
+                <tbody id="usersBody"><tr><td colspan="5"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
+            </table>
+        </div>
     </div>
 
     <div class="card" id="panelAudit" style="display:none;">
-        <table class="data-table">
-            <thead><tr><th>Когда</th><th>Действие</th><th>Кто выполнил</th><th>Над кем</th></tr></thead>
-            <tbody id="auditBody"><tr><td colspan="4"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
-        </table>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead><tr><th>Когда</th><th>Действие</th><th>Кто выполнил</th><th>Над кем</th></tr></thead>
+                <tbody id="auditBody"><tr><td colspan="4"><span class="skeleton skeleton-line short"></span></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="credModal">
+        <div class="modal" style="max-width:640px;">
+            <div class="modal-header">
+                <h3>Логины и временные пароли</h3>
+                <button type="button" class="close-btn" onclick="closeModal('credModal')" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:13px; margin-top:0;">
+                    Пароли видны только сейчас: распечатайте или скопируйте их и раздайте преподавателям.
+                    Потом пароль можно будет только задать заново.
+                </p>
+                <div id="credPrint">
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Преподаватель</th><th>Логин</th><th>Пароль</th></tr></thead>
+                            <tbody id="credBody"></tbody>
+                        </table>
+                    </div>
+                    <p style="font-size:12.5px;">
+                        Вход: страница входа системы, поле «Почта или логин». После входа пароль меняется в «Настройках».
+                    </p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="copyCredentials()">Скопировать</button>
+                <button type="button" class="btn btn-ghost" onclick="window.print()">Распечатать</button>
+                <button type="button" class="btn" onclick="closeModal('credModal')">Готово</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pwdModal">
+        <div class="modal" style="max-width:480px;">
+            <div class="modal-header">
+                <h3>Сменить пароль</h3>
+                <button type="button" class="close-btn" onclick="closeModal('pwdModal')" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+                <p id="pwdModalUser" style="margin-top:0; font-weight:600;"></p>
+                <div class="field">
+                    <label for="pwdModalInput">Новый пароль</label>
+                    <input type="text" id="pwdModalInput" maxlength="72" autocomplete="off"
+                           placeholder="Пусто, чтобы придумать автоматически">
+                </div>
+                <p class="text-muted" style="font-size:12.5px;">
+                    Не короче 6 символов. После входа пользователь увидит просьбу сменить пароль на свой.
+                </p>
+                <div id="pwdModalResult" role="status" style="font-size:13.5px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeModal('pwdModal')">Закрыть</button>
+                <button type="button" class="btn" id="pwdModalSave" onclick="savePassword()">Сменить пароль</button>
+            </div>
+        </div>
     </div>
 
     <script th:inline="javascript">
     const currentUserId = /*[[${currentUserId}]]*/ null;
+    let passwordTarget = null;
+    let lastCredentials = [];
+
+    function esc(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
     function switchTab(tab) {
         document.getElementById('panelUsers').style.display = tab === 'users' ? '' : 'none';
@@ -72,24 +168,125 @@
                 ? '<span class="role-badge role-admin">Администратор</span>'
                 : '<span class="role-badge role-teacher">Преподаватель</span>';
 
-            let actionBtn;
+            let roleBtn;
             if (isAdminRole) {
-                actionBtn = String(u.id) === String(currentUserId)
+                roleBtn = String(u.id) === String(currentUserId)
                     ? '<span class="text-muted">Это вы</span>'
                     : '<button type="button" class="btn btn-sm btn-secondary" onclick="demote(' + u.id + ', this)">Снять права администратора</button>';
             } else {
-                actionBtn = '<button type="button" class="btn btn-sm" onclick="promote(' + u.id + ', this)">Назначить администратором</button>';
+                roleBtn = '<button type="button" class="btn btn-sm" onclick="promote(' + u.id + ', this)">Назначить администратором</button>';
             }
+            const passwordBtn = '<button type="button" class="btn btn-sm btn-secondary" data-id="' + u.id + '">Сменить пароль</button>';
 
             const tr = document.createElement('tr');
-            const name = (u.firstName || '') + ' ' + (u.lastName || '');
             tr.innerHTML =
-                '<td>' + (name.trim() || u.username) + '</td>' +
-                '<td>' + u.email + '</td>' +
+                '<td>' + esc(u.name) + '</td>' +
+                '<td><span class="login-cell">' + esc(u.login) + '</span>' +
+                    (u.mustChangePassword ? '<span class="temp-pass">временный пароль</span>' : '') + '</td>' +
+                '<td>' + (u.email ? esc(u.email) : '<span class="text-muted">—</span>') + '</td>' +
                 '<td>' + roleBadge + '</td>' +
-                '<td>' + actionBtn + '</td>';
+                '<td><div class="user-actions">' + passwordBtn + roleBtn + '</div></td>';
+            tr.querySelector('[data-id]').addEventListener('click', () => openPasswordModal(u));
             body.appendChild(tr);
         });
+    }
+
+    async function loadTeachersWithoutLogin() {
+        const res = await fetch('/api/admin/users/teachers-without-login');
+        const rows = res.ok ? await res.json() : [];
+        const card = document.getElementById('teacherLoginsCard');
+        card.style.display = rows.length ? '' : 'none';
+        document.getElementById('createAllLoginsBtn').textContent = 'Создать вход всем (' + rows.length + ')';
+        const body = document.getElementById('noLoginBody');
+        body.innerHTML = '';
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + esc(r.fullName) + '</td>' +
+                '<td><span class="login-cell">' + esc(r.login) + '</span></td>' +
+                '<td><button type="button" class="btn btn-sm btn-secondary">Создать вход</button></td>';
+            tr.querySelector('button').addEventListener('click', e => createLogins([r.teacherId], e.currentTarget));
+            body.appendChild(tr);
+        });
+    }
+
+    async function createLogins(teacherIds, btn) {
+        if (!teacherIds.length && !confirm('Создать вход всем преподавателям из списка? Временные пароли покажутся один раз.')) return;
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/admin/users/teacher-logins', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({teacherIds: teacherIds})
+            });
+            if (!res.ok) {
+                showToast('Не удалось создать вход', 'danger');
+                return;
+            }
+            showCredentials(await res.json());
+            loadTeachersWithoutLogin();
+            loadUsers();
+        } catch (e) {
+            showToast('Сервер не ответил: ' + e.message, 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function showCredentials(list) {
+        lastCredentials = list;
+        document.getElementById('credBody').innerHTML = list.map(c =>
+            '<tr><td>' + esc(c.name) + '</td><td><span class="login-cell">' + esc(c.login) + '</span></td>' +
+            '<td><span class="login-cell">' + esc(c.password) + '</span></td></tr>').join('');
+        openModal('credModal');
+    }
+
+    function copyCredentials() {
+        const text = lastCredentials.map(c => c.name + '\tлогин: ' + c.login + '\tпароль: ' + c.password).join('\n');
+        navigator.clipboard.writeText(text).then(
+            () => showToast('Логины и пароли скопированы', 'success'),
+            () => showToast('Не удалось скопировать, выделите таблицу вручную', 'warning'));
+    }
+
+    function openPasswordModal(u) {
+        passwordTarget = u.id;
+        document.getElementById('pwdModalUser').textContent = u.name + ' · ' + u.login;
+        document.getElementById('pwdModalInput').value = '';
+        document.getElementById('pwdModalResult').innerHTML = '';
+        openModal('pwdModal');
+    }
+
+    async function savePassword() {
+        const input = document.getElementById('pwdModalInput');
+        const result = document.getElementById('pwdModalResult');
+        const password = input.value;
+        if (password && password.length < 6) {
+            result.innerHTML = '<span style="color:var(--color-danger-text);">Пароль не короче 6 символов</span>';
+            return;
+        }
+        const btn = document.getElementById('pwdModalSave');
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/admin/users/' + passwordTarget + '/password', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password: password})
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                result.innerHTML = '<span style="color:var(--color-danger-text);">' + esc(data.error || 'Не удалось сменить пароль') + '</span>';
+                return;
+            }
+            input.value = '';
+            result.innerHTML = data.password
+                ? 'Новый пароль: <span class="login-cell" style="font-weight:700;">' + esc(data.password) + '</span>. '
+                    + 'Передайте его пользователю, больше он нигде не покажется.'
+                : '<span style="color:var(--color-success-text); font-weight:600;">Пароль сменён</span>';
+            loadUsers();
+        } catch (e) {
+            result.textContent = 'Сервер не ответил: ' + e.message;
+        } finally {
+            btn.disabled = false;
+        }
     }
 
     async function promote(id, btn) {
@@ -131,15 +328,21 @@
             return;
         }
 
-        const actionLabels = { PROMOTE_TO_ADMIN: 'Назначен администратором', DEMOTE_FROM_ADMIN: 'Права сняты' };
+        const actionLabels = {
+            PROMOTE_TO_ADMIN: 'Назначен администратором',
+            DEMOTE_FROM_ADMIN: 'Права сняты',
+            CREATE_LOGIN: 'Создан вход',
+            SET_PASSWORD: 'Пароль задан администратором',
+            CHANGE_OWN_PASSWORD: 'Свой пароль сменён'
+        };
         logs.forEach(log => {
             const tr = document.createElement('tr');
             tr.className = 'audit-row';
             tr.innerHTML =
                 '<td>' + formatDate(log.createdAt) + '</td>' +
-                '<td>' + (actionLabels[log.action] || log.action) + '</td>' +
-                '<td>' + log.actorUsername + '</td>' +
-                '<td>' + log.targetUsername + '</td>';
+                '<td>' + esc(actionLabels[log.action] || log.action) + '</td>' +
+                '<td>' + esc(log.actorUsername) + '</td>' +
+                '<td>' + esc(log.targetUsername) + '</td>';
             body.appendChild(tr);
         });
     }
@@ -149,7 +352,9 @@
         try { return new Date(s).toLocaleString('ru-RU'); } catch (e) { return s; }
     }
 
+    document.getElementById('createAllLoginsBtn').addEventListener('click', e => createLogins([], e.currentTarget));
     loadUsers();
+    loadTeachersWithoutLogin();
     </script>
 </div>
 </body>

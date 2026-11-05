@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,7 +51,19 @@ public class ScheduleGenerationController {
         }
         GenerationRequestDTO effective = request != null ? request
                 : GenerationRequestDTO.forYear(AcademicYearUtil.getCurrentAcademicYearStart(), false);
-        return ResponseEntity.ok(generatorService.generateInteractive(effective, adminDisplayName(admin)));
+        return ResponseEntity.ok(generatorService.generateDraft(effective, adminDisplayName(admin)));
+    }
+
+    @GetMapping("/draft")
+    public ResponseEntity<?> draft(@RequestParam(name = "academicYear", required = false) Integer academicYear,
+                                   Authentication authentication) {
+        if (requireAdmin(authentication) == null) {
+            return ResponseEntity.status(403).build();
+        }
+        int year = academicYear != null ? academicYear : AcademicYearUtil.getCurrentAcademicYearStart();
+        return generatorService.latestDraft(year)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PostMapping("/{sessionId}/resolve")

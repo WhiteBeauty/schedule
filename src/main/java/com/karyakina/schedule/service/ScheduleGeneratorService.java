@@ -152,6 +152,13 @@ public class ScheduleGeneratorService {
     }
 
     private GenerationResultDTO commitLocked(GenerationSessionStore.Session session, String adminName) {
+        if (session.isPersisted()) {
+            // этот черновик уже сохранён второй раз ничего не пишем и досчёт не запускаем
+            return new GenerationResultDTO(session.getId(), GenerationResultDTO.Status.OK, true, List.of(), List.of(),
+                    List.of("Этот черновик уже сохранён, повторно ничего не записано."),
+                    Map.of("academicYear", session.getAcademicYear(), "semester", resolveSemester(session),
+                            "alreadySaved", 1));
+        }
         try {
             List<SolverResult.PlacedPair> draft = new ArrayList<>(session.getDraft());
             if (draft.isEmpty()) {
@@ -195,6 +202,7 @@ public class ScheduleGeneratorService {
 
             session.getLastMetrics().put("academicYear", session.getAcademicYear());
             session.getLastMetrics().put("semester", resolveSemester(session));
+            session.getLastMetrics().put("savedPairs", created.size());
             int missingPairs = session.getLastMetrics().getOrDefault("missingPairs", 0);
             GenerationResultDTO.Status status = missingPairs > 0
                     ? GenerationResultDTO.Status.PARTIAL

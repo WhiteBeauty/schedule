@@ -39,6 +39,7 @@ public class ScheduleService {
     private final LessonInstanceService lessonInstanceService;
     private final SpecialEventRepository specialEventRepository;
     private final PlatformTransactionManager transactionManager;
+    private final ScheduleWriteLock writeLock;
     private final ReentrantLock deductLock = new ReentrantLock();
 
     public List<Schedule> findByYear(Integer year) {
@@ -249,7 +250,7 @@ public class ScheduleService {
     public void autoDeductHours(Integer academicYear) {
         deductLock.lock();
         try {
-            deductLocked(academicYear);
+            writeLock.runExclusive(() -> deductLocked(academicYear));
         } finally {
             deductLock.unlock();
         }
@@ -348,7 +349,7 @@ public class ScheduleService {
         }
         try {
             log.info("Running scheduled auto-deduct hours...");
-            deductLocked(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart());
+            writeLock.runExclusive(() -> deductLocked(com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart()));
             log.info("Auto-deduct completed successfully");
         } catch (Exception e) {
             log.error("Error during auto-deduct: {}", e.getMessage(), e);

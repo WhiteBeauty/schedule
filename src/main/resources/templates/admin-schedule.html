@@ -26,6 +26,7 @@
         <button type="button" class="btn btn-secondary btn-sm" id="genRunBtn">Автосоставление</button>
         <button type="button" class="btn btn-sm" id="genDraftBtn" style="display:none;"
                 title="Несохранённый черновик автосоставления: откройте, проверьте и сохраните">Черновик</button>
+        <span id="afterSaveStatus" role="status" style="display:none; align-self:center; font-size:0.85rem;"></span>
         <button type="button" class="btn btn-secondary btn-sm" onclick="runSplitMergedNamesCleanup(this)" title="Разбить группы/дисциплины, названные слитно через запятую или ; (данные с импорта до появления автоматического разбиения)">Разбить слитные группы/дисциплины</button>
         <button type="button" class="btn btn-danger btn-sm" onclick="openWipeModal()">Снести расписание</button>
         <button type="button" class="btn btn-secondary btn-sm" onclick="openExportMonthModal()">Скачать за месяц</button>
@@ -562,6 +563,7 @@ async function assignVacancy(v, select, button, tr) {
         refreshVacancyCount();
         loadSchedule();
         showToast('Преподаватель назначен', 'success');
+        if (data.afterSave && window.scheduleGeneration) window.scheduleGeneration.watchAfterSave();
     } catch (e) {
         showToast('Не получилось: ' + e.message, 'danger');
         select.disabled = false;
@@ -592,6 +594,10 @@ function vacancyResultHtml(v, data) {
         html += '<li>' + escapeHtml(line) + '</li>';
     });
     html += '</ul>';
+    if (data.afterSave) {
+        html += '<div class="text-muted" style="margin-top:0.35rem;">Прошедшие пары и часы группы досчитываются в фоне, '
+            + 'ход виден вверху рядом с кнопками.</div>';
+    }
     if (data.placements.some(p => p.missingPairs !== 0)) {
         html += '<div class="text-muted" style="margin-top:0.35rem;">Чтобы поставить оставшееся, поднимите недельный лимит '
             + 'группы («Группы») или снимите ограничения преподавателя и запустите «Автосоставление» на этот семестр — '

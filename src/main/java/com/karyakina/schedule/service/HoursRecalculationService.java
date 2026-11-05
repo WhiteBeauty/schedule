@@ -55,6 +55,7 @@ public class HoursRecalculationService {
     private final HourAccountingService hourAccountingService;
     private final GroupWindowService groupWindowService;
     private final MonthlyRecordService monthlyRecordService;
+    private final ScheduleWriteLock writeLock;
 
     public record Change(Long loadId, String groupName, String disciplineName, String teacherName,
                          LocalDate date, int pairNumber, String classroom, String note) {
@@ -77,6 +78,7 @@ public class HoursRecalculationService {
 
     @Transactional
     public Result recalculate(int academicYear, int semester, Collection<Long> onlyLoadIds, boolean dryRun) {
+        if (!dryRun) writeLock.holdUntilCommit();
         Result first = recalculateOnce(academicYear, semester, onlyLoadIds, dryRun);
         if (dryRun || (first.added().isEmpty() && first.cancelled().isEmpty())) {
             return first;

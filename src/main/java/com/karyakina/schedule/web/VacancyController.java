@@ -2,10 +2,7 @@ package com.karyakina.schedule.web;
 
 import com.karyakina.schedule.domain.User;
 import com.karyakina.schedule.repository.UserRepository;
-import com.karyakina.schedule.service.HoursRecalculationService;
-import com.karyakina.schedule.service.ScheduleService;
-import com.karyakina.schedule.service.SettingsService;
-import com.karyakina.schedule.service.SpecialEventService;
+import com.karyakina.schedule.service.AfterSaveService;
 import com.karyakina.schedule.service.VacancyService;
 import com.karyakina.schedule.util.AcademicYearUtil;
 import lombok.RequiredArgsConstructor;
@@ -29,10 +26,7 @@ import java.util.Map;
 public class VacancyController {
 
     private final VacancyService vacancyService;
-    private final SpecialEventService specialEventService;
-    private final ScheduleService scheduleService;
-    private final HoursRecalculationService hoursRecalculationService;
-    private final SettingsService settingsService;
+    private final AfterSaveService afterSaveService;
     private final UserRepository userRepository;
 
     @GetMapping
@@ -56,32 +50,20 @@ public class VacancyController {
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
-        if (result.placements().stream().anyMatch(p -> p.pairsPerWeek() > 0 || p.rebuilt())) {
-            afterPlacement(result);
+        boolean changed = result.placements().stream().anyMatch(p -> p.pairsPerWeek() > 0 || p.rebuilt());
+        if (changed) {
+            afterSaveService.submit("Назначение вакансии: " + result.teacherName(), null, result.academicYear(),
+                    result.placements().stream().map(VacancyService.Placement::semester).distinct().toList(),
+                    result.groupLoadIds());
         }
-        return ResponseEntity.ok(result);
-    }
-
-    private void afterPlacement(VacancyService.AssignResult result) {
-        int year = result.academicYear();
-        try {
-            specialEventService.reapplyEvents(year);
-        } catch (Exception e) {
-            log.error("Не удалось снять пары с дней экзаменов и практик", e);
-        }
-        try {
-            scheduleService.autoDeductHours(AcademicYearUtil.getCurrentAcademicYearStart());
-        } catch (Exception e) {
-            log.error("Не удалось засчитать прошедшие пары после назначения вакансии", e);
-        }
-        if (!settingsService.isPaceRecalculationEnabled()) return;
-        for (VacancyService.Placement placement : result.placements()) {
-            try {
-                hoursRecalculationService.recalculate(year, placement.semester(), result.groupLoadIds(), false);
-            } catch (Exception e) {
-                log.error("Пересчёт по часам после назначения вакансии не выполнен", e);
-            }
-        }
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("loadId", result.loadId());
+        response.put("teacherName", result.teacherName());
+        response.put("academicYear", result.academicYear());
+        response.put("practice", result.practice());
+        response.put("placements", result.placements());
+        response.put("afterSave", changed);
+        return ResponseEntity.ok(response);
     }
 
     private User admin(Authentication auth) {

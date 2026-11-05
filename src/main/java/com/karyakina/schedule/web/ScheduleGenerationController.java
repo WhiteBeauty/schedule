@@ -37,10 +37,7 @@ public class ScheduleGenerationController {
     private final ScheduleGeneratorService generatorService;
     private final SickLeaveReschedulingService sickLeaveService;
     private final UserRepository userRepository;
-    private final com.karyakina.schedule.service.ScheduleService scheduleService;
-    private final com.karyakina.schedule.service.SpecialEventService specialEventService;
-    private final com.karyakina.schedule.service.HoursRecalculationService hoursRecalculationService;
-    private final com.karyakina.schedule.service.SettingsService settingsService;
+    private final com.karyakina.schedule.service.AfterSaveService afterSaveService;
 
     @PostMapping("/run")
     public ResponseEntity<GenerationResultDTO> run(@RequestBody(required = false) GenerationRequestDTO request,
@@ -86,28 +83,23 @@ public class ScheduleGenerationController {
             return forbidden();
         }
         GenerationResultDTO result = generatorService.commit(sessionId, adminDisplayName(admin));
-        if (result.persisted()) {
+        if (result.persisted() && result.metrics().getOrDefault("savedPairs", 0) > 0) {
             int year = result.metrics().getOrDefault("academicYear", AcademicYearUtil.getCurrentAcademicYearStart());
             int semester = result.metrics().getOrDefault("semester", AcademicYearUtil.getCurrentSemester());
-            try {
-                specialEventService.reapplyEvents(year);
-            } catch (Exception e) {
-                log.error("Не удалось снять пары с дней экзаменов и практик", e);
-            }
-            try {
-                scheduleService.autoDeductHours(AcademicYearUtil.getCurrentAcademicYearStart());
-            } catch (Exception e) {
-                log.error("Не удалось списать прошедшие пары после сохранения расписания", e);
-            }
-            if (settingsService.isPaceRecalculationEnabled()) {
-                try {
-                    hoursRecalculationService.recalculate(year, semester, null, false);
-                } catch (Exception e) {
-                    log.error("Пересчёт по часам после сохранения не выполнен", e);
-                }
-            }
+            afterSaveService.submit("Сохранение автосоставления, " + semester + " семестр", sessionId, year,
+                    List.of(semester), null);
         }
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/after-save")
+    public ResponseEntity<?> afterSave(Authentication authentication) {
+        if (requireAdmin(authentication) == null) {
+            return ResponseEntity.status(403).build();
+        }
+        return afterSaveService.latest()
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PostMapping("/sick-leave")

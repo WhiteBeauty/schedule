@@ -47,6 +47,7 @@ public class ApiController {
     private final SubstitutionRequestRepository substitutionRequestRepository;
     private final ScheduleRepository scheduleRepository;
     private final AdminDeletionService adminDeletionService;
+    private final com.karyakina.schedule.service.AfterSaveService afterSaveService;
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -861,6 +862,11 @@ public class ApiController {
             return ResponseEntity.status(403).build();
         }
 
+        // снос посреди досчёта оставил бы пересчёт без расписания и он стал бы ставить пары в пустую неделю
+        if (afterSaveService.isBusy()) {
+            return ResponseEntity.status(409).body(Map.of("error", "сейчас идёт досчёт после сохранения ("
+                    + afterSaveService.busyText() + "), дождитесь его окончания и повторите снос"));
+        }
         int year = academicYear != null ? academicYear : com.karyakina.schedule.util.AcademicYearUtil.getCurrentAcademicYearStart();
         DayOfWeek dayOfWeek = null;
         if (dayOfWeekParam != null && !dayOfWeekParam.isBlank()) {

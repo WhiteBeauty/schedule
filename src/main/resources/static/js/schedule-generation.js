@@ -104,6 +104,80 @@
         refreshDraftButton();
     }
 
+    function isNetworkFailure(result) {
+        return result.status === 'FAILED' && (result.missingData || []).some(function (issue) {
+            return String(issue.id || '').indexOf('client-') === 0;
+        });
+    }
+
+    // связь могла оборваться уже после записи пар поэтому сначала спрашиваем сервер что с этим черновиком
+    async function recoverCommit(sessionId, failed) {
+        const job = await fetchAfterSave();
+        if (job && job.sessionId === sessionId) {
+            return {
+                sessionId: sessionId, status: 'OK', persisted: true, successSchedule: [], missingData: [],
+                warnings: ['Связь с сервером прервалась, но расписание сохранено. Список пар виден в расписании.'],
+                metrics: {}
+            };
+        }
+        return failed;
+    }
+
+    async function fetchAfterSave() {
+        try {
+            const response = await fetch(API + '/after-save');
+            return response.status === 200 ? await response.json() : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    let afterSaveTimer = null;
+
+    // ход фонового досчёта после сохранения пока не закончится
+    function watchAfterSave() {
+        if (afterSaveTimer) {
+            return;
+        }
+        const box = document.getElementById('afterSaveStatus');
+        const tick = async function () {
+            const job = await fetchAfterSave();
+            if (!job || !box) {
+                afterSaveTimer = null;
+                return;
+            }
+            if (job.status === 'QUEUED' || job.status === 'RUNNING') {
+                box.style.display = '';
+                box.style.color = 'var(--muted)';
+                box.textContent = '⏳ ' + job.title + ': ' + job.step.toLowerCase() + '… ' + job.seconds + ' с';
+                afterSaveTimer = setTimeout(tick, 3000);
+                return;
+            }
+            afterSaveTimer = null;
+            const ok = job.status === 'DONE';
+            box.style.display = '';
+            box.style.color = ok ? 'var(--color-success-text)' : 'var(--color-danger-text)';
+            box.textContent = (ok ? '✓ Досчёт после сохранения закончен' : '⚠ Досчёт закончился с ошибками')
+                + (job.notes.length ? ': ' + job.notes.join('; ') : '')
+                + (job.errors.length ? '. ' + job.errors.join('; ') : '');
+            if (typeof showToast === 'function') {
+                showToast(ok ? 'Досчёт после сохранения закончен' : 'Досчёт после сохранения закончился с ошибками',
+                    ok ? 'success' : 'danger');
+            }
+            if (typeof window.loadSchedule === 'function') {
+                window.loadSchedule();
+            }
+        };
+        afterSaveTimer = setTimeout(tick, 1000);
+    }
+
+    async function showRunningAfterSave() {
+        const job = await fetchAfterSave();
+        if (job && (job.status === 'QUEUED' || job.status === 'RUNNING')) {
+            watchAfterSave();
+        }
+    }
+
     function currentYear() {
         const yearSelect = document.getElementById('yearSelect');
         return yearSelect && yearSelect.value ? Number(yearSelect.value) : null;
@@ -223,13 +297,26 @@
         state.committing = true;
         const commitBtn = document.getElementById('genCommitBtn');
         commitBtn.disabled = true;
-        commitBtn.textContent = 'Сохраняем и засчитываем прошедшие пары, это 1–2 минуты, не закрывайте страницу...';
+        commitBtn.textContent = 'Сохраняем...';
         setBusy(true, 'Сохраняем расписание...');
-        const result = await post(API + '/' + encodeURIComponent(state.sessionId) + '/commit');
+        const sessionId = state.sessionId;
+        let result = await post(API + '/' + encodeURIComponent(sessionId) + '/commit');
+        if (!result.persisted && isNetworkFailure(result)) {
+            result = await recoverCommit(sessionId, result);
+        }
         setBusy(false);
         state.committing = false;
         handleResult(result);
         refreshDraftButton();
+        if (result.persisted && typeof showToast === 'function') {
+            showToast(result.metrics && result.metrics.alreadySaved
+                ? 'Этот черновик уже был сохранён, повторно ничего не записано.'
+                : 'Расписание сохранено. Прошедшие пары и часы досчитываются в фоне, ход виден вверху.',
+                'success');
+        }
+        if (result.persisted) {
+            watchAfterSave();
+        }
         if (result.persisted && typeof window.loadSchedule === 'function') {
             window.loadSchedule();
         }
@@ -834,6 +921,7 @@
         bind('genDraftBtn', openDraft);
         bind('sickSubmitBtn', submitSickLeave);
         refreshDraftButton();
+        showRunningAfterSave();
         const yearSelect = document.getElementById('yearSelect');
         if (yearSelect) yearSelect.addEventListener('change', refreshDraftButton);
         loadTeachers();
@@ -855,6 +943,7 @@
     window.scheduleGeneration = {
         run: generate,
         commit: commit,
-        sickLeave: submitSickLeave
+        sickLeave: submitSickLeave,
+        watchAfterSave: watchAfterSave
     };
 })();
